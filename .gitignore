@@ -1,6 +1,13 @@
 # Visual Studio 2015 user specific files
 .vs/
 
+# JetBrains Rider and IntelliJ-based IDEs
+.idea/
+*.sln.iml
+
+# Local logs
+*.log
+
 # Compiled Object files
 *.slo
 *.lo
