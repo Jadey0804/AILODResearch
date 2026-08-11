@@ -79,3 +79,14 @@ Plugins/**/Intermediate/*
 
 # Cache files for the editor to use
 DerivedDataCache/*
+
+# Local-only research materials
+/Papers/
+/ReadingNotes/
+
+# Generated documentation artifacts
+/Docs/_render/
+/Docs/*.docx
+/Docs/_build_ailod_mvp_doc.py
+/Docs/_make_contact_sheets.py
+/Docs/_render_with_word.ps1
