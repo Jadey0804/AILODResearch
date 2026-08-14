@@ -101,7 +101,7 @@ v1.2 的确定性 Population Manifest 与 Earthquake Damage List DoD 继续有�
 | 0 | 数据契约、初始化、Persistent Pool、日志 Schema | **v1.3 已通过（2026-08-14）** | 第 5.3 节全部通过 |
 | 1 | 纯数据模拟核心 | **v1.3 已通过（2026-08-14）** | 空场景运行 60 日；人口/木材残差和重复事务为 0 |
 | 2 | 王国与 Structured Macro | **v1.3 已通过（2026-08-14）** | 四固定政策场景运行 60 日；无负库存；每次 Stock 变化可解释 |
-| 3 | 最小 Utility + GOAP 与 Oracle | 未开始 | Work/Buy/Chop/Repair/Wait 可执行；所有资源经过 Ledger |
+| 3 | 最小 Utility + GOAP 与 Oracle | **实现与自动 DoD 已通过，待作者确认（2026-08-14）** | Work/Buy/Chop/Repair/Wait 可执行；所有资源经过 Ledger |
 | 4 | Macro–Micro Bridge 与 Persistent | 未开始 | Repair 50% 时切换两次不重置、不重复扣木；Day 7/30 同一身份连续 |
 | 5 | Simple 与 Per-Agent Baseline | 未开始 | 三个可部署方法共享 Scenario/Domain/日志；方法边界无偷渡 |
 | 6 | Experiment Runner 与离线指标 | 未开始 | Run 可由 Manifest 复现；删除 summary 后可从原始日志重建 |
@@ -180,7 +180,35 @@ v1.2 的确定性 Population Manifest 与 Earthquake Damage List DoD 继续有�
 
 阶段 2 的政策轨迹只证明 Stock/Flow、政策时间线和事务机制按当前合成规则运行；因为尚无居民行为和维修，它们不是论文最终准确性结果。
 
-**结论：阶段 2 DoD 已通过；阶段 3 尚未开始，等待项目作者确认进入。**
+**结论：阶段 2 DoD 已通过；项目作者随后已批准进入阶段 3。**
+
+### 6.5 阶段 3 已批准执行规则（2026-08-14）
+
+- Oracle 只运行总人口 200 的无 Actor 详细个体模拟；不在阶段 3 加入 Macro↔Micro、Persistent 写回、Actor 或 UI。
+- `BuyWood` 与 `ChopWood` 每次请求取得把个人库存补足至 4 Wood 所需的完整整数数量；市场、森林、付款能力或采伐额度不足时不进行部分交易，避免同一需求因拆单而重复向上取整。
+- `BuyWood` 继续使用 v1.2 的 `PaymentCoins(q)=ceil(q×P)`；付款时先扣只能用于维修的 `RepairCredit`，不足部分再扣 `Cash`。
+- 同一时刻的请求以 `Seed + GameTime + ResidentID + ActionID` 生成确定性去偏顺序，再取得唯一递增 `ArriveID`；不直接按 ResidentID 排序。相同未完成请求跨表示时保留 ArriveID，完成或取消后的新请求取得新号。
+- 阶段 2 的冻结小时顺序保持不变；居民在木价更新后读取同一小时的世界快照并产生计划。购买在开始时预留完整木材并付款、1 小时后交付；维修开始时转入 4 Wood，48 小时后只完成事件，不重复扣木。
+- 维修开工容量按自然日重置为 `floor(0.01N)`，不跨日累计；同一时刻满足条件的居民按 ArriveID 竞争名额。
+- Utility 仍只包含 `RestoreHome=100/0` 与 `RoutineLife=10`。GOAP 使用动作表的显式前置条件、效果和持续时间做确定性最短时间前向搜索；等成本路径按固定 ActionID 打破平局。
+
+### 6.6 阶段 3 实施与验收记录（2026-08-14）
+
+- 新增共享 `AILODDomainRules`，阶段 2 Structured Macro 与阶段 3 Oracle 引用同一组冻结参数；阶段 2 五个既有 Digest 回归后逐字一致。
+- Oracle 复用 Phase 0 Manifest/Damage List，以及阶段 1 Clock、Scheduler、Ledger、Reservation 和 Event Store；每个居民的 Cash、RepairCredit 与 Wood 都有独立 Ledger 账户。
+- 四场景均完成 7 日预热和 60 日正式模拟。每场景 A 国 30 户全部完成维修，B 国 100 户保持 Healthy；Population/Wood/Coin residual、负库存、重复事务、Event Owner 冲突和重复完成均为 0。
+- `None`：Work=56、BuyWood=26、ChopWood=4、RepairStart=30、RepairComplete=30、Wait=1500；Digest=`3FFFF68FF4CAAC749779F2707DB1CA778FBB27D9`。
+- `HarvestCap`：Work=59、BuyWood=26、ChopWood=4、RepairStart=30、RepairComplete=30、Wait=1488；Digest=`3EFC44178FC73EBB8AF30A082E622514C9DA269A`。
+- `StateImport`：额外进口 80 Wood；Work=56、BuyWood=26、ChopWood=4、RepairStart=30、RepairComplete=30、Wait=1500；Digest=`0E9CA31A0C8ECF488949B41588A8C51B589B9C7C`。
+- `RepairAid`：根据 Day 2 的实际详细个体状态支付 16 户；Work=47、BuyWood=26、ChopWood=4、RepairStart=30、RepairComplete=30、Wait=1536；Digest=`70D7E19D8B175A14C6AF759890CAD18D9DA22DD6`。该值与阶段 2 无行为聚合预演的 20 户不同，是居民先行行为改变资格集合的可解释结果。
+- 自动化测试 `AILODResearch.Phase3.UtilityAndGOAP`：Success；覆盖两个 Utility Goal、完整购买约束、总价一次向上取整及七动作计划路径。
+- 自动化测试 `AILODResearch.Phase3.Oracle60Days`：Success；覆盖四场景、逐账户 Ledger 重放、信用优先付款、ArriveID 去 ResidentID 偏差、Repair 木材单次结算、JSONL 解析和同 Seed 逐字节复现。
+- UE5.4 Development Editor 编译通过；阶段 0—3 共 8 个自动化测试全部 Success。
+- Oracle Ledger SHA-256：`None=50976EF9714CBF07386AED3DBB49F5ED698F2AE8DED3217D63B46FADCE93A7F2`；`HarvestCap=398D1C446D7699706AEDBEBE1E6044A8EEB5D8972808E946A1859CB21F0CDBF0`；`StateImport=07328C0D485B36B04E55182EC40C66957B9651D245DB5A61B0466A3FDA205C41`；`RepairAid=13B91BE6B43F4341568F4DE6B3D88215D843D26E868BE71F62B7DD90751AD2CC`。
+
+阶段 3 尚未实现 LOD 切换、Persistent CoreState、Macro↔Micro 事件续接或匿名 Cohort 行为写回；这些属于阶段 4，不能用当前 Oracle 测试替代其 DoD。
+
+**结论：阶段 3 实现与自动 DoD 已通过；等待项目作者确认后才进入阶段 4。**
 
 ## 7. MVP 总体验收
 
@@ -214,3 +242,4 @@ LLM、完整社交、个人饥饿/死亡、PCG、多商品经济和复杂政治�
 |---|---|---|---|---|
 | v1.3 | 2026-08-14 | MVP 保留木材/地震/固定政策/四方法；加入最小地图、UI、望远镜、Name 与固定身份对话；推迟动态国王、玩家任务、跨国贸易和 Food | 先验证 Simulation LOD 的准确性、性能与连续性，避免玩法扩张破坏对照和导致阶段 1 后返工；v1.2 阶段 0 基础结果保留，但需完成第 5 节补充 DoD | 项目作者 |
 | v1.3 Phase 2 | 2026-08-14 | 冻结 Baseline Import 立即进入 Market、Routine Consumption 只从 Market 扣除，以及“到期事件 → 政策 → Growth → Baseline Import → Harvest → Consumption → Price → Audit/Log”的小时顺序 | 使 None 从设计平衡点出发，避免隐含来源或执行顺序改变政策轨迹；阶段 2 不提前实现居民行为与维修 | 项目作者 |
+| v1.3 Phase 3 | 2026-08-14 | 冻结完整整数 Buy/Chop、RepairCredit 优先付款、去 ResidentID 偏差的确定性 ArriveID 顺序，以及居民决策位于 Price 后 | 避免拆单向上取整误差、身份顺序混杂和早到者永久垄断；保证 Oracle 与后续方法复用同一动作域 | 项目作者授权 Codex 对抗检查后批准 |

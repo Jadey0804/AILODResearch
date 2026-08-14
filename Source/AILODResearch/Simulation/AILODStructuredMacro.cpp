@@ -2,6 +2,7 @@
 
 #include "AILODStructuredMacro.h"
 
+#include "AILODDomainRules.h"
 #include "AILODPhase0Types.h"
 #include "Containers/StringConv.h"
 #include "Misc/SecureHash.h"
@@ -10,20 +11,7 @@ namespace AILOD
 {
 	namespace
 	{
-		constexpr double HoursPerGameDay = 24.0;
-		constexpr double ForestGrowthRatePerDay = 0.025;
-		constexpr double BaselineHarvestPerPersonPerDay = 0.08;
-		constexpr double BaselineImportPerPersonPerDay = 0.02;
-		constexpr double RoutineConsumptionPerPersonPerDay = 0.10;
-		constexpr double HarvestCapPerPersonPerDay = 0.06;
-		constexpr double StateImportDailyCapPerPerson = 0.08;
-		constexpr double StateImportPrice = 1.25;
-		constexpr double RepairStartCapacityPerPersonPerDay = 0.01;
-		constexpr double RepairWoodPerHome = 4.0;
-		constexpr double RepairAidPerHome = 2.0;
-		constexpr FPolicyID HarvestCapPolicyID = 1;
-		constexpr FPolicyID StateImportPolicyID = 2;
-		constexpr FPolicyID RepairAidPolicyID = 3;
+		using namespace DomainRules;
 
 		const TCHAR* ToString(const ESimulationResource Resource)
 		{
