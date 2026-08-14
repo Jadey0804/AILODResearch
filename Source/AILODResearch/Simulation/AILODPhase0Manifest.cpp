@@ -2,9 +2,11 @@
 
 #include "AILODPhase0Manifest.h"
 
+#include "AILODLogSchema.h"
+#include "Containers/StringConv.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
-#include "AILODLogSchema.h"
+#include "Misc/SecureHash.h"
 
 namespace AILOD
 {
@@ -73,6 +75,94 @@ namespace AILOD
 				: Stream.RandRange(4, 7);
 		}
 
+		void AllocateProportionalCounts(const int32 Total, int32* OutCounts)
+		{
+			TArray<int32> RemainderOrder;
+			int32 Assigned = 0;
+			for (int32 CohortIndex = 0; CohortIndex < UE_ARRAY_COUNT(Cohorts); ++CohortIndex)
+			{
+				const int32 WeightedTotal = Total * Cohorts[CohortIndex].PopulationPercent;
+				OutCounts[CohortIndex] = WeightedTotal / 100;
+				Assigned += OutCounts[CohortIndex];
+				RemainderOrder.Add(CohortIndex);
+			}
+
+			RemainderOrder.Sort([Total](const int32 Left, const int32 Right)
+			{
+				const int32 LeftRemainder = Total * Cohorts[Left].PopulationPercent % 100;
+				const int32 RightRemainder = Total * Cohorts[Right].PopulationPercent % 100;
+				return LeftRemainder == RightRemainder ? Left < Right : LeftRemainder > RightRemainder;
+			});
+
+			for (int32 Index = 0; Assigned < Total; ++Index, ++Assigned)
+			{
+				++OutCounts[RemainderOrder[Index]];
+			}
+		}
+
+		void AssignPersistentResidents(
+			FInitialPopulationManifest& Population,
+			const int32 BaseSeed,
+			FPersistentTestPool& OutPersistentPool)
+		{
+			constexpr int32 PoolPerKingdom = PersistentPoolSize / 2;
+			constexpr int32 Day7And30PerKingdom = Day7And30PersistentCount / 2;
+			int32 PoolCounts[UE_ARRAY_COUNT(Cohorts)] = {};
+			int32 Day7And30Counts[UE_ARRAY_COUNT(Cohorts)] = {};
+			AllocateProportionalCounts(PoolPerKingdom, PoolCounts);
+			AllocateProportionalCounts(Day7And30PerKingdom, Day7And30Counts);
+
+			for (int32 KingdomIndex = 0; KingdomIndex < 2; ++KingdomIndex)
+			{
+				const EKingdom Kingdom = KingdomIndex == 0 ? EKingdom::A : EKingdom::B;
+				for (int32 CohortIndex = 0; CohortIndex < UE_ARRAY_COUNT(Cohorts); ++CohortIndex)
+				{
+					const FCohortDefinition& Cohort = Cohorts[CohortIndex];
+					TArray<FInitialResidentRecord*> Candidates;
+					for (FInitialResidentRecord& Resident : Population.Residents)
+					{
+						if (Resident.Kingdom == Kingdom
+							&& Resident.Profession == Cohort.Profession
+							&& Resident.IncomeBand == Cohort.IncomeBand)
+						{
+							Candidates.Add(&Resident);
+						}
+					}
+
+					FRandomStream Stream(MakeStreamSeed(
+						BaseSeed,
+						RandomStreams::PersistentSelection,
+						KingdomIndex * UE_ARRAY_COUNT(Cohorts) + CohortIndex));
+					for (int32 SelectionIndex = 0; SelectionIndex < PoolCounts[CohortIndex]; ++SelectionIndex)
+					{
+						const int32 SwapIndex = Stream.RandRange(SelectionIndex, Candidates.Num() - 1);
+						Candidates.Swap(SelectionIndex, SwapIndex);
+
+						FInitialResidentRecord& Resident = *Candidates[SelectionIndex];
+						Resident.PersistentID = Resident.ResidentID;
+						Resident.Name = FString::Printf(TEXT("Resident-%06lld"), Resident.PersistentID);
+
+						FPersistentTestRecord& Record = OutPersistentPool.Residents.AddDefaulted_GetRef();
+						Record.ResidentID = Resident.ResidentID;
+						Record.HomeID = Resident.HomeID;
+						Record.PersistentID = Resident.PersistentID;
+						Record.Name = Resident.Name;
+						Record.Kingdom = Resident.Kingdom;
+						Record.Profession = Resident.Profession;
+						Record.IncomeBand = Resident.IncomeBand;
+						Record.bDay7 = SelectionIndex < Day7And30Counts[CohortIndex];
+						Record.bDay30 = Record.bDay7;
+						Record.bDay45 = true;
+					}
+				}
+			}
+
+			OutPersistentPool.Residents.Sort([](const FPersistentTestRecord& Left, const FPersistentTestRecord& Right)
+			{
+				return Left.PersistentID < Right.PersistentID;
+			});
+		}
+
 		void SelectDamagedResidents(
 			const FInitialPopulationManifest& Population,
 			const int32 BaseSeed,
@@ -93,7 +183,7 @@ namespace AILOD
 				}
 			}
 
-			FRandomStream Stream(MakeStreamSeed(BaseSeed, 0xDA6A6E01u, CohortIndex));
+			FRandomStream Stream(MakeStreamSeed(BaseSeed, RandomStreams::EarthquakeDamage, CohortIndex));
 			for (int32 SelectionIndex = 0; SelectionIndex < DamageCount; ++SelectionIndex)
 			{
 				const int32 SwapIndex = Stream.RandRange(SelectionIndex, Candidates.Num() - 1);
@@ -109,14 +199,36 @@ namespace AILOD
 		}
 	}
 
+	FString FPhase0ManifestGenerator::BuildConfigHash(const FPhase0Config& Config)
+	{
+		const FString ConfigText = FString::Printf(
+			TEXT("spec=%s|schema=%s|seed=%d|population_per_kingdom=%d|")
+			TEXT("cohorts=14,6,56,24|small_damage=4,2,17,7|cash_low=0,1,2,3|cash_nonlow=4,5,6,7|")
+			TEXT("persistent_pool=%d|day7_day30=%d|streams=%08X,%08X,%08X,%08X"),
+			SpecVersion,
+			SchemaVersion,
+			Config.Seed,
+			Config.PopulationPerKingdom,
+			PersistentPoolSize,
+			Day7And30PersistentCount,
+			RandomStreams::PopulationComposition,
+			RandomStreams::InitialCash,
+			RandomStreams::EarthquakeDamage,
+			RandomStreams::PersistentSelection);
+		FTCHARToUTF8 Utf8(*ConfigText);
+		return FSHA1::HashBuffer(Utf8.Get(), Utf8.Length()).ToString();
+	}
+
 	bool FPhase0ManifestGenerator::Generate(
 		const FPhase0Config& Config,
 		FInitialPopulationManifest& OutPopulation,
 		FEarthquakeDamageList& OutDamage,
+		FPersistentTestPool& OutPersistentPool,
 		FString& OutError)
 	{
 		OutPopulation = {};
 		OutDamage = {};
+		OutPersistentPool = {};
 		OutError.Reset();
 
 		const bool bSupportedPopulation = Config.PopulationPerKingdom == 100
@@ -129,8 +241,10 @@ namespace AILOD
 			return false;
 		}
 
+		const FString ConfigHash = BuildConfigHash(Config);
 		OutPopulation.Seed = Config.Seed;
 		OutPopulation.PopulationPerKingdom = Config.PopulationPerKingdom;
+		OutPopulation.ConfigHash = ConfigHash;
 		OutPopulation.Residents.Reserve(Config.PopulationPerKingdom * 2);
 
 		FResidentID NextResidentID = 1;
@@ -141,7 +255,10 @@ namespace AILOD
 			{
 				const FCohortDefinition& Cohort = Cohorts[CohortIndex];
 				const int32 CohortPopulation = Config.PopulationPerKingdom * Cohort.PopulationPercent / 100;
-				FRandomStream CashStream(MakeStreamSeed(Config.Seed, 0xCA511001u, KingdomIndex * UE_ARRAY_COUNT(Cohorts) + CohortIndex));
+				FRandomStream CashStream(MakeStreamSeed(
+					Config.Seed,
+					RandomStreams::InitialCash,
+					KingdomIndex * UE_ARRAY_COUNT(Cohorts) + CohortIndex));
 
 				for (int32 ResidentIndex = 0; ResidentIndex < CohortPopulation; ++ResidentIndex)
 				{
@@ -157,7 +274,12 @@ namespace AILOD
 			}
 		}
 
+		OutPersistentPool.Seed = Config.Seed;
+		OutPersistentPool.ConfigHash = ConfigHash;
+		AssignPersistentResidents(OutPopulation, Config.Seed, OutPersistentPool);
+
 		OutDamage.Seed = Config.Seed;
+		OutDamage.ConfigHash = ConfigHash;
 		for (int32 CohortIndex = 0; CohortIndex < UE_ARRAY_COUNT(Cohorts); ++CohortIndex)
 		{
 			const FCohortDefinition& Cohort = Cohorts[CohortIndex];
@@ -181,20 +303,22 @@ namespace AILOD
 	{
 		FString Output;
 		Output += FString::Printf(
-			TEXT("{\n  \"schema_version\": \"%s\",\n  \"spec_version\": \"%s\",\n  \"seed\": %d,\n  \"population_per_kingdom\": %d,\n  \"residents\": [\n"),
+			TEXT("{\n  \"schema_version\": \"%s\",\n  \"spec_version\": \"%s\",\n  \"seed\": %d,\n  \"config_hash\": \"%s\",\n  \"population_per_kingdom\": %d,\n  \"residents\": [\n"),
 			SchemaVersion,
 			SpecVersion,
 			Manifest.Seed,
+			*Manifest.ConfigHash,
 			Manifest.PopulationPerKingdom);
 
 		for (int32 Index = 0; Index < Manifest.Residents.Num(); ++Index)
 		{
 			const FInitialResidentRecord& Resident = Manifest.Residents[Index];
 			Output += FString::Printf(
-				TEXT("    {\"resident_id\": %lld, \"home_id\": %lld, \"persistent_id\": %lld, \"kingdom\": \"%s\", \"profession\": \"%s\", \"income_band\": \"%s\", \"cash\": %d, \"repair_credit\": %d, \"inventory_wood\": %d, \"home_state\": \"%s\", \"event_id\": %lld, \"arrive_id\": %lld}%s\n"),
+				TEXT("    {\"resident_id\": %lld, \"home_id\": %lld, \"persistent_id\": %lld, \"name\": \"%s\", \"kingdom\": \"%s\", \"profession\": \"%s\", \"income_band\": \"%s\", \"cash\": %d, \"repair_credit\": %d, \"inventory_wood\": %d, \"home_state\": \"%s\", \"event_id\": %lld, \"arrive_id\": %lld}%s\n"),
 				Resident.ResidentID,
 				Resident.HomeID,
 				Resident.PersistentID,
+				*Resident.Name,
 				ToString(Resident.Kingdom),
 				ToString(Resident.Profession),
 				ToString(Resident.IncomeBand),
@@ -215,10 +339,11 @@ namespace AILOD
 	{
 		FString Output;
 		Output += FString::Printf(
-			TEXT("{\n  \"schema_version\": \"%s\",\n  \"spec_version\": \"%s\",\n  \"seed\": %d,\n  \"damaged_residents\": [\n"),
+			TEXT("{\n  \"schema_version\": \"%s\",\n  \"spec_version\": \"%s\",\n  \"seed\": %d,\n  \"config_hash\": \"%s\",\n  \"damaged_residents\": [\n"),
 			SchemaVersion,
 			SpecVersion,
-			DamageList.Seed);
+			DamageList.Seed,
+			*DamageList.ConfigHash);
 
 		for (int32 Index = 0; Index < DamageList.DamagedResidents.Num(); ++Index)
 		{
@@ -236,10 +361,43 @@ namespace AILOD
 		return Output;
 	}
 
+	FString FPhase0ManifestGenerator::SerializePersistentPool(const FPersistentTestPool& PersistentPool)
+	{
+		FString Output;
+		Output += FString::Printf(
+			TEXT("{\n  \"schema_version\": \"%s\",\n  \"spec_version\": \"%s\",\n  \"seed\": %d,\n  \"config_hash\": \"%s\",\n  \"persistent_residents\": [\n"),
+			SchemaVersion,
+			SpecVersion,
+			PersistentPool.Seed,
+			*PersistentPool.ConfigHash);
+
+		for (int32 Index = 0; Index < PersistentPool.Residents.Num(); ++Index)
+		{
+			const FPersistentTestRecord& Record = PersistentPool.Residents[Index];
+			Output += FString::Printf(
+				TEXT("    {\"resident_id\": %lld, \"home_id\": %lld, \"persistent_id\": %lld, \"name\": \"%s\", \"kingdom\": \"%s\", \"profession\": \"%s\", \"income_band\": \"%s\", \"day7\": %s, \"day30\": %s, \"day45\": %s}%s\n"),
+				Record.ResidentID,
+				Record.HomeID,
+				Record.PersistentID,
+				*Record.Name,
+				ToString(Record.Kingdom),
+				ToString(Record.Profession),
+				ToString(Record.IncomeBand),
+				Record.bDay7 ? TEXT("true") : TEXT("false"),
+				Record.bDay30 ? TEXT("true") : TEXT("false"),
+				Record.bDay45 ? TEXT("true") : TEXT("false"),
+				Index + 1 == PersistentPool.Residents.Num() ? TEXT("") : TEXT(","));
+		}
+
+		Output += TEXT("  ]\n}\n");
+		return Output;
+	}
+
 	bool FPhase0ManifestGenerator::SaveArtifacts(
 		const FString& OutputDirectory,
 		const FInitialPopulationManifest& Population,
 		const FEarthquakeDamageList& DamageList,
+		const FPersistentTestPool& PersistentPool,
 		FString& OutError)
 	{
 		OutError.Reset();
@@ -251,8 +409,10 @@ namespace AILOD
 
 		const FString PopulationPath = OutputDirectory / LogSchema::InitialPopulationManifestFile;
 		const FString DamagePath = OutputDirectory / LogSchema::EarthquakeDamageListFile;
+		const FString PersistentPoolPath = OutputDirectory / LogSchema::PersistentTestPoolFile;
 		if (!FFileHelper::SaveStringToFile(SerializePopulation(Population), *PopulationPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)
-			|| !FFileHelper::SaveStringToFile(SerializeDamage(DamageList), *DamagePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+			|| !FFileHelper::SaveStringToFile(SerializeDamage(DamageList), *DamagePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)
+			|| !FFileHelper::SaveStringToFile(SerializePersistentPool(PersistentPool), *PersistentPoolPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
 		{
 			OutError = FString::Printf(TEXT("Failed to save Phase 0 artifacts to: %s"), *OutputDirectory);
 			return false;
