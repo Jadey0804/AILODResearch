@@ -100,13 +100,13 @@ namespace AILOD
 			}
 		}
 
-		void AssignPersistentResidents(
+		void SelectContinuitySample(
 			FInitialPopulationManifest& Population,
 			const int32 BaseSeed,
 			FPersistentTestPool& OutPersistentPool)
 		{
-			constexpr int32 PoolPerKingdom = PersistentPoolSize / 2;
-			constexpr int32 Day7And30PerKingdom = Day7And30PersistentCount / 2;
+			constexpr int32 PoolPerKingdom = ContinuitySampleSize / 2;
+			constexpr int32 Day7And30PerKingdom = Day7And30ContinuitySampleCount / 2;
 			int32 PoolCounts[UE_ARRAY_COUNT(Cohorts)] = {};
 			int32 Day7And30Counts[UE_ARRAY_COUNT(Cohorts)] = {};
 			AllocateProportionalCounts(PoolPerKingdom, PoolCounts);
@@ -138,9 +138,7 @@ namespace AILOD
 						const int32 SwapIndex = Stream.RandRange(SelectionIndex, Candidates.Num() - 1);
 						Candidates.Swap(SelectionIndex, SwapIndex);
 
-						FInitialResidentRecord& Resident = *Candidates[SelectionIndex];
-						Resident.PersistentID = Resident.ResidentID;
-						Resident.Name = FString::Printf(TEXT("Resident-%06lld"), Resident.PersistentID);
+						const FInitialResidentRecord& Resident = *Candidates[SelectionIndex];
 
 						FPersistentTestRecord& Record = OutPersistentPool.Residents.AddDefaulted_GetRef();
 						Record.ResidentID = Resident.ResidentID;
@@ -209,8 +207,8 @@ namespace AILOD
 			SchemaVersion,
 			Config.Seed,
 			Config.PopulationPerKingdom,
-			PersistentPoolSize,
-			Day7And30PersistentCount,
+			ContinuitySampleSize,
+			Day7And30ContinuitySampleCount,
 			RandomStreams::PopulationComposition,
 			RandomStreams::InitialCash,
 			RandomStreams::EarthquakeDamage,
@@ -265,6 +263,8 @@ namespace AILOD
 					FInitialResidentRecord& Resident = OutPopulation.Residents.AddDefaulted_GetRef();
 					Resident.ResidentID = NextResidentID;
 					Resident.HomeID = NextResidentID;
+					Resident.PersistentID = Resident.ResidentID;
+					Resident.Name = MakeStableResidentName(Resident.ResidentID);
 					Resident.Kingdom = Kingdom;
 					Resident.Profession = Cohort.Profession;
 					Resident.IncomeBand = Cohort.IncomeBand;
@@ -276,7 +276,7 @@ namespace AILOD
 
 		OutPersistentPool.Seed = Config.Seed;
 		OutPersistentPool.ConfigHash = ConfigHash;
-		AssignPersistentResidents(OutPopulation, Config.Seed, OutPersistentPool);
+		SelectContinuitySample(OutPopulation, Config.Seed, OutPersistentPool);
 
 		OutDamage.Seed = Config.Seed;
 		OutDamage.ConfigHash = ConfigHash;

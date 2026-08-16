@@ -28,14 +28,6 @@ namespace AILOD
 			FArriveID ArriveID = 0;
 		};
 
-		struct FActionContext
-		{
-			int32 ResidentIndex = INDEX_NONE;
-			EIndividualAction Action = EIndividualAction::None;
-			int32 WoodQuantity = 0;
-			FReservationID ReservationID = 0;
-		};
-
 		struct FPlannedRequest
 		{
 			int32 ResidentIndex = INDEX_NONE;
@@ -57,27 +49,6 @@ namespace AILOD
 		FString ResidentOwner(const FResidentID ResidentID)
 		{
 			return FString::Printf(TEXT("Resident:%lld"), ResidentID);
-		}
-
-		uint64 Mix64(uint64 Value)
-		{
-			Value += 0x9E3779B97F4A7C15ull;
-			Value = (Value ^ (Value >> 30)) * 0xBF58476D1CE4E5B9ull;
-			Value = (Value ^ (Value >> 27)) * 0x94D049BB133111EBull;
-			return Value ^ (Value >> 31);
-		}
-
-		uint64 CompetitionOrderKey(
-			const int32 Seed,
-			const FSimulationTime Time,
-			const FResidentID ResidentID,
-			const uint64 RequestKind)
-		{
-			uint64 Value = Mix64(static_cast<uint64>(static_cast<uint32>(Seed)));
-			Value ^= Mix64(static_cast<uint64>(Time.Minutes));
-			Value ^= Mix64(static_cast<uint64>(ResidentID));
-			Value ^= Mix64(RequestKind);
-			return Mix64(Value);
 		}
 
 		class FOracleSimulation
@@ -184,6 +155,9 @@ namespace AILOD
 				{
 					FOracleResidentState& Resident = Residents.AddDefaulted_GetRef();
 					Resident.ResidentID = Initial.ResidentID;
+					Resident.HomeID = Initial.HomeID;
+					Resident.PersistentID = Initial.PersistentID;
+					Resident.Name = Initial.Name;
 					Resident.Kingdom = Initial.Kingdom;
 					Resident.Profession = Initial.Profession;
 					Resident.IncomeBand = Initial.IncomeBand;
@@ -191,6 +165,8 @@ namespace AILOD
 					Resident.RepairCredit = Initial.RepairCredit;
 					Resident.InventoryWood = Initial.InventoryWood;
 					Resident.HomeState = Initial.HomeState;
+					Resident.LastUpdateTime = Clock.Now();
+					Resident.Representation = EResidentRepresentation::ActiveMicro;
 				}
 				for (const FEarthquakeDamageRecord& Damage : DamageList.DamagedResidents)
 				{
@@ -332,18 +308,19 @@ namespace AILOD
 						continue;
 					}
 
-					const FActionContext* Context = ActionContexts.Find(Due.EventID);
-					if (Context == nullptr)
+					const FSimulationEventRecord* EventRecord = EventStore.Find(Due.EventID);
+					if (EventRecord == nullptr
+						|| EventRecord->Event.ResidentID <= 0
+						|| EventRecord->Event.ActionCode <= static_cast<int32>(EIndividualAction::None))
 					{
 						OutError = TEXT("Scheduled Stage 3 event has no action or import context.");
 						return false;
 					}
-					const FActionContext ContextCopy = *Context;
+					const FSimulationEventRequest ContextCopy = EventRecord->Event;
 					if (!CompleteAction(Due.EventID, Due.ArriveID, ContextCopy, Time, OutError))
 					{
 						return false;
 					}
-					ActionContexts.Remove(Due.EventID);
 				}
 				return true;
 			}
@@ -375,18 +352,21 @@ namespace AILOD
 			bool CompleteAction(
 				const FEventID EventID,
 				const FArriveID ArriveID,
-				const FActionContext& Context,
+				const FSimulationEventRequest& Context,
 				const FSimulationTime Time,
 				FString& OutError)
 			{
-				if (!Residents.IsValidIndex(Context.ResidentIndex))
+				const int32 ResidentIndex = static_cast<int32>(Context.ResidentID - 1);
+				if (!Residents.IsValidIndex(ResidentIndex)
+					|| Residents[ResidentIndex].ResidentID != Context.ResidentID)
 				{
 					OutError = TEXT("Action completion references an invalid resident.");
 					return false;
 				}
-				FOracleResidentState& Resident = Residents[Context.ResidentIndex];
+				FOracleResidentState& Resident = Residents[ResidentIndex];
+				const EIndividualAction Action = static_cast<EIndividualAction>(Context.ActionCode);
 
-				switch (Context.Action)
+				switch (Action)
 				{
 				case EIndividualAction::Work:
 				{
@@ -406,7 +386,7 @@ namespace AILOD
 					{
 						return false;
 					}
-					Resident.Cash += Income;
+					RefreshResidentResourceView(Resident);
 					break;
 				}
 
@@ -421,7 +401,7 @@ namespace AILOD
 					{
 						return false;
 					}
-					Resident.InventoryWood += Context.WoodQuantity;
+					RefreshResidentResourceView(Resident);
 					break;
 
 				case EIndividualAction::ChopWood:
@@ -440,7 +420,7 @@ namespace AILOD
 					{
 						return false;
 					}
-					Resident.InventoryWood += Context.WoodQuantity;
+					RefreshResidentResourceView(Resident);
 					break;
 
 				case EIndividualAction::ContinueRepair:
@@ -475,13 +455,19 @@ namespace AILOD
 				{
 					return false;
 				}
-				Resident.LastCompletedAction = Context.Action;
+				Resident.LastCompletedAction = Action;
 				Resident.CurrentAction = EIndividualAction::None;
 				Resident.ActiveEventID = 0;
 				Resident.ActiveArriveID = 0;
 				Resident.ActiveReservationID = 0;
 				Resident.ActionEndTime = Time;
-				ActionTrace.Add({ Time, Resident.ResidentID, Resident.CurrentGoal, Context.Action, EventID, ArriveID, false });
+				ActionTrace.Add({ Time, Resident.ResidentID, Resident.CurrentGoal, Action, EventID, ArriveID, false });
+				Resident.CurrentGoal = FIndividualDomain::SelectGoal(Resident);
+				Resident.MacroIntent = Resident.CurrentGoal == EIndividualGoal::RoutineLife
+					? EMacroIntent::Routine
+					: EMacroIntent::Wait;
+				Resident.LastUpdateTime = Time;
+				++Resident.Version;
 				return true;
 			}
 
@@ -492,6 +478,9 @@ namespace AILOD
 					if (DamagedResidentIDs.Contains(Resident.ResidentID))
 					{
 						Resident.HomeState = EHomeState::DamagedWaiting;
+						Resident.CurrentGoal = EIndividualGoal::RestoreHome;
+						Resident.LastUpdateTime = Time;
+						++Resident.Version;
 					}
 				}
 				FEventID EventID = 0;
@@ -656,7 +645,7 @@ namespace AILOD
 					Eligible.Add({
 						ResidentIndex,
 						EIndividualAction::None,
-						CompetitionOrderKey(Config.Seed, Time, Resident.ResidentID, 0xA1D00001ull),
+						CompetitionOrderKey(Config.Seed, Time.Minutes, Resident.ResidentID, 0xA1D00001ull),
 						0 });
 				}
 
@@ -735,8 +724,10 @@ namespace AILOD
 					{
 						return false;
 					}
-					Resident.RepairCredit += static_cast<int32>(RepairAidPerHome);
+					RefreshResidentResourceView(Resident);
 					Resident.bAidReceived = true;
+					Resident.LastUpdateTime = Time;
+					++Resident.Version;
 					++AidPaidCount;
 					--RemainingPaidCount;
 				}
@@ -884,7 +875,7 @@ namespace AILOD
 						Action,
 						CompetitionOrderKey(
 							Config.Seed,
-							Time,
+							Time.Minutes,
 							Resident.ResidentID,
 							static_cast<uint64>(Action)),
 						0 });
@@ -967,6 +958,9 @@ namespace AILOD
 				FSimulationEventRequest EventRequest;
 				EventRequest.Type = ToString(EIndividualAction::BuyWood);
 				EventRequest.Owner = ResidentOwner(Resident.ResidentID);
+				EventRequest.ResidentID = Resident.ResidentID;
+				EventRequest.ActionCode = static_cast<int32>(EIndividualAction::BuyWood);
+				EventRequest.WoodQuantity = MissingWood;
 				EventRequest.StartTime = Time;
 				EventRequest.EndTime = FSimulationTime::FromMinutes(Time.Minutes + MinutesPerHour);
 				EventRequest.ArriveID = Request.ArriveID;
@@ -1029,14 +1023,16 @@ namespace AILOD
 					return false;
 				}
 
-				Resident.RepairCredit -= CreditPayment;
-				Resident.Cash -= CashPayment;
+				RefreshResidentResourceView(Resident);
 				Resident.CurrentAction = EIndividualAction::BuyWood;
+				Resident.MacroIntent = ToMacroIntent(EIndividualAction::BuyWood);
 				Resident.ActiveEventID = EventID;
 				Resident.ActiveArriveID = Request.ArriveID;
 				Resident.ActiveReservationID = ReservationID;
+				Resident.ActionStartTime = Time;
 				Resident.ActionEndTime = EventRequest.EndTime;
-				ActionContexts.Add(EventID, { Request.ResidentIndex, EIndividualAction::BuyWood, MissingWood, ReservationID });
+				Resident.LastUpdateTime = Time;
+				++Resident.Version;
 				ActionTrace.Add({ Time, Resident.ResidentID, Resident.CurrentGoal, EIndividualAction::BuyWood, EventID, Request.ArriveID, true });
 				return Scheduler.Schedule({ EventID, Request.ArriveID, EventRequest.EndTime }, Time, OutError);
 			}
@@ -1078,6 +1074,9 @@ namespace AILOD
 				FSimulationEventRequest EventRequest;
 				EventRequest.Type = TEXT("Repair");
 				EventRequest.Owner = ResidentOwner(Resident.ResidentID);
+				EventRequest.ResidentID = Resident.ResidentID;
+				EventRequest.ActionCode = static_cast<int32>(EIndividualAction::ContinueRepair);
+				EventRequest.WoodQuantity = static_cast<int32>(RepairWoodPerHome);
 				EventRequest.StartTime = Time;
 				EventRequest.EndTime = FSimulationTime::FromMinutes(Time.Minutes + 2 * MinutesPerDay);
 				EventRequest.ArriveID = Request.ArriveID;
@@ -1102,13 +1101,16 @@ namespace AILOD
 				}
 
 				--RepairStartsRemaining;
-				Resident.InventoryWood -= static_cast<int32>(RepairWoodPerHome);
+				RefreshResidentResourceView(Resident);
 				Resident.HomeState = EHomeState::UnderRepair;
 				Resident.CurrentAction = EIndividualAction::ContinueRepair;
+				Resident.MacroIntent = ToMacroIntent(EIndividualAction::ContinueRepair);
 				Resident.ActiveEventID = EventID;
 				Resident.ActiveArriveID = Request.ArriveID;
+				Resident.ActionStartTime = Time;
 				Resident.ActionEndTime = EventRequest.EndTime;
-				ActionContexts.Add(EventID, { Request.ResidentIndex, EIndividualAction::ContinueRepair, 0, 0 });
+				Resident.LastUpdateTime = Time;
+				++Resident.Version;
 				ActionTrace.Add({ Time, Resident.ResidentID, Resident.CurrentGoal, EIndividualAction::StartRepair, EventID, Request.ArriveID, true });
 				return Scheduler.Schedule({ EventID, Request.ArriveID, EventRequest.EndTime }, Time, OutError);
 			}
@@ -1125,6 +1127,10 @@ namespace AILOD
 				FSimulationEventRequest EventRequest;
 				EventRequest.Type = ToString(Request.Action);
 				EventRequest.Owner = ResidentOwner(Resident.ResidentID);
+				EventRequest.ResidentID = Resident.ResidentID;
+				EventRequest.ActionCode = static_cast<int32>(Request.Action);
+				EventRequest.WoodQuantity = WoodQuantity;
+				EventRequest.ReservationID = ReservationID;
 				EventRequest.StartTime = Time;
 				EventRequest.EndTime = FSimulationTime::FromMinutes(Time.Minutes + DurationMinutes);
 				EventRequest.ArriveID = Request.ArriveID;
@@ -1137,11 +1143,14 @@ namespace AILOD
 				}
 
 				Resident.CurrentAction = Request.Action;
+				Resident.MacroIntent = ToMacroIntent(Request.Action);
 				Resident.ActiveEventID = EventID;
 				Resident.ActiveArriveID = Request.ArriveID;
 				Resident.ActiveReservationID = ReservationID;
+				Resident.ActionStartTime = Time;
 				Resident.ActionEndTime = EventRequest.EndTime;
-				ActionContexts.Add(EventID, { Request.ResidentIndex, Request.Action, WoodQuantity, ReservationID });
+				Resident.LastUpdateTime = Time;
+				++Resident.Version;
 				ActionTrace.Add({ Time, Resident.ResidentID, Resident.CurrentGoal, Request.Action, EventID, Request.ArriveID, true });
 				return Scheduler.Schedule({ EventID, Request.ArriveID, EventRequest.EndTime }, Time, OutError);
 			}
@@ -1289,6 +1298,19 @@ namespace AILOD
 				}
 			}
 
+			void RefreshResidentResourceView(FOracleResidentState& Resident)
+			{
+				Resident.Cash = static_cast<int32>(FMath::RoundToInt64(Ledger.GetBalance(
+					ESimulationResource::Coin,
+					ResidentAccount(Resident.ResidentID, TEXT("Cash")))));
+				Resident.RepairCredit = static_cast<int32>(FMath::RoundToInt64(Ledger.GetBalance(
+					ESimulationResource::Coin,
+					ResidentAccount(Resident.ResidentID, TEXT("RepairCredit")))));
+				Resident.InventoryWood = static_cast<int32>(FMath::RoundToInt64(Ledger.GetBalance(
+					ESimulationResource::Wood,
+					ResidentAccount(Resident.ResidentID, TEXT("Wood")))));
+			}
+
 			FKingdomStocks& GetStocks(const EKingdom Kingdom)
 			{
 				return Kingdom == EKingdom::A ? KingdomAStocks : KingdomBStocks;
@@ -1349,7 +1371,6 @@ namespace AILOD
 			FReservationStore Reservations;
 			FSimulationEventStore EventStore;
 			TMap<FEventID, FImportBatch> ImportBatches;
-			TMap<FEventID, FActionContext> ActionContexts;
 			TArray<FAidRequest> AidRequests;
 			TArray<FIndividualActionTrace> ActionTrace;
 			TArray<FKingdomSnapshot> Snapshots;
@@ -1387,6 +1408,22 @@ namespace AILOD
 		case EIndividualAction::ContinueRepair: return TEXT("ContinueRepair");
 		case EIndividualAction::Wait: return TEXT("Wait");
 		default: return TEXT("Unknown");
+		}
+	}
+
+	EMacroIntent ToMacroIntent(const EIndividualAction Action)
+	{
+		switch (Action)
+		{
+		case EIndividualAction::Routine: return EMacroIntent::Routine;
+		case EIndividualAction::Work: return EMacroIntent::Work;
+		case EIndividualAction::BuyWood: return EMacroIntent::BuyWood;
+		case EIndividualAction::ChopWood: return EMacroIntent::ChopWood;
+		case EIndividualAction::StartRepair:
+		case EIndividualAction::ContinueRepair: return EMacroIntent::Repair;
+		case EIndividualAction::None:
+		case EIndividualAction::Wait:
+		default: return EMacroIntent::Wait;
 		}
 	}
 

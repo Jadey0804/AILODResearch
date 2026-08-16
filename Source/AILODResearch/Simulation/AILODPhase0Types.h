@@ -6,10 +6,10 @@
 
 namespace AILOD
 {
-	inline constexpr TCHAR SpecVersion[] = TEXT("1.3");
+	inline constexpr TCHAR SpecVersion[] = TEXT("1.4");
 	inline constexpr TCHAR SchemaVersion[] = TEXT("1.1");
-	inline constexpr int32 PersistentPoolSize = 20;
-	inline constexpr int32 Day7And30PersistentCount = 10;
+	inline constexpr int32 ContinuitySampleSize = 20;
+	inline constexpr int32 Day7And30ContinuitySampleCount = 10;
 
 	using FResidentID = int64;
 	using FHomeID = int64;
@@ -20,6 +20,11 @@ namespace AILOD
 	using FReservationID = int64;
 	using FPolicyID = int64;
 	using FIdempotencyKey = FString;
+
+	inline FString MakeStableResidentName(const FResidentID ResidentID)
+	{
+		return FString::Printf(TEXT("Resident-%06lld"), ResidentID);
+	}
 
 	namespace RandomStreams
 	{

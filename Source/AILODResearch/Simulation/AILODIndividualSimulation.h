@@ -25,8 +25,15 @@ namespace AILOD
 		Wait
 	};
 
+	enum class EResidentRepresentation : uint8
+	{
+		CohortManaged,
+		ActiveMicro
+	};
+
 	const TCHAR* ToString(EIndividualGoal Goal);
 	const TCHAR* ToString(EIndividualAction Action);
+	EMacroIntent ToMacroIntent(EIndividualAction Action);
 
 	struct FIndividualWorldFacts
 	{
@@ -42,9 +49,12 @@ namespace AILOD
 		TArray<EIndividualAction> Actions;
 	};
 
-	struct FOracleResidentState
+	struct FResidentCoreState
 	{
 		FResidentID ResidentID = 0;
+		FHomeID HomeID = 0;
+		FPersistentID PersistentID = 0;
+		FString Name;
 		EKingdom Kingdom = EKingdom::A;
 		EProfession Profession = EProfession::Worker;
 		EIncomeBand IncomeBand = EIncomeBand::Low;
@@ -55,12 +65,23 @@ namespace AILOD
 		EIndividualGoal CurrentGoal = EIndividualGoal::RoutineLife;
 		EIndividualAction CurrentAction = EIndividualAction::None;
 		EIndividualAction LastCompletedAction = EIndividualAction::None;
+		EMacroIntent MacroIntent = EMacroIntent::Routine;
 		FEventID ActiveEventID = 0;
+		FEventID ParentEventID = 0;
 		FArriveID ActiveArriveID = 0;
 		FReservationID ActiveReservationID = 0;
+		FPolicyID CausalPolicyID = 0;
+		FSimulationTime ActionStartTime;
 		FSimulationTime ActionEndTime;
+		FSimulationTime LastUpdateTime;
+		FString LocationAnchor = TEXT("Home");
+		uint32 RNGStreamKey = 0;
+		uint32 Version = 1;
+		EResidentRepresentation Representation = EResidentRepresentation::CohortManaged;
 		bool bAidReceived = false;
 	};
+
+	using FOracleResidentState = FResidentCoreState;
 
 	struct FIndividualActionTrace
 	{

@@ -26,4 +26,25 @@ namespace AILOD::DomainRules
 	{
 		return FMath::CeilToInt64(static_cast<double>(WoodQuantity) * WoodPrice);
 	}
+
+	inline uint64 Mix64(uint64 Value)
+	{
+		Value += 0x9E3779B97F4A7C15ull;
+		Value = (Value ^ (Value >> 30)) * 0xBF58476D1CE4E5B9ull;
+		Value = (Value ^ (Value >> 27)) * 0x94D049BB133111EBull;
+		return Value ^ (Value >> 31);
+	}
+
+	inline uint64 CompetitionOrderKey(
+		const int32 Seed,
+		const int64 GameTimeMinutes,
+		const FResidentID ResidentID,
+		const uint64 RequestKind)
+	{
+		uint64 Value = Mix64(static_cast<uint64>(static_cast<uint32>(Seed)));
+		Value ^= Mix64(static_cast<uint64>(GameTimeMinutes));
+		Value ^= Mix64(static_cast<uint64>(ResidentID));
+		Value ^= Mix64(RequestKind);
+		return Mix64(Value);
+	}
 }

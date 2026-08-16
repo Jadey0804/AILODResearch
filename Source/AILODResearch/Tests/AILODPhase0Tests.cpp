@@ -80,13 +80,12 @@ bool FAILODPhase0ManifestDeterminismTest::RunTest(const FString& Parameters)
 
 	TestEqual(TEXT("Manifest contains 200 residents"), PopulationA.Residents.Num(), 200);
 	TestEqual(TEXT("Damage list contains 30 residents"), DamageA.DamagedResidents.Num(), 30);
-	TestEqual(TEXT("Persistent pool contains 20 residents"), PersistentPoolA.Residents.Num(), PersistentPoolSize);
+	TestEqual(TEXT("Continuity sample contains 20 residents"), PersistentPoolA.Residents.Num(), ContinuitySampleSize);
 
 	int32 PopulationCounts[2][2][2] = {};
-	int32 PersistentResidentCount = 0;
 	TSet<FResidentID> ResidentIDs;
 	TSet<FPersistentID> PersistentIDs;
-	TSet<FString> PersistentNames;
+	TSet<FString> ResidentNames;
 	for (const FInitialResidentRecord& Resident : PopulationA.Residents)
 	{
 		const int32 KingdomIndex = Resident.Kingdom == EKingdom::A ? 0 : 1;
@@ -103,27 +102,21 @@ bool FAILODPhase0ManifestDeterminismTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Initial event ID is unset"), Resident.EventID, static_cast<FEventID>(0));
 		TestEqual(TEXT("Initial ArriveID is unset"), Resident.ArriveID, static_cast<FArriveID>(0));
 
-		if (Resident.PersistentID == 0)
-		{
-			TestTrue(TEXT("Anonymous resident name is empty"), Resident.Name.IsEmpty());
-		}
-		else
-		{
-			++PersistentResidentCount;
-			TestTrue(TEXT("Persistent IDs are unique"), !PersistentIDs.Contains(Resident.PersistentID));
-			TestTrue(TEXT("Persistent names are unique"), !PersistentNames.Contains(Resident.Name));
-			TestFalse(TEXT("Persistent resident name is set"), Resident.Name.IsEmpty());
-			TestEqual(TEXT("Persistent ID initially matches resident ID"), Resident.PersistentID, Resident.ResidentID);
-			PersistentIDs.Add(Resident.PersistentID);
-			PersistentNames.Add(Resident.Name);
-		}
+		TestTrue(TEXT("Persistent ID is non-zero"), Resident.PersistentID != 0);
+		TestTrue(TEXT("Persistent IDs are unique"), !PersistentIDs.Contains(Resident.PersistentID));
+		TestTrue(TEXT("Resident names are unique"), !ResidentNames.Contains(Resident.Name));
+		TestEqual(TEXT("Persistent ID initially matches resident ID"), Resident.PersistentID, Resident.ResidentID);
+		TestEqual(TEXT("Resident name is stable from resident ID"), Resident.Name, MakeStableResidentName(Resident.ResidentID));
+		PersistentIDs.Add(Resident.PersistentID);
+		ResidentNames.Add(Resident.Name);
 
 		const bool bCashIsValid = Resident.IncomeBand == EIncomeBand::Low
 			? Resident.Cash >= 0 && Resident.Cash <= 3
 			: Resident.Cash >= 4 && Resident.Cash <= 7;
 		TestTrue(TEXT("Initial cash is an integer in the frozen range"), bCashIsValid);
 	}
-	TestEqual(TEXT("Exactly 20 population records are Persistent"), PersistentResidentCount, PersistentPoolSize);
+	TestEqual(TEXT("Every population record has a Persistent ID"), PersistentIDs.Num(), PopulationA.Residents.Num());
+	TestEqual(TEXT("Every population record has a stable name"), ResidentNames.Num(), PopulationA.Residents.Num());
 
 	for (int32 KingdomIndex = 0; KingdomIndex < 2; ++KingdomIndex)
 	{
@@ -222,9 +215,35 @@ bool FAILODPhase0ManifestDeterminismTest::RunTest(const FString& Parameters)
 			LargeDamage.DamagedResidents.Num(),
 			PopulationPerKingdom * 30 / 100);
 		TestEqual(
-			FString::Printf(TEXT("Frozen scale N=%d Persistent count"), PopulationPerKingdom),
+			FString::Printf(TEXT("Frozen scale N=%d continuity sample count"), PopulationPerKingdom),
 			LargePersistentPool.Residents.Num(),
-			PersistentPoolSize);
+			ContinuitySampleSize);
+
+		TSet<FResidentID> ContinuitySampleResidentIDs;
+		for (const FPersistentTestRecord& Record : LargePersistentPool.Residents)
+		{
+			ContinuitySampleResidentIDs.Add(Record.ResidentID);
+		}
+
+		bool bAllResidentsHaveStableIdentity = true;
+		bool bFoundStableResidentOutsideSample = false;
+		for (const FInitialResidentRecord& Resident : LargePopulation.Residents)
+		{
+			const bool bHasStableIdentity = Resident.PersistentID == Resident.ResidentID
+				&& Resident.PersistentID != 0
+				&& Resident.Name == MakeStableResidentName(Resident.ResidentID);
+			bAllResidentsHaveStableIdentity &= bHasStableIdentity;
+			if (!ContinuitySampleResidentIDs.Contains(Resident.ResidentID) && bHasStableIdentity)
+			{
+				bFoundStableResidentOutsideSample = true;
+			}
+		}
+		TestTrue(
+			FString::Printf(TEXT("Frozen scale N=%d gives every resident a stable identity"), PopulationPerKingdom),
+			bAllResidentsHaveStableIdentity);
+		TestTrue(
+			FString::Printf(TEXT("Frozen scale N=%d has stable identities outside the continuity sample"), PopulationPerKingdom),
+			bFoundStableResidentOutsideSample);
 	}
 
 	const FString TestRoot = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AILOD/Phase0/Determinism"));
@@ -250,7 +269,7 @@ bool FAILODPhase0ManifestDeterminismTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Saved Persistent artifacts are byte-identical"), SavedPersistentA, SavedPersistentB);
 
 	AddInfo(FString::Printf(
-		TEXT("Phase 0 v1.3 artifacts written to %s. ConfigHash=%s PopulationCRC=%08X DamageCRC=%08X PersistentCRC=%08X"),
+		TEXT("Phase 0 v1.4 artifacts written to %s. ConfigHash=%s PopulationCRC=%08X DamageCRC=%08X PersistentCRC=%08X"),
 		*TestRoot,
 		*PopulationA.ConfigHash,
 		FCrc::StrCrc32(*SavedPopulationA),
@@ -317,7 +336,7 @@ bool FAILODPhase0LogSchemaTest::RunTest(const FString& Parameters)
 		RandomStreams::PersistentSelection
 	};
 	TestEqual(TEXT("All four frozen random stream tags are unique"), StreamTags.Num(), 4);
-	TestEqual(TEXT("Spec version is v1.3"), FString(SpecVersion), FString(TEXT("1.3")));
+	TestEqual(TEXT("Spec version is v1.4"), FString(SpecVersion), FString(TEXT("1.4")));
 	TestEqual(TEXT("Schema version is v1.1"), FString(SchemaVersion), FString(TEXT("1.1")));
 
 	return true;

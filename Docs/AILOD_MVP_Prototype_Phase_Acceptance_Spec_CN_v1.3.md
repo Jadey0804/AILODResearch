@@ -36,6 +36,8 @@ MVP 研究目标是验证 Structured Macro Simulation 是否能在固定 50 个 
 - UI 只读显示：权威时间、方法、场景、人口、Active Micro、两国 Wood Stocks、Coin/Treasury、WoodPrice、HomeState totals 和最近 Ledger 事务。
 - 望远镜演示可以根据观察提高居民 Criticality；正式比较仍使用固定 Activation Trace。MVP 中 `PlayerTask` 输入保持为 0。
 - 固定身份对话只读取 C++ CoreState：Name、Kingdom、Profession、HomeState、CurrentGoal、CurrentEvent/Progress。不得由 UI 缓存或自行计算权威状态。
+- MVP 只有阶段 0 预登记的 20 名 Persistent 居民可以被玩家识别、对话、派任务或长期追踪；普通匿名居民只用于短期群体表现，不承诺跨激活的个人身份连续性。
+- 可互动居民一旦进入 Persistent CoreState，就不得写回匿名 Cohort。MVP 运行时不动态扩充 Persistent Pool。
 - 开关地图表现、UI、望远镜和对话不得改变同一 Seed 的模拟日志。
 
 ## 3. MVP 正式验证矩阵 `[FROZEN]`
@@ -243,3 +245,4 @@ LLM、完整社交、个人饥饿/死亡、PCG、多商品经济和复杂政治�
 | v1.3 | 2026-08-14 | MVP 保留木材/地震/固定政策/四方法；加入最小地图、UI、望远镜、Name 与固定身份对话；推迟动态国王、玩家任务、跨国贸易和 Food | 先验证 Simulation LOD 的准确性、性能与连续性，避免玩法扩张破坏对照和导致阶段 1 后返工；v1.2 阶段 0 基础结果保留，但需完成第 5 节补充 DoD | 项目作者 |
 | v1.3 Phase 2 | 2026-08-14 | 冻结 Baseline Import 立即进入 Market、Routine Consumption 只从 Market 扣除，以及“到期事件 → 政策 → Growth → Baseline Import → Harvest → Consumption → Price → Audit/Log”的小时顺序 | 使 None 从设计平衡点出发，避免隐含来源或执行顺序改变政策轨迹；阶段 2 不提前实现居民行为与维修 | 项目作者 |
 | v1.3 Phase 3 | 2026-08-14 | 冻结完整整数 Buy/Chop、RepairCredit 优先付款、去 ResidentID 偏差的确定性 ArriveID 顺序，以及居民决策位于 Price 后 | 避免拆单向上取整误差、身份顺序混杂和早到者永久垄断；保证 Oracle 与后续方法复用同一动作域 | 项目作者授权 Codex 对抗检查后批准 |
+| v1.3 Phase 4 Interaction Boundary | 2026-08-14 | MVP 玩家可互动居民限制为预登记的 20 名 Persistent 居民；可识别、对话、派任务或长期追踪的居民不得回到匿名 Cohort | 保证玩家可观察的个人身份、记忆、财产与任务使用精确 CoreState；避免为匿名居民的统计重建作虚假个人连续性承诺 | 项目作者 |

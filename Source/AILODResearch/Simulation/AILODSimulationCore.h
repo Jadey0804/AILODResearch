@@ -52,6 +52,8 @@ namespace AILOD
 		bool Schedule(const FScheduledEvent& Event, FSimulationTime CurrentTime, FString& OutError);
 		void PopDueThrough(FSimulationTime Time, TArray<FScheduledEvent>& OutEvents);
 		int32 NumPending() const { return PendingEvents.Num(); }
+		FArriveID GetNextArriveID() const { return NextArriveID; }
+		const TArray<FScheduledEvent>& GetPendingEvents() const { return PendingEvents; }
 
 	private:
 		FArriveID NextArriveID = 1;
@@ -163,6 +165,7 @@ namespace AILOD
 		bool CommitReservation(FReservationID ReservationID, const FString& DestinationAccount, const FIdempotencyKey& IdempotencyKey, FSimulationTime GameTime, FResourceLedger& Ledger, FString& OutError);
 		bool ReleaseReservation(FReservationID ReservationID, const FIdempotencyKey& IdempotencyKey, FSimulationTime GameTime, FResourceLedger& Ledger, FString& OutError);
 		const FReservationRecord* Find(FReservationID ReservationID) const;
+		const TMap<FReservationID, FReservationRecord>& GetReservations() const { return Reservations; }
 
 	private:
 		FReservationID NextReservationID = 1;
@@ -179,6 +182,9 @@ namespace AILOD
 	{
 		FString Type;
 		FString Owner;
+		FResidentID ResidentID = 0;
+		int32 ActionCode = 0;
+		int32 WoodQuantity = 0;
 		FSimulationTime StartTime;
 		FSimulationTime EndTime;
 		FReservationID ReservationID = 0;
