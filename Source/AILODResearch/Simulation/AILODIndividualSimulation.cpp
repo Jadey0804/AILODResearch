@@ -1435,6 +1435,118 @@ namespace AILOD
 			: EIndividualGoal::RoutineLife;
 	}
 
+	int32 FIndividualDomain::GetWorkIncome(const EIncomeBand IncomeBand)
+	{
+		return IncomeBand == EIncomeBand::Low ? 1 : 2;
+	}
+
+	int64 FIndividualDomain::GetActionDuration(const EIndividualAction Action)
+	{
+		switch (Action)
+		{
+		case EIndividualAction::Routine: return 8 * MinutesPerHour;
+		case EIndividualAction::Work: return MinutesPerDay;
+		case EIndividualAction::BuyWood: return MinutesPerHour;
+		case EIndividualAction::ChopWood: return MinutesPerDay;
+		case EIndividualAction::StartRepair: return 0;
+		case EIndividualAction::ContinueRepair: return 2 * MinutesPerDay;
+		case EIndividualAction::Wait: return 6 * MinutesPerHour;
+		case EIndividualAction::None:
+		default: return 0;
+		}
+	}
+
+	FIndividualActionEvaluation FIndividualDomain::EvaluateAction(
+		const EIndividualAction Action,
+		const FIndividualActionState& State,
+		const EProfession Profession,
+		const EIncomeBand IncomeBand,
+		const FIndividualWorldFacts& World)
+	{
+		FIndividualActionEvaluation Result;
+		Result.ResultState = State;
+		Result.DurationMinutes = GetActionDuration(Action);
+		const int32 MissingWood = FMath::Max(0, static_cast<int32>(DomainRules::RepairWoodPerHome) - State.Wood);
+		Result.WoodQuantity = MissingWood;
+		Result.CoinCost = DomainRules::PaymentCoins(MissingWood, World.WoodPrice);
+
+		switch (Action)
+		{
+		case EIndividualAction::Routine:
+			Result.bApplicable = State.HomeState == EHomeState::Healthy || State.HomeState == EHomeState::Repaired;
+			break;
+
+		case EIndividualAction::Work:
+			Result.bApplicable = State.HomeState == EHomeState::DamagedWaiting
+				&& State.Cash + State.RepairCredit < Result.CoinCost;
+			if (Result.bApplicable)
+			{
+				Result.Income = GetWorkIncome(IncomeBand);
+				Result.ResultState.Cash += Result.Income;
+			}
+			break;
+
+		case EIndividualAction::BuyWood:
+			Result.bApplicable = State.HomeState == EHomeState::DamagedWaiting
+				&& MissingWood > 0
+				&& World.MarketWoodAvailable + UE_DOUBLE_SMALL_NUMBER >= MissingWood
+				&& State.Cash + State.RepairCredit >= Result.CoinCost;
+			if (Result.bApplicable)
+			{
+				const int32 CreditPayment = FMath::Min(State.RepairCredit, static_cast<int32>(Result.CoinCost));
+				Result.ResultState.RepairCredit -= CreditPayment;
+				Result.ResultState.Cash -= static_cast<int32>(Result.CoinCost) - CreditPayment;
+				Result.ResultState.Wood += MissingWood;
+			}
+			break;
+
+		case EIndividualAction::ChopWood:
+			Result.bApplicable = State.HomeState == EHomeState::DamagedWaiting
+				&& Profession == EProfession::Logger
+				&& MissingWood > 0
+				&& World.ForestWood + UE_DOUBLE_SMALL_NUMBER >= MissingWood
+				&& World.HarvestAllowance + UE_DOUBLE_SMALL_NUMBER >= MissingWood;
+			if (Result.bApplicable)
+			{
+				Result.ResultState.Wood += MissingWood;
+			}
+			break;
+
+		case EIndividualAction::StartRepair:
+			Result.WoodQuantity = static_cast<int32>(DomainRules::RepairWoodPerHome);
+			Result.CoinCost = 0;
+			Result.bApplicable = State.HomeState == EHomeState::DamagedWaiting
+				&& State.Wood >= Result.WoodQuantity;
+			if (Result.bApplicable)
+			{
+				Result.ResultState.Wood -= Result.WoodQuantity;
+				Result.ResultState.HomeState = EHomeState::UnderRepair;
+			}
+			break;
+
+		case EIndividualAction::ContinueRepair:
+			Result.WoodQuantity = 0;
+			Result.CoinCost = 0;
+			Result.bApplicable = State.HomeState == EHomeState::UnderRepair;
+			if (Result.bApplicable)
+			{
+				Result.ResultState.HomeState = EHomeState::Repaired;
+			}
+			break;
+
+		case EIndividualAction::Wait:
+			Result.WoodQuantity = 0;
+			Result.CoinCost = 0;
+			Result.bApplicable = true;
+			break;
+
+		case EIndividualAction::None:
+		default:
+			break;
+		}
+		return Result;
+	}
+
 	FIndividualPlan FIndividualDomain::BuildPlan(
 		const FOracleResidentState& Resident,
 		const FIndividualWorldFacts& World)
@@ -1447,13 +1559,7 @@ namespace AILOD
 			return Plan;
 		}
 
-		struct FSearchState
-		{
-			int32 Cash = 0;
-			int32 RepairCredit = 0;
-			int32 Wood = 0;
-			EHomeState HomeState = EHomeState::Healthy;
-		};
+		using FSearchState = FIndividualActionState;
 		struct FSearchNode
 		{
 			FSearchState State;
@@ -1492,74 +1598,15 @@ namespace AILOD
 			FSearchState& OutState,
 			int64& OutCostMinutes)
 		{
-			OutState = State;
-			OutCostMinutes = 0;
-			const int32 MissingWood = FMath::Max(0, static_cast<int32>(RepairWoodPerHome) - State.Wood);
-			const int64 Cost = PaymentCoins(MissingWood, World.WoodPrice);
-			switch (Action)
-			{
-			case EIndividualAction::Work:
-				if (State.HomeState != EHomeState::DamagedWaiting
-					|| State.Cash + State.RepairCredit >= Cost)
-				{
-					return false;
-				}
-				OutState.Cash += Resident.IncomeBand == EIncomeBand::Low ? 1 : 2;
-				OutCostMinutes = MinutesPerDay;
-				return true;
-
-			case EIndividualAction::BuyWood:
-				if (State.HomeState != EHomeState::DamagedWaiting
-					|| MissingWood <= 0
-					|| World.MarketWoodAvailable + UE_DOUBLE_SMALL_NUMBER < MissingWood
-					|| State.Cash + State.RepairCredit < Cost)
-				{
-					return false;
-				}
-				{
-					const int32 CreditPayment = FMath::Min(State.RepairCredit, static_cast<int32>(Cost));
-					OutState.RepairCredit -= CreditPayment;
-					OutState.Cash -= static_cast<int32>(Cost) - CreditPayment;
-					OutState.Wood += MissingWood;
-					OutCostMinutes = MinutesPerHour;
-					return true;
-				}
-
-			case EIndividualAction::ChopWood:
-				if (State.HomeState != EHomeState::DamagedWaiting
-					|| Resident.Profession != EProfession::Logger
-					|| MissingWood <= 0
-					|| World.ForestWood + UE_DOUBLE_SMALL_NUMBER < MissingWood
-					|| World.HarvestAllowance + UE_DOUBLE_SMALL_NUMBER < MissingWood)
-				{
-					return false;
-				}
-				OutState.Wood += MissingWood;
-				OutCostMinutes = MinutesPerDay;
-				return true;
-
-			case EIndividualAction::StartRepair:
-				if (State.HomeState != EHomeState::DamagedWaiting
-					|| State.Wood < static_cast<int32>(RepairWoodPerHome))
-				{
-					return false;
-				}
-				OutState.Wood -= static_cast<int32>(RepairWoodPerHome);
-				OutState.HomeState = EHomeState::UnderRepair;
-				return true;
-
-			case EIndividualAction::ContinueRepair:
-				if (State.HomeState != EHomeState::UnderRepair)
-				{
-					return false;
-				}
-				OutState.HomeState = EHomeState::Repaired;
-				OutCostMinutes = 2 * MinutesPerDay;
-				return true;
-
-			default:
-				return false;
-			}
+			const FIndividualActionEvaluation Evaluation = EvaluateAction(
+				Action,
+				State,
+				Resident.Profession,
+				Resident.IncomeBand,
+				World);
+			OutState = Evaluation.ResultState;
+			OutCostMinutes = Evaluation.DurationMinutes;
+			return Evaluation.bApplicable;
 		};
 
 		TArray<FSearchNode> Frontier;

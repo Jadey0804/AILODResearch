@@ -269,7 +269,7 @@ bool FAILODPhase0ManifestDeterminismTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Saved Persistent artifacts are byte-identical"), SavedPersistentA, SavedPersistentB);
 
 	AddInfo(FString::Printf(
-		TEXT("Phase 0 v1.4 artifacts written to %s. ConfigHash=%s PopulationCRC=%08X DamageCRC=%08X PersistentCRC=%08X"),
+		TEXT("Phase 0 v1.6 artifacts written to %s. ConfigHash=%s PopulationCRC=%08X DamageCRC=%08X PersistentCRC=%08X"),
 		*TestRoot,
 		*PopulationA.ConfigHash,
 		FCrc::StrCrc32(*SavedPopulationA),
@@ -336,7 +336,7 @@ bool FAILODPhase0LogSchemaTest::RunTest(const FString& Parameters)
 		RandomStreams::PersistentSelection
 	};
 	TestEqual(TEXT("All four frozen random stream tags are unique"), StreamTags.Num(), 4);
-	TestEqual(TEXT("Spec version is v1.4"), FString(SpecVersion), FString(TEXT("1.4")));
+	TestEqual(TEXT("Spec version is v1.6"), FString(SpecVersion), FString(TEXT("1.6")));
 	TestEqual(TEXT("Schema version is v1.1"), FString(SchemaVersion), FString(TEXT("1.1")));
 
 	return true;

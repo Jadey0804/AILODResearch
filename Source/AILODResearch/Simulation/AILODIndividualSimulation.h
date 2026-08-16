@@ -49,6 +49,24 @@ namespace AILOD
 		TArray<EIndividualAction> Actions;
 	};
 
+	struct FIndividualActionState
+	{
+		int32 Cash = 0;
+		int32 RepairCredit = 0;
+		int32 Wood = 0;
+		EHomeState HomeState = EHomeState::Healthy;
+	};
+
+	struct FIndividualActionEvaluation
+	{
+		bool bApplicable = false;
+		FIndividualActionState ResultState;
+		int64 DurationMinutes = 0;
+		int32 WoodQuantity = 0;
+		int64 CoinCost = 0;
+		int32 Income = 0;
+	};
+
 	struct FResidentCoreState
 	{
 		FResidentID ResidentID = 0;
@@ -124,6 +142,14 @@ namespace AILOD
 	{
 	public:
 		static EIndividualGoal SelectGoal(const FOracleResidentState& Resident);
+		static FIndividualActionEvaluation EvaluateAction(
+			EIndividualAction Action,
+			const FIndividualActionState& State,
+			EProfession Profession,
+			EIncomeBand IncomeBand,
+			const FIndividualWorldFacts& World);
+		static int64 GetActionDuration(EIndividualAction Action);
+		static int32 GetWorkIncome(EIncomeBand IncomeBand);
 		static FIndividualPlan BuildPlan(
 			const FOracleResidentState& Resident,
 			const FIndividualWorldFacts& World);

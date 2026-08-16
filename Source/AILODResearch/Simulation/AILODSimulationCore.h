@@ -207,8 +207,10 @@ namespace AILOD
 	public:
 		bool CreateEvent(const FSimulationEventRequest& Request, FEventID& OutEventID, FString& OutError);
 		bool TransferOwner(FEventID EventID, const FString& ExpectedOwner, const FString& NewOwner, FString& OutError);
+		bool ConvertPendingEventToAggregate(FEventID EventID, const FString& ExpectedOwner, const FString& NewOwner, FString& OutError);
 		bool SetReservationID(FEventID EventID, FReservationID ReservationID, FString& OutError);
 		bool CompleteEvent(FEventID EventID, FString& OutError);
+		bool RemoveCompletedEvent(FEventID EventID, FString& OutError);
 		const FSimulationEventRecord* Find(FEventID EventID) const;
 		const TMap<FEventID, FSimulationEventRecord>& GetEvents() const { return Events; }
 		int32 GetOwnerConflictCount() const { return OwnerConflictCount; }

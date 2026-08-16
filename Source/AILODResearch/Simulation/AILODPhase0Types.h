@@ -6,7 +6,7 @@
 
 namespace AILOD
 {
-	inline constexpr TCHAR SpecVersion[] = TEXT("1.4");
+	inline constexpr TCHAR SpecVersion[] = TEXT("1.6");
 	inline constexpr TCHAR SchemaVersion[] = TEXT("1.1");
 	inline constexpr int32 ContinuitySampleSize = 20;
 	inline constexpr int32 Day7And30ContinuitySampleCount = 10;

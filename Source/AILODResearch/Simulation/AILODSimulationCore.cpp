@@ -412,6 +412,31 @@ namespace AILOD
 		return true;
 	}
 
+	bool FSimulationEventStore::ConvertPendingEventToAggregate(
+		const FEventID EventID,
+		const FString& ExpectedOwner,
+		const FString& NewOwner,
+		FString& OutError)
+	{
+		FSimulationEventRecord* Record = Events.Find(EventID);
+		if (Record == nullptr || Record->State != ESimulationEventState::Pending || NewOwner.IsEmpty())
+		{
+			OutError = TEXT("Pending event or aggregate owner is invalid.");
+			return false;
+		}
+		if (Record->Event.Owner != ExpectedOwner)
+		{
+			++OwnerConflictCount;
+			OutError = TEXT("Pending event owner does not match the expected resident owner.");
+			return false;
+		}
+
+		Record->Event.Owner = NewOwner;
+		Record->Event.ResidentID = 0;
+		OutError.Reset();
+		return true;
+	}
+
 	bool FSimulationEventStore::CompleteEvent(const FEventID EventID, FString& OutError)
 	{
 		FSimulationEventRecord* Record = Events.Find(EventID);
@@ -448,6 +473,19 @@ namespace AILOD
 		return true;
 	}
 
+	bool FSimulationEventStore::RemoveCompletedEvent(const FEventID EventID, FString& OutError)
+	{
+		const FSimulationEventRecord* Record = Events.Find(EventID);
+		if (Record == nullptr || Record->State != ESimulationEventState::Completed)
+		{
+			OutError = TEXT("Only a completed event can be removed from retained event state.");
+			return false;
+		}
+		Events.Remove(EventID);
+		OutError.Reset();
+		return true;
+	}
+
 	const FSimulationEventRecord* FSimulationEventStore::Find(const FEventID EventID) const
 	{
 		return Events.Find(EventID);
@@ -474,6 +512,10 @@ namespace AILOD
 			- Population.PersistentMacro
 			- Population.ActiveMicro;
 		Result.WoodResidual = Ledger.ComputeResidual(ESimulationResource::Wood);
+		if (FMath::IsNearlyZero(Result.WoodResidual, 1.e-6))
+		{
+			Result.WoodResidual = 0.0;
+		}
 		Result.NegativeStockCount = Ledger.CountNegativeStocks();
 		Result.DuplicateTransactionCount = Ledger.GetDuplicateTransactionCount();
 		Result.EventOwnerConflictCount = EventStore.GetOwnerConflictCount();

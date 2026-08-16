@@ -876,6 +876,7 @@ bool FAILODPhase4DeterminismTest::RunTest(const FString& Parameters)
 		AddError(Error);
 	}
 	TestEqual(TEXT("The same config and trace produce the same Phase 4 digest"), DigestA, DigestB);
+	AddInfo(FString::Printf(TEXT("Phase4 v1.6 deterministic digest=%s"), *DigestA));
 	TestEqual(TEXT("The same trace produces the same transition count"), RunA.GetTransitions().Num(), RunB.GetTransitions().Num());
 	TestTrue(TEXT("Run A remains hard-error free"), RunA.Audit().IsHardErrorFree());
 	TestTrue(TEXT("Run B remains hard-error free"), RunB.Audit().IsHardErrorFree());
