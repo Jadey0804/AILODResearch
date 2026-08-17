@@ -110,6 +110,99 @@ namespace AILOD
 			}
 		};
 
+		enum class EBackendPopulationRepresentation : uint8
+		{
+			PersistentResidents,
+			AggregateKingdom
+		};
+
+		enum class EBackendPlanningGranularity : uint8
+		{
+			Individual,
+			Cohort,
+			Aggregate
+		};
+
+		enum class EBackendActivationBridge : uint8
+		{
+			PersistentCoreState,
+			ReconstructedMicro
+		};
+
+		class ISimulationBackend
+		{
+		public:
+			virtual ~ISimulationBackend() = default;
+			virtual EUnifiedSimulationMethod GetMethod() const = 0;
+			virtual EBackendPopulationRepresentation GetPopulationRepresentation() const = 0;
+			virtual EBackendPlanningGranularity GetPlanningGranularity() const = 0;
+			virtual EBackendActivationBridge GetActivationBridge() const = 0;
+			virtual bool ValidatePopulation(int32 PopulationPerKingdom, FString& OutError) const = 0;
+		};
+
+		struct FSimulationBackendProfile
+		{
+			EUnifiedSimulationMethod Method = EUnifiedSimulationMethod::Oracle;
+			EBackendPopulationRepresentation PopulationRepresentation = EBackendPopulationRepresentation::PersistentResidents;
+			EBackendPlanningGranularity PlanningGranularity = EBackendPlanningGranularity::Individual;
+			EBackendActivationBridge ActivationBridge = EBackendActivationBridge::PersistentCoreState;
+			int32 RequiredTotalPopulation = 0;
+		};
+
+		class FConfiguredSimulationBackend final : public ISimulationBackend
+		{
+		public:
+			explicit FConfiguredSimulationBackend(const FSimulationBackendProfile& InProfile)
+				: Profile(InProfile)
+			{
+			}
+
+			virtual EUnifiedSimulationMethod GetMethod() const override { return Profile.Method; }
+			virtual EBackendPopulationRepresentation GetPopulationRepresentation() const override { return Profile.PopulationRepresentation; }
+			virtual EBackendPlanningGranularity GetPlanningGranularity() const override { return Profile.PlanningGranularity; }
+			virtual EBackendActivationBridge GetActivationBridge() const override { return Profile.ActivationBridge; }
+
+			virtual bool ValidatePopulation(const int32 PopulationPerKingdom, FString& OutError) const override
+			{
+				if (Profile.RequiredTotalPopulation > 0
+					&& 2 * PopulationPerKingdom != Profile.RequiredTotalPopulation)
+				{
+					OutError = TEXT("The Detailed Individual Oracle is frozen to 200 total residents.");
+					return false;
+				}
+				return true;
+			}
+
+		private:
+			FSimulationBackendProfile Profile;
+		};
+
+		TUniquePtr<ISimulationBackend> CreateSimulationBackend(const EUnifiedSimulationMethod Method)
+		{
+			FSimulationBackendProfile Profile;
+			Profile.Method = Method;
+			switch (Method)
+			{
+			case EUnifiedSimulationMethod::Oracle:
+				Profile.RequiredTotalPopulation = 200;
+				break;
+			case EUnifiedSimulationMethod::Proposed:
+				Profile.PlanningGranularity = EBackendPlanningGranularity::Cohort;
+				break;
+			case EUnifiedSimulationMethod::PerAgent:
+				break;
+			case EUnifiedSimulationMethod::Simple:
+				Profile.PopulationRepresentation = EBackendPopulationRepresentation::AggregateKingdom;
+				Profile.PlanningGranularity = EBackendPlanningGranularity::Aggregate;
+				Profile.ActivationBridge = EBackendActivationBridge::ReconstructedMicro;
+				break;
+			default:
+				checkNoEntry();
+				return nullptr;
+			}
+			return MakeUnique<FConfiguredSimulationBackend>(Profile);
+		}
+
 		class FUnifiedRuntime
 		{
 		public:
@@ -119,7 +212,7 @@ namespace AILOD
 				const EStage2Scenario InScenario,
 				const FUnifiedRunOptions& InOptions)
 				: Config(InConfig)
-				, Method(InMethod)
+				, Backend(CreateSimulationBackend(InMethod))
 				, Scenario(InScenario)
 				, Options(InOptions)
 				, Clock(FSimulationTime::FromDays(-7))
@@ -203,7 +296,7 @@ namespace AILOD
 			void FillResult(FUnifiedRunResult& OutResult);
 
 			FPhase0Config Config;
-			EUnifiedSimulationMethod Method = EUnifiedSimulationMethod::Oracle;
+			TUniquePtr<ISimulationBackend> Backend;
 			EStage2Scenario Scenario = EStage2Scenario::None;
 			FUnifiedRunOptions Options;
 			FInitialPopulationManifest PopulationManifest;
@@ -253,9 +346,8 @@ namespace AILOD
 				OutError = TEXT("Unified runtime requires a positive per-kingdom population.");
 				return false;
 			}
-			if (Method == EUnifiedSimulationMethod::Oracle && Config.PopulationPerKingdom != 100)
+			if (!Backend || !Backend->ValidatePopulation(Config.PopulationPerKingdom, OutError))
 			{
-				OutError = TEXT("The Detailed Individual Oracle is frozen to 200 total residents.");
 				return false;
 			}
 			if (!FPhase0ManifestGenerator::Generate(
@@ -276,7 +368,7 @@ namespace AILOD
 				return false;
 			}
 
-			if (Method == EUnifiedSimulationMethod::Simple)
+			if (Backend->GetPopulationRepresentation() == EBackendPopulationRepresentation::AggregateKingdom)
 			{
 				for (int32 Index = 0; Index < 2; ++Index)
 				{
@@ -403,7 +495,7 @@ namespace AILOD
 				}
 			}
 
-			if (Method == EUnifiedSimulationMethod::Simple)
+			if (Backend->GetPopulationRepresentation() == EBackendPopulationRepresentation::AggregateKingdom)
 			{
 				for (const EKingdom Kingdom : { EKingdom::A, EKingdom::B })
 				{
@@ -544,7 +636,7 @@ namespace AILOD
 
 		FString FUnifiedRuntime::ResidentLedgerAccount(const FResidentID ResidentID, const TCHAR* Stock) const
 		{
-			return Method == EUnifiedSimulationMethod::Simple
+			return Backend->GetActivationBridge() == EBackendActivationBridge::ReconstructedMicro
 				? SimpleMicroAccount(ResidentID, Stock)
 				: ResidentAccount(ResidentID, Stock);
 		}
@@ -643,7 +735,7 @@ namespace AILOD
 
 			if (bIncludeResidentTotals)
 			{
-				if (Method == EUnifiedSimulationMethod::Simple)
+				if (Backend->GetPopulationRepresentation() == EBackendPopulationRepresentation::AggregateKingdom)
 				{
 					Stocks.ResidentInventoryWood = Ledger.GetBalance(ESimulationResource::Wood, SimpleAccount(Kingdom, TEXT("Wood")));
 					Stocks.ResidentRepairCredit = FMath::RoundToInt64(Ledger.GetBalance(ESimulationResource::Coin, SimpleAccount(Kingdom, TEXT("RepairCredit"))));
@@ -674,7 +766,7 @@ namespace AILOD
 
 		int32 FUnifiedRuntime::CountHomes(const EKingdom Kingdom, const EHomeState State) const
 		{
-			if (Method == EUnifiedSimulationMethod::Simple)
+			if (Backend->GetPopulationRepresentation() == EBackendPopulationRepresentation::AggregateKingdom)
 			{
 				int32 Count = SimpleStates[KingdomIndex(Kingdom)].HomeStates[HomeStateIndex(State)];
 				for (const FResidentCoreState& Resident : Residents)
@@ -696,7 +788,7 @@ namespace AILOD
 			FPopulationState Population;
 			Population.Total = 2 * Config.PopulationPerKingdom;
 			Population.ActiveMicro = ActiveResidents.Num();
-			if (Method == EUnifiedSimulationMethod::Simple)
+			if (Backend->GetPopulationRepresentation() == EBackendPopulationRepresentation::AggregateKingdom)
 			{
 				Population.Anonymous = Population.Total - Population.ActiveMicro;
 			}
@@ -719,7 +811,7 @@ namespace AILOD
 			}
 
 			TSet<FEventID> ReferencedResidentEvents;
-			if (Method != EUnifiedSimulationMethod::Simple || Residents.Num() > 0)
+			if (Backend->GetPopulationRepresentation() != EBackendPopulationRepresentation::AggregateKingdom || Residents.Num() > 0)
 			{
 				for (const FResidentCoreState& Resident : Residents)
 				{
@@ -830,7 +922,7 @@ namespace AILOD
 		void FUnifiedRuntime::FillResult(FUnifiedRunResult& OutResult)
 		{
 			OutResult = {};
-			OutResult.Method = Method;
+			OutResult.Method = Backend->GetMethod();
 			OutResult.Scenario = Scenario;
 			OutResult.Seed = Config.Seed;
 			OutResult.ConfigHash = PopulationManifest.ConfigHash;
@@ -844,7 +936,7 @@ namespace AILOD
 				OutResult.KingdomAHomeStates[State] = CountHomes(EKingdom::A, static_cast<EHomeState>(State));
 				OutResult.KingdomBHomeStates[State] = CountHomes(EKingdom::B, static_cast<EHomeState>(State));
 			}
-			if (Method != EUnifiedSimulationMethod::Simple)
+			if (Backend->GetPopulationRepresentation() != EBackendPopulationRepresentation::AggregateKingdom)
 			{
 				OutResult.Residents = Residents;
 			}
@@ -855,7 +947,7 @@ namespace AILOD
 			OutResult.ActiveCapViolationCount = ActiveCapViolationCount;
 			OutResult.ReservationErrorCount = ReservationErrorCount;
 			OutResult.TaskResetCount = TaskResetCount;
-			OutResult.SimpleIndividualCoreStateCount = Method == EUnifiedSimulationMethod::Simple ? Residents.Num() : 0;
+			OutResult.SimpleIndividualCoreStateCount = Backend->GetPopulationRepresentation() == EBackendPopulationRepresentation::AggregateKingdom ? Residents.Num() : 0;
 			for (const FScheduledEvent& Pending : Scheduler.GetPendingEvents())
 			{
 				OutResult.PendingEventsAtOrBeforeEnd += Pending.ExecuteAt <= Clock.Now() ? 1 : 0;
@@ -896,7 +988,7 @@ namespace AILOD
 			UpdateWoodPrice(EKingdom::A);
 			UpdateWoodPrice(EKingdom::B);
 
-			if (Method == EUnifiedSimulationMethod::Simple)
+			if (Backend->GetPlanningGranularity() == EBackendPlanningGranularity::Aggregate)
 			{
 				if (Residents.Num() > 0 && !PlanDetailedResidents(Time, OutError))
 				{
@@ -1039,7 +1131,7 @@ namespace AILOD
 				OutError = TEXT("Fixed Activation Trace contains a duplicate request or exceeds the global Active Micro cap.");
 				return false;
 			}
-			if (Method == EUnifiedSimulationMethod::Simple)
+			if (Backend->GetActivationBridge() == EBackendActivationBridge::ReconstructedMicro)
 			{
 				return ActivateSimpleResident(ResidentID, Time, OutError);
 			}
@@ -1079,7 +1171,7 @@ namespace AILOD
 				OutError = TEXT("Fixed Activation Trace attempted to deactivate a resident who is not active.");
 				return false;
 			}
-			if (Method == EUnifiedSimulationMethod::Simple)
+			if (Backend->GetActivationBridge() == EBackendActivationBridge::ReconstructedMicro)
 			{
 				return DeactivateSimpleResident(ResidentID, Time, OutError);
 			}
@@ -1284,7 +1376,7 @@ namespace AILOD
 
 		bool FUnifiedRuntime::ApplyEarthquake(const FSimulationTime Time, FString& OutError)
 		{
-			if (Method == EUnifiedSimulationMethod::Simple)
+			if (Backend->GetPopulationRepresentation() == EBackendPopulationRepresentation::AggregateKingdom)
 			{
 				FSimpleKingdomState& State = SimpleStates[KingdomIndex(EKingdom::A)];
 				const int32 Damaged = DamageList.DamagedResidents.Num();
@@ -1456,7 +1548,7 @@ namespace AILOD
 			AidArriveIDs.Reset();
 			SimpleAidEligibleCount = 0;
 			const int64 Required = PaymentCoins(static_cast<int32>(RepairWoodPerHome), WoodPrices[KingdomIndex(EKingdom::A)]);
-			if (Method == EUnifiedSimulationMethod::Simple)
+			if (Backend->GetPopulationRepresentation() == EBackendPopulationRepresentation::AggregateKingdom)
 			{
 				const FSimpleKingdomState& State = SimpleStates[KingdomIndex(EKingdom::A)];
 				const double MeanCash = Ledger.GetBalance(ESimulationResource::Coin, SimpleAccount(EKingdom::A, TEXT("Cash"))) / Config.PopulationPerKingdom;
@@ -1494,7 +1586,7 @@ namespace AILOD
 			return CreateInstantEvent(
 				TEXT("RepairAidEligibility"),
 				Time,
-				Method == EUnifiedSimulationMethod::Simple ? SimpleAidEligibleCount : AidEligibleResidentIndices.Num(),
+				Backend->GetPopulationRepresentation() == EBackendPopulationRepresentation::AggregateKingdom ? SimpleAidEligibleCount : AidEligibleResidentIndices.Num(),
 				RepairAidPolicyID,
 				OutError);
 		}
@@ -1507,13 +1599,13 @@ namespace AILOD
 			++Diagnostics.LedgerQueryCount;
 			const int64 Budget = FMath::Min<int64>(FMath::FloorToInt64(0.40 * Config.PopulationPerKingdom), Treasury);
 			int32 PaidCount = FMath::Min(
-				Method == EUnifiedSimulationMethod::Simple ? SimpleAidEligibleCount : AidEligibleResidentIndices.Num(),
+				Backend->GetPopulationRepresentation() == EBackendPopulationRepresentation::AggregateKingdom ? SimpleAidEligibleCount : AidEligibleResidentIndices.Num(),
 				static_cast<int32>(Budget / static_cast<int64>(RepairAidPerHome)));
 			if (!CreateInstantEvent(TEXT("RepairAidPayment"), Time, PaidCount, RepairAidPolicyID, OutError))
 			{
 				return false;
 			}
-			if (Method == EUnifiedSimulationMethod::Simple)
+			if (Backend->GetPopulationRepresentation() == EBackendPopulationRepresentation::AggregateKingdom)
 			{
 				return PaidCount <= 0 || Submit(
 					Time,
@@ -1757,7 +1849,7 @@ namespace AILOD
 				}
 			};
 
-			if (Method == EUnifiedSimulationMethod::Proposed)
+			if (Backend->GetPlanningGranularity() == EBackendPlanningGranularity::Cohort)
 			{
 				TMap<FString, TArray<int32>> CohortGroups;
 				for (int32 ResidentIndex = 0; ResidentIndex < Residents.Num(); ++ResidentIndex)

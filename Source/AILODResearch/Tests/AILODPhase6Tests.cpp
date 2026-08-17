@@ -149,4 +149,74 @@ bool FAILODPhase6ASessionParityTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAILODPhase6BBackendBoundaryTest,
+	"AILODResearch.Phase6.BackendBoundary",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAILODPhase6BBackendBoundaryTest::RunTest(const FString& Parameters)
+{
+	using namespace AILOD;
+	const EUnifiedSimulationMethod Methods[] =
+	{
+		EUnifiedSimulationMethod::Oracle,
+		EUnifiedSimulationMethod::Proposed,
+		EUnifiedSimulationMethod::PerAgent,
+		EUnifiedSimulationMethod::Simple
+	};
+	FUnifiedRunOptions Options;
+	Options.Mode = EUnifiedRunMode::Performance;
+	Options.bRetainCompletedEvents = false;
+	Options.bRecordSnapshots = false;
+
+	for (const EUnifiedSimulationMethod Method : Methods)
+	{
+		FUnifiedRunResult Result;
+		FString Error;
+		if (!FUnifiedSimulationRunner::Run(
+			MakePhase6AConfig(),
+			Method,
+			EStage2Scenario::None,
+			Options,
+			Result,
+			Error))
+		{
+			AddError(FString::Printf(TEXT("%s backend run failed: %s"), ToString(Method), *Error));
+			continue;
+		}
+
+		TestEqual(*FString::Printf(TEXT("%s backend preserves its selected method"), ToString(Method)), Result.Method, Method);
+		TestTrue(*FString::Printf(TEXT("%s backend remains hard-error free"), ToString(Method)), Result.IsHardErrorFree());
+		if (Method == EUnifiedSimulationMethod::Proposed)
+		{
+			TestEqual(TEXT("Proposed retains one persistent CoreState per resident"), Result.Residents.Num(), 200);
+			TestTrue(TEXT("Proposed enters cohort planning through its backend"), Result.Diagnostics.CohortPlanningEvaluationCount > 0);
+		}
+		else if (Method == EUnifiedSimulationMethod::Simple)
+		{
+			TestEqual(TEXT("Simple returns no persistent individual population"), Result.Residents.Num(), 0);
+			TestTrue(TEXT("Simple reconstructs temporary Micro state through its backend"), Result.Diagnostics.SimpleMicroReconstructionCount > 0);
+			TestEqual(TEXT("Simple writes back every temporary Micro state"), Result.Diagnostics.SimpleMicroWritebackCount, Result.Diagnostics.SimpleMicroReconstructionCount);
+		}
+		else
+		{
+			TestEqual(*FString::Printf(TEXT("%s retains one persistent CoreState per resident"), ToString(Method)), Result.Residents.Num(), 200);
+			TestEqual(*FString::Printf(TEXT("%s does not enter cohort planning"), ToString(Method)), Result.Diagnostics.CohortPlanningEvaluationCount, static_cast<int64>(0));
+		}
+	}
+
+	FPhase0Config LargeOracleConfig = MakePhase6AConfig();
+	LargeOracleConfig.PopulationPerKingdom = 1000;
+	FUnifiedSimulationSession LargeOracleSession(
+		LargeOracleConfig,
+		EUnifiedSimulationMethod::Oracle,
+		EStage2Scenario::StateImport,
+		Options);
+	FString Error;
+	TestFalse(TEXT("Oracle backend still rejects more than 200 residents"), LargeOracleSession.Initialize(Error));
+	TestTrue(TEXT("Oracle backend explains its frozen population boundary"), Error.Contains(TEXT("200 total residents")));
+
+	return true;
+}
+
 #endif

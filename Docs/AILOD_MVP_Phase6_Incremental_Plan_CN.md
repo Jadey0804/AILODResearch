@@ -2,10 +2,11 @@
 
 **计划版本：1.0**<br>
 **日期：2026-08-17**<br>
-**分支：`phase-6-experiment-runner`**<br>
+**分支：`phase-6-backend-observer-logs`**<br>
 **Phase 5.1 基线提交：`7ea750d6617f6346de37e19e2d20c9c76f5b682f`**<br>
 **Step 0 计划提交：`a3a34969be04036fe919f9599ace609f0f508ceb`**<br>
-**当前状态：Phase 6A 实现与自动验收通过，项目作者已于 2026-08-17 确认；等待本地封板提交，未推送。**
+**Phase 6A 封板提交：`71e3565`**<br>
+**当前状态：Phase 6B 实现与自动验收通过；依项目作者本轮授权继续 6C，未推送。**
 
 本文件只把既有 Phase 6 规则拆成可独立验收的实施步骤，不新增研究模型、公式、参数、方法或日志字段。规则冲突仍按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.6 顺序处理。
 
@@ -47,8 +48,8 @@ Phase 6 不负责：
 | 检查点 | 目标 | 状态 |
 |---|---|---|
 | Step 0 | 冻结本增量计划、每步范围和确认流程 | 作者已确认 |
-| Phase 6A | 建立 `Initialize / StepHour / Finalize` 生产会话 | 作者已确认，等待封板提交 |
-| Phase 6B | 建立最小 `ISimulationBackend` 边界 | 未开始 |
+| Phase 6A | 建立 `Initialize / StepHour / Finalize` 生产会话 | 作者已确认，已封板 |
+| Phase 6B | 建立最小 `ISimulationBackend` 边界 | 实现与自动验收通过，等待封板提交 |
 | Phase 6C | 建立只读 Observer/Event Sink | 未开始 |
 | Phase 6D | 输出 Run Manifest 与原始 CSV/JSONL | 未开始 |
 | Phase 6E | 建立批量 Experiment Runner 与离线指标重建 | 未开始 |
@@ -103,6 +104,18 @@ Phase 6 不负责：
 - 6A 的 16 个方法/场景结果与 Phase 5.1 基线一致；如结构重构改变 Digest，必须证明领域结果逐项一致并解释唯一原因，否则失败；
 - Oracle 仍拒绝 200 人以上，三个可部署方法继续通过 2k/10k/20k StateImport 冒烟；
 - 全套既有测试和 Backend 边界新增测试通过后停止，等待作者确认 6B。
+
+### 6B 实施与验收记录（2026-08-17）
+
+- 新增私有最小 `ISimulationBackend`，只暴露方法身份、人口表示、离屏规划粒度、激活桥接和人口约束；Backend 不持有 Clock、Scenario、Ledger、Scheduler、Event、Reservation 或动作提交逻辑。
+- 顶层 Runtime 构造时只调用一次 `CreateSimulationBackend`；四方法的原始枚举分支已从 Runtime 领域流程移除，方法映射只保留在 Backend 工厂。
+- Oracle/Per-Agent 使用持久个人状态与 Individual 规划；Proposed 使用持久个人状态与 Cohort 离屏规划；Simple 使用王国聚合状态、Aggregate 规划和激活时重建 Micro 的桥接。
+- 初始化、账本账户、资源读取、人口审计、地震、政策援助、激活/降级、规划入口与结果读取均通过 Backend 能力进入；共享小时顺序、政策、竞争、动作和事务实现未复制。
+- 新增 `AILODResearch.Phase6.BackendBoundary`，验证四种 Backend 的表示/规划/桥接外部行为及 Oracle 200 人边界。
+- 16 组 200 人方法 × 场景 Digest、事务、事件和生产规划次数与 Phase 5.1 冻结基线完全一致。
+- Oracle 继续拒绝超过 200 人；既有 2k/10k/20k × Simple/Per-Agent/Proposed 的 StateImport 全时段冒烟继续通过。
+- UE 5.4 Development Editor 编译成功；NullRHI 全套 `AILODResearch`：`20/20 Success`，`0 Failed`，自动化错误 `0`，最终退出码 `0`。
+- 本步未加入 Observer、文件日志、Experiment Runner、离线指标或性能优化；依项目作者本轮授权，6B 独立封板后继续 6C。
 
 ## 6. Phase 6C：只读 Observer 与 Event Sink
 
