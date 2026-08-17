@@ -1,14 +1,16 @@
 # AILOD MVP Phase 6 增量实施计划与检查点
 
-**计划版本：1.0**<br>
+**计划版本：1.1**<br>
 **日期：2026-08-17**<br>
-**分支：`phase-6-backend-observer-logs`**<br>
+**分支：`phase-6-performance-measurement`**<br>
 **Phase 5.1 基线提交：`7ea750d6617f6346de37e19e2d20c9c76f5b682f`**<br>
 **Step 0 计划提交：`a3a34969be04036fe919f9599ace609f0f508ceb`**<br>
 **Phase 6A 封板提交：`71e3565`**<br>
 **Phase 6B 封板提交：`c0e84d2`**<br>
 **Phase 6C 封板提交：`eb44bf3`**<br>
-**当前状态：Phase 6D 实现与自动验收通过，项目作者已于 2026-08-17 确认；等待本地封板提交，未推送。**
+**Phase 6D 封板提交：`93282ed`**<br>
+**Phase 6E 封板提交：`6ee6873`**<br>
+**当前状态：Phase 6F 实现与自动验收通过，项目作者已于 2026-08-17 确认；本检查点随 6F 封板提交，所有提交均未推送。**
 
 本文件只把既有 Phase 6 规则拆成可独立验收的实施步骤，不新增研究模型、公式、参数、方法或日志字段。规则冲突仍按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.6 顺序处理。
 
@@ -51,11 +53,11 @@ Phase 6 不负责：
 |---|---|---|
 | Step 0 | 冻结本增量计划、每步范围和确认流程 | 作者已确认 |
 | Phase 6A | 建立 `Initialize / StepHour / Finalize` 生产会话 | 作者已确认，已封板 |
-| Phase 6B | 建立最小 `ISimulationBackend` 边界 | 已封板 |
-| Phase 6C | 建立只读 Observer/Event Sink | 已封板 |
-| Phase 6D | 输出 Run Manifest 与原始 CSV/JSONL | 作者已确认，等待封板提交 |
-| Phase 6E | 建立批量 Experiment Runner 与离线指标重建 | 未开始 |
-| Phase 6F | 分离测量成本并完成 Phase 6 集成验收 | 未开始 |
+| Phase 6B | 建立最小 `ISimulationBackend` 边界 | 作者已确认，已封板 |
+| Phase 6C | 建立只读 Observer/Event Sink | 作者已确认，已封板 |
+| Phase 6D | 输出 Run Manifest 与原始 CSV/JSONL | 作者已确认，已封板 |
+| Phase 6E | 建立批量 Experiment Runner 与离线指标重建 | 作者已确认，已封板 |
+| Phase 6F | 分离测量成本并完成 Phase 6 集成验收 | 作者已确认，等待封板提交 |
 | Phase 6G（可选） | 只在证据确认瓶颈后执行定向优化 | 默认不执行 |
 
 ## 4. Phase 6A：可逐小时推进的生产会话
@@ -241,6 +243,20 @@ Phase 6 不负责：
 - 所有阶段测试通过，人口/资源/事件/事务/连续性硬错误均为 0；
 - 只报告“实验基础设施已通过”和工程成本分解，不宣称 Proposed 已达到正式性能或准确性目标；
 - 更新 Phase 6 检查点后停止，等待作者确认整个 Phase 6，再决定是否进入 Phase 7。
+
+### 6F 实施与验收记录（2026-08-17，作者已确认）
+
+- `StepHour` 与 `Finalize` 现在分别记录生产算法、Cohort/Aggregate Macro、Individual/Active Micro、LOD Transition、Validation 复算、完整 Audit、Snapshot、Observer、Initialize 和 Finalize 成本；序列化与第一次文件发布写入由日志器单列。`production_cpu_ms` 明确排除 Validation、Audit、Snapshot、Observer、序列化和文件写入。
+- 初始化完整 Audit 与 Performance 结束完整 Audit 都计入 `audit_cpu_ms`，不再混入 Initialize/Finalize；Validation 的逐成员计划、分歧比较和诊断更新整段计入 `validation_cpu_ms`，不进入 Proposed 生产成本。
+- Experiment Runner 新增显式运行模式。Validation 开启逐成员近似复算、逐小时 Audit 与 Snapshot；Accuracy 关闭逐成员复算但保留逐小时 Audit、研究日志与 Snapshot；Performance 关闭逐成员复算、Snapshot、完整 Observer/Event Sink 和已完成事件保留，只做初始与 Run 末完整 Audit。
+- Performance Run 每个目录只写 `run_manifest.json` 与 `performance_1s.csv`。采样按约一真实秒汇总，Run 结束允许一个不足一秒的末桶；`memory_mb` 是采样边界的进程 Used Physical Memory。CPU、内存和真实时间字段不进入确定性 Digest。
+- Manifest 新增 `measurement_summary`，记录 Initialize/Production/Macro/Micro/Transition/Validation/Audit/Snapshot/Observer/Finalize/Serialization/File Write；因此从 6F 起 Manifest 含真实计时，本身不再要求逐字节确定。六份准确性领域原始文件、行顺序与确定性 Digest 仍可逐字节重放。
+- 离线 Evaluator 现在能区分 Accuracy/Validation 与 Performance 目录。Accuracy 汇总不伪造性能样本；Performance 只读取 Manifest 与 `performance_1s.csv`，重建 SampleCount、AI/Macro/Micro/Transition 的 Mean/P95/P99/Max、进程内存、Active/Queue 以及相对 Per-Agent 的 Mean/P95 Speedup 输入。P95/P99 使用 nearest-rank；删除汇总后重建结果逐字节一致。
+- 新增 `AILODResearch.Phase6.MeasurementModeBoundaries`：同一 Proposed/StateImport 的 Validation、Accuracy、Performance Digest 均为 `D326B24A3D74128C955667DB42E8F1BADA9BC9CD`；Audit 次数分别为 `1609 / 1609 / 2`，Validation 额外复算非零，Accuracy/Performance 为 0，Performance 的 Snapshot/Observer 成本为 0。
+- 新增 `AILODResearch.Phase6.PerformanceLoggingScaleSmoke`：固定工程 Seed `20260810`，Proposed/Simple/PerAgent 在总人口 `200 / 2k / 10k / 20k` 共 12 个 67 游戏日 Performance Run 全部完成；每 Run 均产生至少一个合法性能桶、只含两份性能产物、Manifest 可重放、汇总可重建，最终硬错误为 0。
+- 单次 Development Editor + NullRHI 工程冒烟显示：20k Proposed 的生产成本约 `18096 ms`，其中 Macro 约 `12677 ms`；同轮 PerAgent 约 `17792 ms`。这只能说明当前瓶颈主要位于 Proposed Macro 路径，并触发 6G 的候选证据；固定顺序、单 Seed、非目标 Shipping 环境不能用于声称正式 Speedup、P95 或显著性，也不能据此修改研究指标。
+- UE 5.4 Development Editor 编译成功；最终 NullRHI 全套 `AILODResearch` 为 `25/25 Success`、`0 Failed`、自动化错误 `0`、退出码 `0`。其中 Phase 0—4 为 14 项、Phase 5 为 4 项、Phase 6 为 7 项。
+- 本步没有运行 Pilot、480 次准确性正式 Runs 或 90 次性能正式 Runs，没有执行可选 6G 优化，也没有进入 Phase 7。项目作者已于 2026-08-17 确认 6F，并授权 6F 独立提交后在新分支把 6G 拆为“只测量的 6G-A”和“需再次确认的 6G-B”；本检查点随 6F 封板提交，不推送。
 
 ## 10. Phase 6G：证据触发的可选优化
 

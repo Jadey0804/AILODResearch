@@ -542,6 +542,15 @@ bool FAILODPhase6DRawRunLoggingTest::RunTest(const FString& Parameters)
 		LODTransitionsFile,
 		LedgerTransactionsFile
 	};
+	const TArray<FString> DeterministicDomainFiles =
+	{
+		KingdomTimeseriesFile,
+		CohortTimeseriesFile,
+		NPCSnapshotsFile,
+		SimulationEventsFile,
+		LODTransitionsFile,
+		LedgerTransactionsFile
+	};
 	for (const FString& Directory : { RunAPath, RunBPath })
 	{
 		TArray<FString> ActualFiles;
@@ -554,7 +563,7 @@ bool FAILODPhase6DRawRunLoggingTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("Phase 6D does not emit performance_1s.csv"), FPaths::FileExists(FPaths::Combine(Directory, PerformanceFile)));
 	}
 
-	for (const FString& FileName : ExpectedFiles)
+	for (const FString& FileName : DeterministicDomainFiles)
 	{
 		FString ContentsA;
 		FString ContentsB;
@@ -583,6 +592,19 @@ bool FAILODPhase6DRawRunLoggingTest::RunTest(const FString& Parameters)
 		{
 			TestEqual(TEXT("Manifest records population per kingdom"), static_cast<int32>((*RunParameters)->GetNumberField(TEXT("population_per_kingdom"))), ResultA.PopulationPerKingdom);
 			TestEqual(TEXT("Manifest records the run mode"), (*RunParameters)->GetStringField(TEXT("run_mode")), FString(TEXT("Accuracy")));
+		}
+		const TSharedPtr<FJsonObject>* Measurements = nullptr;
+		TestTrue(TEXT("Manifest contains isolated cost measurements"), Manifest->TryGetObjectField(TEXT("measurement_summary"), Measurements) && Measurements != nullptr);
+		if (Measurements != nullptr)
+		{
+			TestTrue(TEXT("Manifest records positive production cost"), (*Measurements)->GetNumberField(TEXT("production_cpu_ms")) > 0.0);
+			TestTrue(TEXT("Manifest records non-negative audit cost"), (*Measurements)->GetNumberField(TEXT("audit_cpu_ms")) >= 0.0);
+			TestTrue(TEXT("Manifest records non-negative serialization cost"), (*Measurements)->GetNumberField(TEXT("serialization_cpu_ms")) >= 0.0);
+			TestTrue(TEXT("Manifest records non-negative file-write cost"), (*Measurements)->GetNumberField(TEXT("file_write_cpu_ms")) >= 0.0);
+			TestEqual(
+				TEXT("Manifest freezes the production CPU scope"),
+				(*Measurements)->GetStringField(TEXT("ai_cpu_scope")),
+				FString(TEXT("production_only_excludes_validation_audit_snapshot_observer_and_logging")));
 		}
 	}
 
@@ -778,7 +800,7 @@ bool FAILODPhase6EExperimentRunnerAndMetricsTest::RunTest(const FString& Paramet
 		return false;
 	}
 	TestEqual(TEXT("Manifest replay reproduces the deterministic domain digest"), Replay.DeterministicDigest, ProposedPolicyRun->DeterministicDigest);
-	for (const FString& File : { FString(RunManifestFile), FString(KingdomTimeseriesFile), FString(CohortTimeseriesFile), FString(NPCSnapshotsFile), FString(SimulationEventsFile), FString(LODTransitionsFile), FString(LedgerTransactionsFile) })
+	for (const FString& File : { FString(KingdomTimeseriesFile), FString(CohortTimeseriesFile), FString(NPCSnapshotsFile), FString(SimulationEventsFile), FString(LODTransitionsFile), FString(LedgerTransactionsFile) })
 	{
 		FString Original;
 		FString Rebuilt;
@@ -796,7 +818,7 @@ bool FAILODPhase6EExperimentRunnerAndMetricsTest::RunTest(const FString& Paramet
 	TestTrue(TEXT("Summary contains behavior TVD"), FirstSummary.Contains(TEXT("Behavior.TVD")));
 	TestTrue(TEXT("Summary contains continuity mismatch rates"), FirstSummary.Contains(TEXT("Continuity.MoneyMismatchRate")));
 	TestTrue(TEXT("Summary contains hard-error counts"), FirstSummary.Contains(TEXT("HardError.wood_residual")));
-	TestTrue(TEXT("Summary explicitly defers performance samples to 6F"), FirstSummary.Contains(TEXT("performance_1s.csv deferred to Phase6F")));
+	TestFalse(TEXT("Accuracy summary does not fabricate performance samples"), FirstSummary.Contains(TEXT("Performance.SampleCount")));
 
 	TestTrue(TEXT("Metrics summary can be deleted"), IFileManager::Get().Delete(*SummaryPath));
 	TestTrue(TEXT("Offline evaluator rebuilds metrics using only raw files"), FOfflineMetricsEvaluator::BuildSummary(TestRoot, SummaryPath, Error));
@@ -844,6 +866,302 @@ bool FAILODPhase6EExperimentRunnerAndMetricsTest::RunTest(const FString& Paramet
 	TestTrue(TEXT("None-baseline fixture restores the method baseline"), IFileManager::Get().Move(*ProposedNonePath, *HiddenNonePath, true, true, false, true));
 
 	AddInfo(FString::Printf(TEXT("Phase6E root=%s runs=%d digest=%s summary_bytes=%d"), *TestRoot, Runs.Num(), *ProposedPolicyRun->DeterministicDigest, FirstSummary.Len()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAILODPhase6FModeBoundaryTest,
+	"AILODResearch.Phase6.MeasurementModeBoundaries",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAILODPhase6FModeBoundaryTest::RunTest(const FString& Parameters)
+{
+	using namespace AILOD;
+	const FPhase0Config Config = MakePhase6AConfig();
+	auto RunMode = [this, &Config](const EUnifiedRunMode Mode, FUnifiedRunResult& OutResult)
+	{
+		FUnifiedRunOptions Options;
+		Options.Mode = Mode;
+		Options.bRetainCompletedEvents = Mode != EUnifiedRunMode::Performance;
+		Options.bRecordSnapshots = Mode != EUnifiedRunMode::Performance;
+		Options.bVerifyCohortApproximation = Mode == EUnifiedRunMode::Validation;
+		FString Error;
+		if (!FUnifiedSimulationRunner::Run(Config, EUnifiedSimulationMethod::Proposed, EStage2Scenario::StateImport, Options, OutResult, Error))
+		{
+			AddError(FString::Printf(TEXT("Phase 6F mode run failed: %s"), *Error));
+			return false;
+		}
+		return true;
+	};
+
+	FUnifiedRunResult Validation;
+	FUnifiedRunResult Accuracy;
+	FUnifiedRunResult Performance;
+	if (!RunMode(EUnifiedRunMode::Validation, Validation)
+		|| !RunMode(EUnifiedRunMode::Accuracy, Accuracy)
+		|| !RunMode(EUnifiedRunMode::Performance, Performance))
+	{
+		return false;
+	}
+
+	const FString ValidationDigest = FUnifiedSimulationRunner::BuildDeterministicDigest(Validation);
+	const FString AccuracyDigest = FUnifiedSimulationRunner::BuildDeterministicDigest(Accuracy);
+	const FString PerformanceDigest = FUnifiedSimulationRunner::BuildDeterministicDigest(Performance);
+	TestEqual(TEXT("Validation and Accuracy preserve the same domain result"), AccuracyDigest, ValidationDigest);
+	TestEqual(TEXT("Performance and Accuracy preserve the same domain result"), PerformanceDigest, AccuracyDigest);
+	TestTrue(TEXT("Validation is hard-error free"), Validation.IsHardErrorFree());
+	TestTrue(TEXT("Accuracy is hard-error free"), Accuracy.IsHardErrorFree());
+	TestTrue(TEXT("Performance is hard-error free"), Performance.IsHardErrorFree());
+
+	TestTrue(TEXT("Validation performs the optional per-member approximation recompute"), Validation.Diagnostics.ValidationPlanningEvaluationCount > 0);
+	TestEqual(TEXT("Accuracy does not perform per-member approximation recompute"), Accuracy.Diagnostics.ValidationPlanningEvaluationCount, int64(0));
+	TestEqual(TEXT("Performance does not perform per-member approximation recompute"), Performance.Diagnostics.ValidationPlanningEvaluationCount, int64(0));
+	TestEqual(TEXT("Validation performs initial plus hourly full audits"), Validation.Diagnostics.FullAuditCount, int64(1609));
+	TestEqual(TEXT("Accuracy retains the hourly correctness gate"), Accuracy.Diagnostics.FullAuditCount, int64(1609));
+	TestEqual(TEXT("Performance performs only initial and final full audits"), Performance.Diagnostics.FullAuditCount, int64(2));
+	TestTrue(TEXT("Validation records resident snapshots"), Validation.Diagnostics.SnapshotResidentVisitCount > 0);
+	TestTrue(TEXT("Accuracy records resident snapshots"), Accuracy.Diagnostics.SnapshotResidentVisitCount > 0);
+	TestEqual(TEXT("Performance does not visit residents for snapshots"), Performance.Diagnostics.SnapshotResidentVisitCount, int64(0));
+
+	TestTrue(TEXT("Validation production cost is recorded"), Validation.CostBreakdown.ProductionCpuMs > 0.0);
+	TestTrue(TEXT("Accuracy production cost is recorded"), Accuracy.CostBreakdown.ProductionCpuMs > 0.0);
+	TestTrue(TEXT("Performance production cost is recorded"), Performance.CostBreakdown.ProductionCpuMs > 0.0);
+	TestTrue(TEXT("Validation recompute cost is isolated"), Validation.CostBreakdown.ValidationCpuMs > 0.0);
+	TestEqual(TEXT("Accuracy has no validation recompute cost"), Accuracy.CostBreakdown.ValidationCpuMs, 0.0);
+	TestEqual(TEXT("Performance has no validation recompute cost"), Performance.CostBreakdown.ValidationCpuMs, 0.0);
+	TestEqual(TEXT("Performance has no snapshot cost"), Performance.CostBreakdown.SnapshotCpuMs, 0.0);
+	TestEqual(TEXT("Performance has no observer cost"), Performance.CostBreakdown.ObserverCpuMs, 0.0);
+	TestTrue(TEXT("Performance final audit cost is isolated"), Performance.CostBreakdown.AuditCpuMs > 0.0);
+
+	AddInfo(FString::Printf(
+		TEXT("Phase6F modes digest=%s validation_ms=%.3f accuracy_ms=%.3f performance_ms=%.3f validation_extra_ms=%.3f performance_audit_ms=%.3f"),
+		*PerformanceDigest,
+		Validation.CostBreakdown.ProductionCpuMs,
+		Accuracy.CostBreakdown.ProductionCpuMs,
+		Performance.CostBreakdown.ProductionCpuMs,
+		Validation.CostBreakdown.ValidationCpuMs,
+		Performance.CostBreakdown.AuditCpuMs));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAILODPhase6FPerformanceLoggingSmokeTest,
+	"AILODResearch.Phase6.PerformanceLoggingScaleSmoke",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAILODPhase6FPerformanceLoggingSmokeTest::RunTest(const FString& Parameters)
+{
+	using namespace AILOD;
+	using namespace AILOD::LogSchema;
+	const FString TestRoot = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AILOD/Phase6FCheckpoint"));
+	IFileManager::Get().DeleteDirectory(*TestRoot, false, true);
+	FExperimentRunRecord Proposed200;
+	bool bFoundProposed200 = false;
+	int32 TotalRuns = 0;
+
+	for (const int32 TotalPopulation : { 200, 2000, 10000, 20000 })
+	{
+		FExperimentMatrixRequest Request;
+		Request.OutputRoot = FPaths::Combine(TestRoot, FString::Printf(TEXT("Population-%d"), TotalPopulation));
+		Request.ExperimentID = FString::Printf(TEXT("PHASE6F-ENGINEERING-%d"), TotalPopulation);
+		Request.Methods = { EUnifiedSimulationMethod::Proposed, EUnifiedSimulationMethod::Simple, EUnifiedSimulationMethod::PerAgent };
+		Request.Scenarios = { EStage2Scenario::StateImport };
+		Request.Seeds = { 20260810 };
+		Request.PopulationPerKingdom = TotalPopulation / 2;
+		Request.Mode = EUnifiedRunMode::Performance;
+		Request.GitCommit = TEXT("6ee6873");
+		Request.UEVersion = TEXT("5.4");
+		Request.BuildType = TEXT("Development");
+		Request.Hardware = TEXT("Phase6F-AutomationFixture");
+		Request.LogMode = TEXT("EngineeringPerformance");
+		Request.StartTime = TEXT("2026-08-17T00:00:00Z");
+		Request.EndTime = TEXT("2026-08-17T00:01:00Z");
+
+		TArray<FExperimentRunRecord> Runs;
+		FString Error;
+		if (!FExperimentRunner::RunMatrix(Request, Runs, Error))
+		{
+			AddError(FString::Printf(TEXT("Phase 6F %d-person performance smoke failed: %s"), TotalPopulation, *Error));
+			return false;
+		}
+		TestEqual(*FString::Printf(TEXT("%d-person smoke runs all deployable methods"), TotalPopulation), Runs.Num(), 3);
+		TotalRuns += Runs.Num();
+
+		for (const FExperimentRunRecord& Run : Runs)
+		{
+			TestEqual(*FString::Printf(TEXT("%s uses Performance mode"), *Run.RunID), static_cast<int32>(Run.Mode), static_cast<int32>(EUnifiedRunMode::Performance));
+			TestEqual(*FString::Printf(TEXT("%s records the requested per-kingdom population"), *Run.RunID), Run.PopulationPerKingdom, TotalPopulation / 2);
+			TestTrue(*FString::Printf(TEXT("%s is hard-error free"), *Run.RunID), Run.bHardErrorFree);
+			TestTrue(*FString::Printf(TEXT("%s emits at least one performance sample"), *Run.RunID), Run.PerformanceSampleCount > 0);
+			TestEqual(*FString::Printf(TEXT("%s skips validation recompute"), *Run.RunID), Run.Diagnostics.ValidationPlanningEvaluationCount, int64(0));
+			TestEqual(*FString::Printf(TEXT("%s performs only initial and final full audits"), *Run.RunID), Run.Diagnostics.FullAuditCount, int64(2));
+			TestEqual(*FString::Printf(TEXT("%s skips snapshot resident visits"), *Run.RunID), Run.Diagnostics.SnapshotResidentVisitCount, int64(0));
+			TestTrue(*FString::Printf(TEXT("%s records production cost"), *Run.RunID), Run.CostBreakdown.ProductionCpuMs > 0.0);
+			TestEqual(*FString::Printf(TEXT("%s isolates validation cost"), *Run.RunID), Run.CostBreakdown.ValidationCpuMs, 0.0);
+			TestEqual(*FString::Printf(TEXT("%s isolates snapshot cost"), *Run.RunID), Run.CostBreakdown.SnapshotCpuMs, 0.0);
+			TestEqual(*FString::Printf(TEXT("%s isolates observer cost"), *Run.RunID), Run.CostBreakdown.ObserverCpuMs, 0.0);
+
+			TArray<FString> ActualFiles;
+			IFileManager::Get().FindFiles(ActualFiles, *FPaths::Combine(Run.RunDirectory, TEXT("*")), true, false);
+			ActualFiles.Sort();
+			TArray<FString> ExpectedFiles = { PerformanceFile, RunManifestFile };
+			ExpectedFiles.Sort();
+			TestEqual(*FString::Printf(TEXT("%s writes only isolated performance artifacts"), *Run.RunID), FString::Join(ActualFiles, TEXT("|")), FString::Join(ExpectedFiles, TEXT("|")));
+
+			FString PerformanceText;
+			if (!FFileHelper::LoadFileToString(PerformanceText, *FPaths::Combine(Run.RunDirectory, PerformanceFile)))
+			{
+				AddError(FString::Printf(TEXT("%s performance_1s.csv failed to load."), *Run.RunID));
+				return false;
+			}
+			TArray<FString> PerformanceLines;
+			PerformanceText.ParseIntoArrayLines(PerformanceLines, true);
+			TestEqual(*FString::Printf(TEXT("%s performance row count matches the runner"), *Run.RunID), PerformanceLines.Num(), Run.PerformanceSampleCount + 1);
+			if (PerformanceLines.IsEmpty() || PerformanceLines[0] != ExpectedCsvHeader(PerformanceFields))
+			{
+				AddError(FString::Printf(TEXT("%s performance_1s.csv has an invalid header."), *Run.RunID));
+				return false;
+			}
+			for (int32 LineIndex = 1; LineIndex < PerformanceLines.Num(); ++LineIndex)
+			{
+				TArray<FString> Fields;
+				if (!ParseCsvLine(PerformanceLines[LineIndex], Fields) || Fields.Num() != UE_ARRAY_COUNT(PerformanceFields))
+				{
+					AddError(FString::Printf(TEXT("%s performance row %d is not independently parseable."), *Run.RunID, LineIndex));
+					return false;
+				}
+				const double AICpuMs = FCString::Atod(*Fields[7]);
+				const double MacroCpuMs = FCString::Atod(*Fields[8]);
+				const double MicroCpuMs = FCString::Atod(*Fields[9]);
+				const double TransitionCpuMs = FCString::Atod(*Fields[10]);
+				const double MemoryMB = FCString::Atod(*Fields[11]);
+				const int32 ActiveCount = FCString::Atoi(*Fields[12]);
+				const int32 QueueLength = FCString::Atoi(*Fields[13]);
+				if (Fields[0] != SchemaVersion
+					|| Fields[1] != Request.ExperimentID
+					|| Fields[2] != Run.RunID
+					|| !Run.RunID.StartsWith(Fields[3] + TEXT("-"))
+					|| Fields[4] != TEXT("StateImport")
+					|| Fields[5] != TEXT("20260810")
+					|| Fields[6].IsEmpty()
+					|| !FMath::IsFinite(AICpuMs) || AICpuMs < 0.0
+					|| !FMath::IsFinite(MacroCpuMs) || MacroCpuMs < 0.0
+					|| !FMath::IsFinite(MicroCpuMs) || MicroCpuMs < 0.0
+					|| !FMath::IsFinite(TransitionCpuMs) || TransitionCpuMs < 0.0
+					|| !FMath::IsFinite(MemoryMB) || MemoryMB <= 0.0
+					|| ActiveCount < 0 || ActiveCount > 50 || QueueLength < 0)
+				{
+					AddError(FString::Printf(TEXT("%s performance row %d violates the frozen schema or value bounds."), *Run.RunID, LineIndex));
+					return false;
+				}
+			}
+
+			FString ManifestText;
+			TSharedPtr<FJsonObject> Manifest;
+			if (!FFileHelper::LoadFileToString(ManifestText, *FPaths::Combine(Run.RunDirectory, RunManifestFile))
+				|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(ManifestText), Manifest)
+				|| !Manifest.IsValid())
+			{
+				AddError(FString::Printf(TEXT("%s performance manifest failed to parse."), *Run.RunID));
+				return false;
+			}
+			const TSharedPtr<FJsonObject>* RunParameters = nullptr;
+			const TSharedPtr<FJsonObject>* Measurements = nullptr;
+			if (!Manifest->TryGetObjectField(TEXT("parameters"), RunParameters) || RunParameters == nullptr
+				|| !Manifest->TryGetObjectField(TEXT("measurement_summary"), Measurements) || Measurements == nullptr)
+			{
+				AddError(FString::Printf(TEXT("%s performance manifest is missing parameters or measurement_summary."), *Run.RunID));
+				return false;
+			}
+			TestTrue(*FString::Printf(TEXT("%s manifest is valid"), *Run.RunID), Manifest->GetBoolField(TEXT("valid")));
+			TestEqual(*FString::Printf(TEXT("%s manifest preserves the deterministic digest"), *Run.RunID), Manifest->GetStringField(TEXT("deterministic_digest")), Run.DeterministicDigest);
+			TestEqual(*FString::Printf(TEXT("%s manifest records Performance mode"), *Run.RunID), (*RunParameters)->GetStringField(TEXT("run_mode")), FString(TEXT("Performance")));
+			TestFalse(*FString::Printf(TEXT("%s manifest disables completed-event retention"), *Run.RunID), (*RunParameters)->GetBoolField(TEXT("retain_completed_events")));
+			TestFalse(*FString::Printf(TEXT("%s manifest disables snapshots"), *Run.RunID), (*RunParameters)->GetBoolField(TEXT("record_snapshots")));
+			TestFalse(*FString::Printf(TEXT("%s manifest disables approximation recompute"), *Run.RunID), (*RunParameters)->GetBoolField(TEXT("verify_cohort_approximation")));
+			TestTrue(*FString::Printf(TEXT("%s manifest records positive production cost"), *Run.RunID), (*Measurements)->GetNumberField(TEXT("production_cpu_ms")) > 0.0);
+			TestEqual(*FString::Printf(TEXT("%s manifest has zero validation cost"), *Run.RunID), (*Measurements)->GetNumberField(TEXT("validation_cpu_ms")), 0.0);
+			TestEqual(*FString::Printf(TEXT("%s manifest has zero snapshot cost"), *Run.RunID), (*Measurements)->GetNumberField(TEXT("snapshot_cpu_ms")), 0.0);
+			TestEqual(*FString::Printf(TEXT("%s manifest has zero observer cost"), *Run.RunID), (*Measurements)->GetNumberField(TEXT("observer_cpu_ms")), 0.0);
+			TestTrue(*FString::Printf(TEXT("%s manifest isolates the final audit cost"), *Run.RunID), (*Measurements)->GetNumberField(TEXT("audit_cpu_ms")) > 0.0);
+			TestTrue(*FString::Printf(TEXT("%s manifest records serialization cost"), *Run.RunID), (*Measurements)->GetNumberField(TEXT("serialization_cpu_ms")) >= 0.0);
+			TestTrue(*FString::Printf(TEXT("%s manifest records file-write cost"), *Run.RunID), (*Measurements)->GetNumberField(TEXT("file_write_cpu_ms")) >= 0.0);
+			TestEqual(
+				*FString::Printf(TEXT("%s manifest freezes the AI CPU scope"), *Run.RunID),
+				(*Measurements)->GetStringField(TEXT("ai_cpu_scope")),
+				FString(TEXT("production_only_excludes_validation_audit_snapshot_observer_and_logging")));
+
+			if (TotalPopulation == 200 && Run.RunID == TEXT("Proposed-StateImport-20260810"))
+			{
+				Proposed200 = Run;
+				bFoundProposed200 = true;
+				TestEqual(TEXT("200-person Proposed performance digest remains frozen"), Run.DeterministicDigest, FString(TEXT("D326B24A3D74128C955667DB42E8F1BADA9BC9CD")));
+			}
+			AddInfo(FString::Printf(
+				TEXT("Phase6F population=%d run=%s samples=%d production_ms=%.3f macro_ms=%.3f micro_ms=%.3f audit_ms=%.3f digest=%s"),
+				TotalPopulation,
+				*Run.RunID,
+				Run.PerformanceSampleCount,
+				Run.CostBreakdown.ProductionCpuMs,
+				Run.CostBreakdown.MacroCpuMs,
+				Run.CostBreakdown.MicroCpuMs,
+				Run.CostBreakdown.AuditCpuMs,
+				*Run.DeterministicDigest));
+		}
+
+		const FString PerformanceSummaryPath = FPaths::Combine(Request.OutputRoot, MetricsSummaryFile);
+		TestTrue(
+			*FString::Printf(TEXT("%d-person performance summary rebuilds from isolated files"), TotalPopulation),
+			FOfflineMetricsEvaluator::BuildSummary(Request.OutputRoot, PerformanceSummaryPath, Error));
+		if (!Error.IsEmpty()) AddError(FString::Printf(TEXT("%d-person performance metric error: %s"), TotalPopulation, *Error));
+		FString FirstPerformanceSummary;
+		TestTrue(
+			*FString::Printf(TEXT("%d-person performance summary loads"), TotalPopulation),
+			FFileHelper::LoadFileToString(FirstPerformanceSummary, *PerformanceSummaryPath));
+		TestTrue(*FString::Printf(TEXT("%d-person summary contains sample counts"), TotalPopulation), FirstPerformanceSummary.Contains(TEXT("Performance.SampleCount")));
+		TestTrue(*FString::Printf(TEXT("%d-person summary contains AI P95"), TotalPopulation), FirstPerformanceSummary.Contains(TEXT("Performance.AICpuMs.P95")));
+		TestTrue(*FString::Printf(TEXT("%d-person summary contains PerAgent speedup inputs"), TotalPopulation), FirstPerformanceSummary.Contains(TEXT("Performance.SpeedupVsPerAgent.P95AI")));
+		TestFalse(*FString::Printf(TEXT("%d-person performance summary does not fabricate trajectory metrics"), TotalPopulation), FirstPerformanceSummary.Contains(TEXT("Trajectory.")));
+		TestTrue(*FString::Printf(TEXT("%d-person performance summary can be deleted"), TotalPopulation), IFileManager::Get().Delete(*PerformanceSummaryPath));
+		TestTrue(
+			*FString::Printf(TEXT("%d-person performance summary rebuilds again from raw samples"), TotalPopulation),
+			FOfflineMetricsEvaluator::BuildSummary(Request.OutputRoot, PerformanceSummaryPath, Error));
+		FString RebuiltPerformanceSummary;
+		TestTrue(
+			*FString::Printf(TEXT("%d-person rebuilt performance summary loads"), TotalPopulation),
+			FFileHelper::LoadFileToString(RebuiltPerformanceSummary, *PerformanceSummaryPath));
+		TestEqual(
+			*FString::Printf(TEXT("%d-person performance summary rebuild is byte-identical"), TotalPopulation),
+			RebuiltPerformanceSummary,
+			FirstPerformanceSummary);
+
+		if (TotalPopulation == 200)
+		{
+			const FString PerformancePath = FPaths::Combine(Proposed200.RunDirectory, PerformanceFile);
+			const FString HiddenPerformancePath = PerformancePath + TEXT(".hidden");
+			TestTrue(TEXT("Performance missing-file fixture hides one sample file"), IFileManager::Get().Move(*HiddenPerformancePath, *PerformancePath));
+			TestFalse(TEXT("Performance evaluator rejects a missing sample file"), FOfflineMetricsEvaluator::BuildSummary(Request.OutputRoot, PerformanceSummaryPath, Error));
+			TestTrue(TEXT("Missing performance file produces an explicit error"), Error.Contains(PerformanceFile));
+			TestTrue(TEXT("Performance missing-file fixture restores the sample file"), IFileManager::Get().Move(*PerformancePath, *HiddenPerformancePath));
+			TestTrue(TEXT("Performance summary rebuilds after fixture restoration"), FOfflineMetricsEvaluator::BuildSummary(Request.OutputRoot, PerformanceSummaryPath, Error));
+		}
+	}
+
+	TestEqual(TEXT("Phase 6F scale smoke runs exactly twelve engineering runs"), TotalRuns, 12);
+	if (!bFoundProposed200)
+	{
+		AddError(TEXT("Phase 6F scale smoke did not retain the 200-person Proposed run for replay."));
+		return false;
+	}
+	FExperimentRunRecord Replay;
+	FString ReplayError;
+	const FString ReplayRoot = FPaths::Combine(TestRoot, TEXT("Replay-200-Proposed"));
+	TestTrue(
+		TEXT("Performance manifest can replay the production session"),
+		FExperimentRunner::ReplayFromManifest(FPaths::Combine(Proposed200.RunDirectory, RunManifestFile), ReplayRoot, Replay, ReplayError));
+	if (!ReplayError.IsEmpty()) AddError(FString::Printf(TEXT("Performance manifest replay failed: %s"), *ReplayError));
+	TestEqual(TEXT("Performance manifest replay preserves the deterministic digest"), Replay.DeterministicDigest, Proposed200.DeterministicDigest);
+	TestTrue(TEXT("Performance manifest replay regenerates performance_1s.csv"), FPaths::FileExists(FPaths::Combine(ReplayRoot, PerformanceFile)));
 	return true;
 }
 

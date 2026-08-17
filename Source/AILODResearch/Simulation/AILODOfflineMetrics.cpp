@@ -27,6 +27,7 @@ namespace AILOD
 			FString RunID;
 			FString Method;
 			FString Scenario;
+			FString Mode;
 			FString FinalGameTime;
 			int32 Seed = 0;
 			int32 PopulationPerKingdom = 0;
@@ -34,6 +35,13 @@ namespace AILOD
 			TMap<FString, FKingdomMetricRow> KingdomRows;
 			TMap<FString, TArray<FString>> NPCSnapshots;
 			double Behaviors[8] = {};
+			TArray<double> AICpuSamples;
+			TArray<double> MacroCpuSamples;
+			TArray<double> MicroCpuSamples;
+			TArray<double> TransitionCpuSamples;
+			TArray<double> MemorySamples;
+			TArray<double> ActiveCountSamples;
+			TArray<double> QueueLengthSamples;
 		};
 
 		struct FMetricRow
@@ -141,18 +149,10 @@ namespace AILOD
 		bool LoadRun(const FString& Directory, FOfflineRun& OutRun, FString& OutError)
 		{
 			using namespace LogSchema;
-			const TArray<FString> RequiredFiles =
+			if (!FPaths::FileExists(FPaths::Combine(Directory, RunManifestFile)))
 			{
-				RunManifestFile, KingdomTimeseriesFile, CohortTimeseriesFile, NPCSnapshotsFile,
-				SimulationEventsFile, LODTransitionsFile, LedgerTransactionsFile
-			};
-			for (const FString& File : RequiredFiles)
-			{
-				if (!FPaths::FileExists(FPaths::Combine(Directory, File)))
-				{
-					OutError = FString::Printf(TEXT("Run %s is missing required raw file %s."), *Directory, *File);
-					return false;
-				}
+				OutError = FString::Printf(TEXT("Run %s is missing required raw file %s."), *Directory, RunManifestFile);
+				return false;
 			}
 
 			TSharedPtr<FJsonObject> Manifest;
@@ -174,6 +174,7 @@ namespace AILOD
 			OutRun.RunID = Manifest->GetStringField(TEXT("run_id"));
 			OutRun.Method = Manifest->GetStringField(TEXT("method"));
 			OutRun.Scenario = Manifest->GetStringField(TEXT("scenario"));
+			OutRun.Mode = (*Parameters)->GetStringField(TEXT("run_mode"));
 			OutRun.Seed = static_cast<int32>(Manifest->GetNumberField(TEXT("seed")));
 			OutRun.FinalGameTime = Manifest->GetStringField(TEXT("game_time"));
 			OutRun.PopulationPerKingdom = static_cast<int32>((*Parameters)->GetNumberField(TEXT("population_per_kingdom")));
@@ -181,9 +182,60 @@ namespace AILOD
 			{
 				OutRun.HardErrors.Add(Name, (*HardErrors)->GetNumberField(Name));
 			}
+			const bool bPerformance = OutRun.Mode == TEXT("Performance");
+			if (!bPerformance && OutRun.Mode != TEXT("Accuracy") && OutRun.Mode != TEXT("Validation"))
+			{
+				OutError = FString::Printf(TEXT("Run %s has unsupported run mode %s."), *Directory, *OutRun.Mode);
+				return false;
+			}
+			const TArray<FString> RequiredFiles = bPerformance
+				? TArray<FString>{ PerformanceFile }
+				: TArray<FString>{ KingdomTimeseriesFile, CohortTimeseriesFile, NPCSnapshotsFile, SimulationEventsFile, LODTransitionsFile, LedgerTransactionsFile };
+			for (const FString& File : RequiredFiles)
+			{
+				if (!FPaths::FileExists(FPaths::Combine(Directory, File)))
+				{
+					OutError = FString::Printf(TEXT("Run %s is missing required raw file %s."), *Directory, *File);
+					return false;
+				}
+			}
 
 			TArray<TArray<FString>> Rows;
 			TMap<FString, int32> Header;
+			if (bPerformance)
+			{
+				if (!LoadCsv(FPaths::Combine(Directory, PerformanceFile), Rows, Header, OutError)
+					|| !RequireColumns(Header, { TEXT("experiment_id"), TEXT("run_id"), TEXT("method"), TEXT("scenario"), TEXT("seed"), TEXT("ai_cpu_ms"), TEXT("macro_cpu_ms"), TEXT("micro_cpu_ms"), TEXT("transition_cpu_ms"), TEXT("memory_mb"), TEXT("active_count"), TEXT("queue_length") }))
+				{
+					if (OutError.IsEmpty()) OutError = TEXT("performance_1s.csv is missing metric columns.");
+					return false;
+				}
+				for (const TArray<FString>& Row : Rows)
+				{
+					if (Row[Header[TEXT("experiment_id")]] != OutRun.ExperimentID
+						|| Row[Header[TEXT("run_id")]] != OutRun.RunID
+						|| Row[Header[TEXT("method")]] != OutRun.Method
+						|| Row[Header[TEXT("scenario")]] != OutRun.Scenario
+						|| FCString::Atoi(*Row[Header[TEXT("seed")]]) != OutRun.Seed)
+					{
+						OutError = FString::Printf(TEXT("Run %s has inconsistent performance sample identity."), *Directory);
+						return false;
+					}
+					OutRun.AICpuSamples.Add(FCString::Atod(*Row[Header[TEXT("ai_cpu_ms")]]));
+					OutRun.MacroCpuSamples.Add(FCString::Atod(*Row[Header[TEXT("macro_cpu_ms")]]));
+					OutRun.MicroCpuSamples.Add(FCString::Atod(*Row[Header[TEXT("micro_cpu_ms")]]));
+					OutRun.TransitionCpuSamples.Add(FCString::Atod(*Row[Header[TEXT("transition_cpu_ms")]]));
+					OutRun.MemorySamples.Add(FCString::Atod(*Row[Header[TEXT("memory_mb")]]));
+					OutRun.ActiveCountSamples.Add(FCString::Atod(*Row[Header[TEXT("active_count")]]));
+					OutRun.QueueLengthSamples.Add(FCString::Atod(*Row[Header[TEXT("queue_length")]]));
+				}
+				if (OutRun.AICpuSamples.IsEmpty())
+				{
+					OutError = FString::Printf(TEXT("Run %s has no performance samples."), *Directory);
+					return false;
+				}
+				return true;
+			}
 			if (!LoadCsv(FPaths::Combine(Directory, KingdomTimeseriesFile), Rows, Header, OutError)
 				|| !RequireColumns(Header, { TEXT("game_time"), TEXT("kingdom"), TEXT("damaged_waiting"), TEXT("under_repair"), TEXT("repaired"), TEXT("forest_wood"), TEXT("market_wood_available"), TEXT("wood_price"), TEXT("treasury_available") }))
 			{
@@ -279,6 +331,11 @@ namespace AILOD
 		FString RunKey(const FString& Method, const FString& Scenario, const int32 Seed)
 		{
 			return FString::Printf(TEXT("%s|%s|%d"), *Method, *Scenario, Seed);
+		}
+
+		FString PerformanceKey(const FString& Method, const FString& Scenario, const int32 Seed, const int32 PopulationPerKingdom)
+		{
+			return FString::Printf(TEXT("%s|%s|%d|%d"), *Method, *Scenario, Seed, PopulationPerKingdom);
 		}
 
 		double ScaleFor(const int32 Index, const int32 N)
@@ -396,7 +453,44 @@ namespace AILOD
 			{
 				OutRows.Add({ &Run, FString::Printf(TEXT("HardError.%s"), *Pair.Key), Pair.Value, TEXT("count;target=0"), TEXT("") });
 			}
-			OutRows.Add({ &Run, TEXT("Performance.SampleCount"), 0.0, TEXT("performance_1s.csv deferred to Phase6F"), TEXT("") });
+		}
+
+		double Mean(const TArray<double>& Values)
+		{
+			double Sum = 0.0;
+			for (const double Value : Values) Sum += Value;
+			return Values.IsEmpty() ? 0.0 : Sum / Values.Num();
+		}
+
+		double Percentile(const TArray<double>& Values, const double Fraction)
+		{
+			if (Values.IsEmpty()) return 0.0;
+			TArray<double> Sorted = Values;
+			Sorted.Sort();
+			const int32 Index = FMath::Clamp(FMath::CeilToInt(Fraction * Sorted.Num()) - 1, 0, Sorted.Num() - 1);
+			return Sorted[Index];
+		}
+
+		void AddPerformanceSeries(const FOfflineRun& Run, const TCHAR* Name, const TArray<double>& Values, const FString& Scale, TArray<FMetricRow>& OutRows)
+		{
+			OutRows.Add({ &Run, FString::Printf(TEXT("Performance.%s.Mean"), Name), Mean(Values), Scale, TEXT("") });
+			OutRows.Add({ &Run, FString::Printf(TEXT("Performance.%s.P95"), Name), Percentile(Values, 0.95), Scale, TEXT("") });
+			OutRows.Add({ &Run, FString::Printf(TEXT("Performance.%s.P99"), Name), Percentile(Values, 0.99), Scale, TEXT("") });
+			OutRows.Add({ &Run, FString::Printf(TEXT("Performance.%s.Max"), Name), Percentile(Values, 1.0), Scale, TEXT("") });
+		}
+
+		void AddPerformanceMetrics(const FOfflineRun& Run, TArray<FMetricRow>& OutRows)
+		{
+			OutRows.Add({ &Run, TEXT("Performance.SampleCount"), static_cast<double>(Run.AICpuSamples.Num()), TEXT("one_second_wall_buckets;final_bucket_may_be_partial"), TEXT("") });
+			AddPerformanceSeries(Run, TEXT("AICpuMs"), Run.AICpuSamples, TEXT("ms_per_wall_bucket"), OutRows);
+			AddPerformanceSeries(Run, TEXT("MacroCpuMs"), Run.MacroCpuSamples, TEXT("ms_per_wall_bucket"), OutRows);
+			AddPerformanceSeries(Run, TEXT("MicroCpuMs"), Run.MicroCpuSamples, TEXT("ms_per_wall_bucket"), OutRows);
+			AddPerformanceSeries(Run, TEXT("TransitionCpuMs"), Run.TransitionCpuSamples, TEXT("ms_per_wall_bucket"), OutRows);
+			OutRows.Add({ &Run, TEXT("Performance.MemoryMB.Mean"), Mean(Run.MemorySamples), TEXT("process_used_physical_mb"), TEXT("") });
+			OutRows.Add({ &Run, TEXT("Performance.MemoryMB.Peak"), Percentile(Run.MemorySamples, 1.0), TEXT("process_used_physical_mb"), TEXT("") });
+			OutRows.Add({ &Run, TEXT("Performance.ActiveCount.Max"), Percentile(Run.ActiveCountSamples, 1.0), TEXT("count"), TEXT("") });
+			OutRows.Add({ &Run, TEXT("Performance.QueueLength.Max"), Percentile(Run.QueueLengthSamples, 1.0), TEXT("count"), TEXT("") });
+			AddHardErrors(Run, OutRows);
 		}
 
 		FString BuildCsv(const TArray<FMetricRow>& Rows)
@@ -438,31 +532,65 @@ namespace AILOD
 		{
 			if (!LoadRun(FPaths::Combine(RunsRoot, Directories[RunIndex]), Runs[RunIndex], OutError)) return false;
 		}
-		for (const FOfflineRun& Run : Runs)
-		{
-			const FString Key = RunKey(Run.Method, Run.Scenario, Run.Seed);
-			if (Index.Contains(Key))
-			{
-				OutError = FString::Printf(TEXT("Duplicate method/scenario/seed run: %s"), *Key);
-				return false;
-			}
-			Index.Add(Key, &Run);
-		}
 
 		TArray<FMetricRow> Metrics;
+		const bool bPerformance = Runs[0].Mode == TEXT("Performance");
 		for (const FOfflineRun& Run : Runs)
 		{
-			const FOfflineRun* Oracle = Index.FindRef(RunKey(TEXT("Oracle"), Run.Scenario, Run.Seed));
-			if (Oracle == nullptr)
+			if ((Run.Mode == TEXT("Performance")) != bPerformance)
 			{
-				OutError = FString::Printf(TEXT("Run %s has no paired Oracle run."), *Run.RunID);
+				OutError = TEXT("Offline metrics cannot mix Accuracy/Validation and Performance runs in one experiment root.");
 				return false;
 			}
-			AddTrajectoryMetrics(Run, *Oracle, Metrics);
-			if (!AddPolicyMetrics(Run, Index, *Oracle, Metrics, OutError)) return false;
-			AddBehaviorMetric(Run, *Oracle, Metrics);
-			AddContinuityMetrics(Run, *Oracle, Metrics);
-			AddHardErrors(Run, Metrics);
+		}
+		if (bPerformance)
+		{
+			TMap<FString, const FOfflineRun*> PerformanceIndex;
+			for (const FOfflineRun& Run : Runs)
+			{
+				PerformanceIndex.Add(PerformanceKey(Run.Method, Run.Scenario, Run.Seed, Run.PopulationPerKingdom), &Run);
+				AddPerformanceMetrics(Run, Metrics);
+			}
+			for (const FOfflineRun& Run : Runs)
+			{
+				const FOfflineRun* PerAgent = PerformanceIndex.FindRef(PerformanceKey(TEXT("PerAgent"), Run.Scenario, Run.Seed, Run.PopulationPerKingdom));
+				if (PerAgent == nullptr)
+				{
+					OutError = FString::Printf(TEXT("Performance run %s has no matching PerAgent baseline."), *Run.RunID);
+					return false;
+				}
+				const double RunMean = Mean(Run.AICpuSamples);
+				const double RunP95 = Percentile(Run.AICpuSamples, 0.95);
+				Metrics.Add({ &Run, TEXT("Performance.SpeedupVsPerAgent.MeanAI"), RunMean > 0.0 ? Mean(PerAgent->AICpuSamples) / RunMean : 0.0, FString::Printf(TEXT("baseline=%s"), *PerAgent->RunID), TEXT("") });
+				Metrics.Add({ &Run, TEXT("Performance.SpeedupVsPerAgent.P95AI"), RunP95 > 0.0 ? Percentile(PerAgent->AICpuSamples, 0.95) / RunP95 : 0.0, FString::Printf(TEXT("baseline=%s"), *PerAgent->RunID), TEXT("") });
+			}
+		}
+		else
+		{
+			for (const FOfflineRun& Run : Runs)
+			{
+				const FString Key = RunKey(Run.Method, Run.Scenario, Run.Seed);
+				if (Index.Contains(Key))
+				{
+					OutError = FString::Printf(TEXT("Duplicate method/scenario/seed run: %s"), *Key);
+					return false;
+				}
+				Index.Add(Key, &Run);
+			}
+			for (const FOfflineRun& Run : Runs)
+			{
+				const FOfflineRun* Oracle = Index.FindRef(RunKey(TEXT("Oracle"), Run.Scenario, Run.Seed));
+				if (Oracle == nullptr)
+				{
+					OutError = FString::Printf(TEXT("Run %s has no paired Oracle run."), *Run.RunID);
+					return false;
+				}
+				AddTrajectoryMetrics(Run, *Oracle, Metrics);
+				if (!AddPolicyMetrics(Run, Index, *Oracle, Metrics, OutError)) return false;
+				AddBehaviorMetric(Run, *Oracle, Metrics);
+				AddContinuityMetrics(Run, *Oracle, Metrics);
+				AddHardErrors(Run, Metrics);
+			}
 		}
 		if (!FFileHelper::SaveStringToFile(BuildCsv(Metrics), *OutputPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
 		{

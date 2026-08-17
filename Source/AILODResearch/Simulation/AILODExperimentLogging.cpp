@@ -5,6 +5,7 @@
 #include "AILODLogSchema.h"
 #include "Dom/JsonObject.h"
 #include "HAL/FileManager.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Policies/CondensedJsonPrintPolicy.h"
@@ -257,19 +258,28 @@ namespace AILOD
 		const FUnifiedRunLogMetadata& Metadata,
 		FString& OutError) const
 	{
+		const double SerializationStart = FPlatformTime::Seconds();
 		if (!HasRequiredMetadata(Metadata))
 		{
 			OutError = TEXT("Run logging requires complete output, identity, input-hash, build, hardware, log-mode, and time metadata.");
 			return false;
 		}
-		if (Hours.Num() != Result.WarmupHourSteps + Result.FormalHourSteps
+		if (Result.Mode != EUnifiedRunMode::Performance
+			&& (Hours.Num() != Result.WarmupHourSteps + Result.FormalHourSteps
 			|| Events.Num() != Result.Diagnostics.EventCount
 			|| Transactions.Num() != Result.Transactions.Num()
 			|| LODTransitions.Num() != Result.LODTransitions.Num()
 			|| Activations.Num() != Result.ActivationObservations.Num()
-			|| NPCSnapshots.Num() != Result.ActivationObservations.Num())
+			|| NPCSnapshots.Num() != Result.ActivationObservations.Num()))
 		{
 			OutError = TEXT("Run logging records do not reconcile with the authoritative run result.");
+			return false;
+		}
+		if (Result.Mode == EUnifiedRunMode::Performance
+			&& (!Hours.IsEmpty() || !NPCSnapshots.IsEmpty() || !Events.IsEmpty() || !Transactions.IsEmpty()
+				|| !LODTransitions.IsEmpty() || !Activations.IsEmpty() || Result.PerformanceSamples.IsEmpty()))
+		{
+			OutError = TEXT("Performance logging requires isolated one-second samples and no full raw-domain observer records.");
 			return false;
 		}
 
@@ -305,6 +315,66 @@ namespace AILOD
 		Parameters->SetBoolField(TEXT("verify_cohort_approximation"), Result.bVerifyCohortApproximation);
 		Parameters->SetStringField(TEXT("fault_injection"), FaultInjectionName(Result.FaultInjection));
 		Manifest->SetObjectField(TEXT("parameters"), Parameters);
+		TSharedRef<FJsonObject> Measurements = MakeShared<FJsonObject>();
+		Measurements->SetNumberField(TEXT("initialize_cpu_ms"), Result.CostBreakdown.InitializeCpuMs);
+		Measurements->SetNumberField(TEXT("production_cpu_ms"), Result.CostBreakdown.ProductionCpuMs);
+		Measurements->SetNumberField(TEXT("macro_cpu_ms"), Result.CostBreakdown.MacroCpuMs);
+		Measurements->SetNumberField(TEXT("micro_cpu_ms"), Result.CostBreakdown.MicroCpuMs);
+		Measurements->SetNumberField(TEXT("transition_cpu_ms"), Result.CostBreakdown.TransitionCpuMs);
+		Measurements->SetNumberField(TEXT("validation_cpu_ms"), Result.CostBreakdown.ValidationCpuMs);
+		Measurements->SetNumberField(TEXT("audit_cpu_ms"), Result.CostBreakdown.AuditCpuMs);
+		Measurements->SetNumberField(TEXT("snapshot_cpu_ms"), Result.CostBreakdown.SnapshotCpuMs);
+		Measurements->SetNumberField(TEXT("observer_cpu_ms"), Result.CostBreakdown.ObserverCpuMs);
+		Measurements->SetNumberField(TEXT("finalize_cpu_ms"), Result.CostBreakdown.FinalizeCpuMs);
+		Measurements->SetNumberField(TEXT("serialization_cpu_ms"), 0.0);
+		Measurements->SetNumberField(TEXT("file_write_cpu_ms"), 0.0);
+		Measurements->SetStringField(TEXT("ai_cpu_scope"), TEXT("production_only_excludes_validation_audit_snapshot_observer_and_logging"));
+		Manifest->SetObjectField(TEXT("measurement_summary"), Measurements);
+
+		if (Result.Mode == EUnifiedRunMode::Performance)
+		{
+			FString PerformanceCsv = CsvHeader(LogSchema::PerformanceFields);
+			for (const FUnifiedPerformanceSample& Sample : Result.PerformanceSamples)
+			{
+				TArray<FString> Fields = CommonCsvFields(Result, Metadata, Sample.GameTime);
+				Fields.Append(
+				{
+					FString::Printf(TEXT("%.9f"), Sample.AICpuMs),
+					FString::Printf(TEXT("%.9f"), Sample.MacroCpuMs),
+					FString::Printf(TEXT("%.9f"), Sample.MicroCpuMs),
+					FString::Printf(TEXT("%.9f"), Sample.TransitionCpuMs),
+					FString::Printf(TEXT("%.9f"), Sample.MemoryMB),
+					FString::FromInt(Sample.ActiveCount),
+					FString::FromInt(Sample.QueueLength)
+				});
+				AppendCsvRow(PerformanceCsv, Fields);
+			}
+			Measurements->SetNumberField(TEXT("serialization_cpu_ms"), (FPlatformTime::Seconds() - SerializationStart) * 1000.0);
+			if (!IFileManager::Get().MakeDirectory(*Metadata.OutputDirectory, true))
+			{
+				OutError = TEXT("Performance logging could not create the output directory.");
+				return false;
+			}
+			const auto Save = [&Metadata](const TCHAR* FileName, const FString& Contents)
+			{
+				return FFileHelper::SaveStringToFile(Contents, *FPaths::Combine(Metadata.OutputDirectory, FileName), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+			};
+			const double FileWriteStart = FPlatformTime::Seconds();
+			if (!Save(LogSchema::RunManifestFile, PrettyJson(Manifest))
+				|| !Save(LogSchema::PerformanceFile, PerformanceCsv))
+			{
+				OutError = TEXT("Performance logging failed while writing the manifest or one-second samples.");
+				return false;
+			}
+			Measurements->SetNumberField(TEXT("file_write_cpu_ms"), (FPlatformTime::Seconds() - FileWriteStart) * 1000.0);
+			if (!Save(LogSchema::RunManifestFile, PrettyJson(Manifest)))
+			{
+				OutError = TEXT("Performance logging failed while finalizing measurement metadata.");
+				return false;
+			}
+			OutError.Reset();
+			return true;
+		}
 
 		FString KingdomCsv = CsvHeader(LogSchema::KingdomTimeseriesFields);
 		for (const FUnifiedHourObservation& Hour : Hours)
@@ -452,6 +522,8 @@ namespace AILOD
 				*FPaths::Combine(Metadata.OutputDirectory, FileName),
 				FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 		};
+		Measurements->SetNumberField(TEXT("serialization_cpu_ms"), (FPlatformTime::Seconds() - SerializationStart) * 1000.0);
+		const double FileWriteStart = FPlatformTime::Seconds();
 		if (!Save(LogSchema::RunManifestFile, PrettyJson(Manifest))
 			|| !Save(LogSchema::KingdomTimeseriesFile, KingdomCsv)
 			|| !Save(LogSchema::CohortTimeseriesFile, CohortCsv)
@@ -461,6 +533,12 @@ namespace AILOD
 			|| !Save(LogSchema::LedgerTransactionsFile, TransactionJsonl))
 		{
 			OutError = TEXT("Run logging failed while writing the manifest or raw domain logs.");
+			return false;
+		}
+		Measurements->SetNumberField(TEXT("file_write_cpu_ms"), (FPlatformTime::Seconds() - FileWriteStart) * 1000.0);
+		if (!Save(LogSchema::RunManifestFile, PrettyJson(Manifest)))
+		{
+			OutError = TEXT("Run logging failed while finalizing measurement metadata.");
 			return false;
 		}
 

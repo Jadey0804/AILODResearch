@@ -15,6 +15,7 @@ namespace AILOD
 		TArray<EStage2Scenario> Scenarios;
 		TArray<int32> Seeds;
 		int32 PopulationPerKingdom = 100;
+		EUnifiedRunMode Mode = EUnifiedRunMode::Accuracy;
 		FString GitCommit;
 		FString UEVersion;
 		FString BuildType;
@@ -29,6 +30,12 @@ namespace AILOD
 		FString RunID;
 		FString RunDirectory;
 		FString DeterministicDigest;
+		EUnifiedRunMode Mode = EUnifiedRunMode::Accuracy;
+		int32 PopulationPerKingdom = 0;
+		bool bHardErrorFree = false;
+		int32 PerformanceSampleCount = 0;
+		FUnifiedRunDiagnostics Diagnostics;
+		FUnifiedCostBreakdown CostBreakdown;
 	};
 
 	class FExperimentRunner

@@ -1,6 +1,6 @@
 # AILOD MVP 当前有效规则索引
 
-**索引版本：1.8**<br>
+**索引版本：1.9**<br>
 **日期：2026-08-17**<br>
 **用途：说明当前规则的读取顺序、冲突优先级和各文档职责。**<br>
 **性质：本文件只做导航，不新增模型规则、不替代原规格，也不构成阶段验收。**
@@ -37,6 +37,7 @@
 | Phase 5 Handoff v1.0 | Phase 5 开始前的导航、源码位置、历史现场和验证方法 | 生成时间早于 v1.6；不是模型事实源，涉及当前 Phase 5.1 时必须回到 v1.6 和检查点核对 |
 | Phase 5.1 Checkpoint | Phase 5.1 实现证据、Hash、Digest、自动验收结果、已知边界和待完成项 | 是验收记录，不新增或覆盖模型规则 |
 | Phase 6 Incremental Plan | 将既有 Phase 6 范围拆成 6A—6F 检查点并记录逐步验收状态 | 是实施导航与检查点，不新增或覆盖模型规则；每一步必须经作者确认后才能进入下一步 |
+| Phase 6 Checkpoint | Phase 6A—6F 的实验基础设施、测量边界、回放/重建证据、工程成本分解和待确认状态 | 是总验收记录，不新增或覆盖模型规则；工程冒烟不得当作正式研究结论 |
 
 ## 3. 当前最容易误读的有效规则
 
@@ -64,17 +65,18 @@
 
 这是一条状态记录，不等于模型规则。该确认允许 Phase 5.1 封板并在独立分支开始 Phase 6；它不等于已经取得正式性能或准确性结论。
 
-进入 Phase 6 后必须处理：
+Phase 6A—6F 已经实现以下内容：
 
 - 最小 `ISimulationBackend`；
 - `Initialize / StepHour / Finalize` 生产会话；
 - 只读 Observer/Event Sink；
 - 正式数据只走统一生产会话；
-- 在证据支持后才决定是否优化完整审计的账户查询。
+- 生产、Validation、Audit、Snapshot、Observer、序列化与文件写入成本隔离；
+- Accuracy 与 Performance 原始文件的离线汇总重建。
 
 以上边界以 v1.6 §8 和 Phase 5.1 Checkpoint §8 为准。
 
-当前位于 `phase-6-experiment-runner-metrics`。Phase 6A、6B、6C、6D 已分别以本地提交 `71e3565`、`c0e84d2`、`eb44bf3`、`93282ed` 封板；项目作者已于 2026-08-17 确认 6E 的 Runner、Manifest 重放、离线指标和工程检查点，并授权 6E 独立提交后在新分支完成 6F。所有提交仍不推送。
+当前位于 `phase-6-performance-measurement`。Phase 6A—6E 已分别以本地提交 `71e3565`、`c0e84d2`、`eb44bf3`、`93282ed`、`6ee6873` 封板；6F 的模式边界、性能采样、离线性能汇总和 200/2k/10k/20k 工程检查已经通过，Phase 6 总检查点见 `AILOD_MVP_Phase6_Checkpoint_CN.md`。项目作者已于 2026-08-17 确认整个 Phase 6，并授权 6F 独立提交后在新分支执行只测量、不优化的 6G-A；所有提交均未推送。6G-B、Phase 7 和 Phase 8 均未开始。
 
 ## 5. 后续修改规则
 

@@ -105,6 +105,47 @@ namespace AILOD
 		int32 FirstActionCount = 0;
 	};
 
+	struct FUnifiedStepMeasurement
+	{
+		FSimulationTime GameTime;
+		double ProductionCpuMs = 0.0;
+		double MacroCpuMs = 0.0;
+		double MicroCpuMs = 0.0;
+		double TransitionCpuMs = 0.0;
+		double ValidationCpuMs = 0.0;
+		double AuditCpuMs = 0.0;
+		double SnapshotCpuMs = 0.0;
+		double ObserverCpuMs = 0.0;
+		int32 ActiveCount = 0;
+		int32 QueueLength = 0;
+	};
+
+	struct FUnifiedCostBreakdown
+	{
+		double InitializeCpuMs = 0.0;
+		double ProductionCpuMs = 0.0;
+		double MacroCpuMs = 0.0;
+		double MicroCpuMs = 0.0;
+		double TransitionCpuMs = 0.0;
+		double ValidationCpuMs = 0.0;
+		double AuditCpuMs = 0.0;
+		double SnapshotCpuMs = 0.0;
+		double ObserverCpuMs = 0.0;
+		double FinalizeCpuMs = 0.0;
+	};
+
+	struct FUnifiedPerformanceSample
+	{
+		FSimulationTime GameTime;
+		double AICpuMs = 0.0;
+		double MacroCpuMs = 0.0;
+		double MicroCpuMs = 0.0;
+		double TransitionCpuMs = 0.0;
+		double MemoryMB = 0.0;
+		int32 ActiveCount = 0;
+		int32 QueueLength = 0;
+	};
+
 	struct FUnifiedActivationObservation
 	{
 		FResidentID ResidentID = 0;
@@ -190,6 +231,8 @@ namespace AILOD
 		int32 PendingEventsAtOrBeforeEnd = 0;
 		int32 SimpleIndividualCoreStateCount = 0;
 		FUnifiedRunDiagnostics Diagnostics;
+		FUnifiedCostBreakdown CostBreakdown;
+		TArray<FUnifiedPerformanceSample> PerformanceSamples;
 		TArray<FLedgerTransaction> Transactions;
 		TArray<FSimulationEventRecord> Events;
 		TArray<FKingdomSnapshot> Snapshots;
@@ -220,6 +263,7 @@ namespace AILOD
 		bool IsComplete() const;
 		FSimulationTime GetCurrentTime() const;
 		int32 GetCompletedHourSteps() const;
+		const FUnifiedStepMeasurement& GetLastStepMeasurement() const;
 
 	private:
 		class FImpl;

@@ -4,6 +4,7 @@
 
 #include "AILODDomainRules.h"
 #include "AILODPhase0Manifest.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/SecureHash.h"
 
 namespace AILOD
@@ -224,6 +225,7 @@ namespace AILOD
 			bool Finalize(FUnifiedRunResult& OutResult, FString& OutError);
 			bool IsComplete() const { return Clock.Now() == FSimulationTime::FromDays(60); }
 			FSimulationTime GetCurrentTime() const { return Clock.Now(); }
+			const FUnifiedStepMeasurement& GetLastStepMeasurement() const { return LastStepMeasurement; }
 
 		private:
 			bool InitializeLedger(FString& OutError);
@@ -349,10 +351,14 @@ namespace AILOD
 			int32 ReservationErrorCount = 0;
 			int32 TaskResetCount = 0;
 			bool bFaultInjectionConsumed = false;
+			FUnifiedStepMeasurement LastStepMeasurement;
+			FUnifiedCostBreakdown CostBreakdown;
+			double LastDetailedActivePlanningMs = 0.0;
 		};
 
 		bool FUnifiedRuntime::Initialize(FString& OutError)
 		{
+			const double InitializeStart = FPlatformTime::Seconds();
 			if (Config.PopulationPerKingdom <= 0)
 			{
 				OutError = TEXT("Unified runtime requires a positive per-kingdom population.");
@@ -418,7 +424,17 @@ namespace AILOD
 			{
 				return false;
 			}
-			return AuditHour(OutError);
+			const double AuditStart = FPlatformTime::Seconds();
+			if (!AuditHour(OutError))
+			{
+				return false;
+			}
+			const double InitialAuditMs = (FPlatformTime::Seconds() - AuditStart) * 1000.0;
+			CostBreakdown.AuditCpuMs += InitialAuditMs;
+			CostBreakdown.InitializeCpuMs = FMath::Max(
+				0.0,
+				(FPlatformTime::Seconds() - InitializeStart) * 1000.0 - InitialAuditMs);
+			return true;
 		}
 
 		bool FUnifiedRuntime::BuildDay14ActivationSample(FString& OutError)
@@ -571,6 +587,9 @@ namespace AILOD
 				return false;
 			}
 
+			LastStepMeasurement = {};
+			LastDetailedActivePlanningMs = 0.0;
+			const double StepStart = FPlatformTime::Seconds();
 			const FSimulationTime Time = Clock.Now();
 			if (!ProcessHour(Time, OutError))
 			{
@@ -578,34 +597,80 @@ namespace AILOD
 			}
 
 			const FSimulationTime StepEnd = FSimulationTime::FromMinutes(Time.Minutes + MinutesPerHour);
-			if (!AdvanceChronologically(StepEnd, OutError)
-				|| !ApplyActivationTrace(StepEnd, OutError)
-				|| (Options.Mode != EUnifiedRunMode::Performance && !AuditHour(OutError)))
+			if (!AdvanceChronologically(StepEnd, OutError))
 			{
 				return false;
 			}
+			const double TransitionStart = FPlatformTime::Seconds();
+			if (!ApplyActivationTrace(StepEnd, OutError))
+			{
+				return false;
+			}
+			LastStepMeasurement.TransitionCpuMs = (FPlatformTime::Seconds() - TransitionStart) * 1000.0;
+			if (Options.Mode != EUnifiedRunMode::Performance)
+			{
+				const double AuditStart = FPlatformTime::Seconds();
+				if (!AuditHour(OutError))
+				{
+					return false;
+				}
+				LastStepMeasurement.AuditCpuMs = (FPlatformTime::Seconds() - AuditStart) * 1000.0;
+			}
 			if (Options.Mode != EUnifiedRunMode::Performance && Options.bRecordSnapshots && StepEnd.Minutes > 0)
 			{
+				const double SnapshotStart = FPlatformTime::Seconds();
 				AddSnapshot(StepEnd);
+				LastStepMeasurement.SnapshotCpuMs = (FPlatformTime::Seconds() - SnapshotStart) * 1000.0;
 			}
-			PublishReadOnlyObservations(StepEnd, Time);
+			if (Options.Observer != nullptr || Options.EventSink != nullptr)
+			{
+				const double ObserverStart = FPlatformTime::Seconds();
+				PublishReadOnlyObservations(StepEnd, Time);
+				LastStepMeasurement.ObserverCpuMs = (FPlatformTime::Seconds() - ObserverStart) * 1000.0;
+			}
+			LastStepMeasurement.GameTime = StepEnd;
+			LastStepMeasurement.ActiveCount = ActiveResidents.Num();
+			LastStepMeasurement.QueueLength = Scheduler.GetPendingEvents().Num();
+			const double StepCpuMs = (FPlatformTime::Seconds() - StepStart) * 1000.0;
+			LastStepMeasurement.ProductionCpuMs = FMath::Max(
+				0.0,
+				StepCpuMs - LastStepMeasurement.ValidationCpuMs - LastStepMeasurement.AuditCpuMs
+					- LastStepMeasurement.SnapshotCpuMs - LastStepMeasurement.ObserverCpuMs);
+			CostBreakdown.ProductionCpuMs += LastStepMeasurement.ProductionCpuMs;
+			CostBreakdown.MacroCpuMs += LastStepMeasurement.MacroCpuMs;
+			CostBreakdown.MicroCpuMs += LastStepMeasurement.MicroCpuMs;
+			CostBreakdown.TransitionCpuMs += LastStepMeasurement.TransitionCpuMs;
+			CostBreakdown.ValidationCpuMs += LastStepMeasurement.ValidationCpuMs;
+			CostBreakdown.AuditCpuMs += LastStepMeasurement.AuditCpuMs;
+			CostBreakdown.SnapshotCpuMs += LastStepMeasurement.SnapshotCpuMs;
+			CostBreakdown.ObserverCpuMs += LastStepMeasurement.ObserverCpuMs;
 			OutError.Reset();
 			return true;
 		}
 
 		bool FUnifiedRuntime::Finalize(FUnifiedRunResult& OutResult, FString& OutError)
 		{
+			const double FinalizeStart = FPlatformTime::Seconds();
+			double FinalAuditMs = 0.0;
 			if (!IsComplete())
 			{
 				OutError = TEXT("Unified runtime can only finalize at D60T00:00.");
 				return false;
 			}
-			if (Options.Mode == EUnifiedRunMode::Performance && !AuditHour(OutError))
+			if (Options.Mode == EUnifiedRunMode::Performance)
 			{
-				return false;
+				const double AuditStart = FPlatformTime::Seconds();
+				if (!AuditHour(OutError))
+				{
+					return false;
+				}
+				FinalAuditMs = (FPlatformTime::Seconds() - AuditStart) * 1000.0;
+				CostBreakdown.AuditCpuMs += FinalAuditMs;
 			}
 
 			FillResult(OutResult);
+			CostBreakdown.FinalizeCpuMs = FMath::Max(0.0, (FPlatformTime::Seconds() - FinalizeStart) * 1000.0 - FinalAuditMs);
+			OutResult.CostBreakdown = CostBreakdown;
 			if (!OutResult.IsHardErrorFree())
 			{
 				OutError = TEXT("Unified runtime final hard-error gate failed.");
@@ -1148,6 +1213,7 @@ namespace AILOD
 			}
 			Diagnostics.TransactionCount = Ledger.GetTransactions().Num();
 			OutResult.Diagnostics = Diagnostics;
+			OutResult.CostBreakdown = CostBreakdown;
 			OutResult.Transactions = Ledger.GetTransactions();
 			for (const TPair<FEventID, FSimulationEventRecord>& Pair : EventStore.GetEvents())
 			{
@@ -1185,13 +1251,44 @@ namespace AILOD
 
 			if (Backend->GetPlanningGranularity() == EBackendPlanningGranularity::Aggregate)
 			{
-				if (Residents.Num() > 0 && !PlanDetailedResidents(Time, OutError))
+				if (Residents.Num() > 0)
 				{
-					return false;
+					const double ValidationBefore = LastStepMeasurement.ValidationCpuMs;
+					const double MicroStart = FPlatformTime::Seconds();
+					if (!PlanDetailedResidents(Time, OutError))
+					{
+						return false;
+					}
+					LastStepMeasurement.MicroCpuMs += FMath::Max(
+						0.0,
+						(FPlatformTime::Seconds() - MicroStart) * 1000.0
+							- (LastStepMeasurement.ValidationCpuMs - ValidationBefore));
 				}
-				return PlanSimple(Time, OutError);
+				const double MacroStart = FPlatformTime::Seconds();
+				const bool bResult = PlanSimple(Time, OutError);
+				LastStepMeasurement.MacroCpuMs += (FPlatformTime::Seconds() - MacroStart) * 1000.0;
+				return bResult;
 			}
-			return PlanDetailedResidents(Time, OutError);
+			const double ValidationBefore = LastStepMeasurement.ValidationCpuMs;
+			const double DetailedStart = FPlatformTime::Seconds();
+			if (!PlanDetailedResidents(Time, OutError))
+			{
+				return false;
+			}
+			const double DetailedMs = FMath::Max(
+				0.0,
+				(FPlatformTime::Seconds() - DetailedStart) * 1000.0
+					- (LastStepMeasurement.ValidationCpuMs - ValidationBefore));
+			if (Backend->GetPlanningGranularity() == EBackendPlanningGranularity::Cohort)
+			{
+				LastStepMeasurement.MicroCpuMs += LastDetailedActivePlanningMs;
+				LastStepMeasurement.MacroCpuMs += FMath::Max(0.0, DetailedMs - LastDetailedActivePlanningMs);
+			}
+			else
+			{
+				LastStepMeasurement.MicroCpuMs += DetailedMs;
+			}
+			return true;
 		}
 
 		bool FUnifiedRuntime::ApplyActivationTrace(const FSimulationTime Time, FString& OutError)
@@ -2117,7 +2214,9 @@ namespace AILOD
 					if (ActiveResidents.Contains(Resident.ResidentID))
 					{
 						const FIndividualWorldFacts& World = WorldByKingdom[KingdomIndex(Resident.Kingdom)];
+						const double ActivePlanningStart = FPlatformTime::Seconds();
 						const FIndividualPlan Plan = FIndividualDomain::BuildPlan(Resident, World);
+						LastDetailedActivePlanningMs += (FPlatformTime::Seconds() - ActivePlanningStart) * 1000.0;
 						const EIndividualAction Action = Plan.Actions.Num() > 0 ? Plan.Actions[0] : EIndividualAction::Wait;
 						++Diagnostics.PlanningEvaluationCount;
 						++Diagnostics.ActiveMicroPlanningEvaluationCount;
@@ -2176,6 +2275,7 @@ namespace AILOD
 					{
 						if (Options.Mode == EUnifiedRunMode::Validation && Options.bVerifyCohortApproximation)
 						{
+							const double ValidationStart = FPlatformTime::Seconds();
 							const FIndividualPlan MemberPlan = FIndividualDomain::BuildPlan(Residents[ResidentIndex], World);
 							const EIndividualAction MemberAction = MemberPlan.Actions.Num() > 0 ? MemberPlan.Actions[0] : EIndividualAction::Wait;
 							++Diagnostics.ValidationPlanningEvaluationCount;
@@ -2183,6 +2283,7 @@ namespace AILOD
 							{
 								++Diagnostics.CohortDecisionDisagreementCount;
 							}
+							LastStepMeasurement.ValidationCpuMs += (FPlatformTime::Seconds() - ValidationStart) * 1000.0;
 						}
 						AddCandidate(ResidentIndex, Action, true);
 					}
@@ -3229,6 +3330,11 @@ namespace AILOD
 			return CompletedHourSteps;
 		}
 
+		const FUnifiedStepMeasurement& GetLastStepMeasurement() const
+		{
+			return Runtime.GetLastStepMeasurement();
+		}
+
 	private:
 		enum class EState : uint8
 		{
@@ -3283,6 +3389,11 @@ namespace AILOD
 	int32 FUnifiedSimulationSession::GetCompletedHourSteps() const
 	{
 		return Impl->GetCompletedHourSteps();
+	}
+
+	const FUnifiedStepMeasurement& FUnifiedSimulationSession::GetLastStepMeasurement() const
+	{
+		return Impl->GetLastStepMeasurement();
 	}
 
 	const TCHAR* ToString(const EUnifiedSimulationMethod Method)

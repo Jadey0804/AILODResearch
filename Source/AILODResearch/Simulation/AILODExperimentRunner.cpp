@@ -6,6 +6,8 @@
 #include "AILODLogSchema.h"
 #include "AILODPhase0Manifest.h"
 #include "Dom/JsonObject.h"
+#include "HAL/PlatformMemory.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Serialization/JsonSerializer.h"
@@ -141,28 +143,73 @@ namespace AILOD
 		{
 			FUnifiedRunLogWriter Writer;
 			FUnifiedRunOptions Options = BaseOptions;
-			Options.Observer = &Writer;
-			Options.EventSink = &Writer;
+			if (Options.Mode != EUnifiedRunMode::Performance)
+			{
+				Options.Observer = &Writer;
+				Options.EventSink = &Writer;
+			}
 			FUnifiedSimulationSession Session(Config, Method, Scenario, Options);
 			if (!Session.Initialize(OutError))
 			{
 				return false;
 			}
+			TArray<FUnifiedPerformanceSample> PerformanceSamples;
+			FUnifiedPerformanceSample CurrentSample;
+			int32 CurrentSampleSteps = 0;
+			double SampleStart = FPlatformTime::Seconds();
+			auto FlushPerformanceSample = [&PerformanceSamples, &CurrentSample, &CurrentSampleSteps]()
+			{
+				if (CurrentSampleSteps <= 0) return;
+				CurrentSample.MemoryMB = static_cast<double>(FPlatformMemory::GetStats().UsedPhysical) / (1024.0 * 1024.0);
+				PerformanceSamples.Add(CurrentSample);
+				CurrentSample = {};
+				CurrentSampleSteps = 0;
+			};
 			while (!Session.IsComplete())
 			{
 				if (!Session.StepHour(OutError))
 				{
 					return false;
 				}
+				if (Options.Mode == EUnifiedRunMode::Performance)
+				{
+					const FUnifiedStepMeasurement& Step = Session.GetLastStepMeasurement();
+					CurrentSample.GameTime = Step.GameTime;
+					CurrentSample.AICpuMs += Step.ProductionCpuMs;
+					CurrentSample.MacroCpuMs += Step.MacroCpuMs;
+					CurrentSample.MicroCpuMs += Step.MicroCpuMs;
+					CurrentSample.TransitionCpuMs += Step.TransitionCpuMs;
+					CurrentSample.ActiveCount = Step.ActiveCount;
+					CurrentSample.QueueLength = Step.QueueLength;
+					++CurrentSampleSteps;
+					const double Now = FPlatformTime::Seconds();
+					if (Now - SampleStart >= 1.0)
+					{
+						FlushPerformanceSample();
+						SampleStart = Now;
+					}
+				}
 			}
+			if (Options.Mode == EUnifiedRunMode::Performance) FlushPerformanceSample();
 			FUnifiedRunResult Result;
-			if (!Session.Finalize(Result, OutError) || !Writer.WriteRun(Result, Metadata, OutError))
+			if (!Session.Finalize(Result, OutError))
+			{
+				return false;
+			}
+			Result.PerformanceSamples = MoveTemp(PerformanceSamples);
+			if (!Writer.WriteRun(Result, Metadata, OutError))
 			{
 				return false;
 			}
 			OutRun.RunID = Metadata.RunID;
 			OutRun.RunDirectory = Metadata.OutputDirectory;
 			OutRun.DeterministicDigest = FUnifiedSimulationRunner::BuildDeterministicDigest(Result);
+			OutRun.Mode = Result.Mode;
+			OutRun.PopulationPerKingdom = Result.PopulationPerKingdom;
+			OutRun.bHardErrorFree = Result.IsHardErrorFree();
+			OutRun.PerformanceSampleCount = Result.PerformanceSamples.Num();
+			OutRun.Diagnostics = Result.Diagnostics;
+			OutRun.CostBreakdown = Result.CostBreakdown;
 			return true;
 		}
 	}
@@ -183,8 +230,10 @@ namespace AILOD
 		}
 
 		FUnifiedRunOptions Options;
-		Options.Mode = EUnifiedRunMode::Accuracy;
-		Options.bRecordSnapshots = true;
+		Options.Mode = Request.Mode;
+		Options.bRetainCompletedEvents = Request.Mode != EUnifiedRunMode::Performance;
+		Options.bRecordSnapshots = Request.Mode != EUnifiedRunMode::Performance;
+		Options.bVerifyCohortApproximation = Request.Mode == EUnifiedRunMode::Validation;
 		for (const int32 Seed : Request.Seeds)
 		{
 			FPhase0Config Config;
