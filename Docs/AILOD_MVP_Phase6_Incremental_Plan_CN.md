@@ -4,7 +4,8 @@
 **日期：2026-08-17**<br>
 **分支：`phase-6-experiment-runner`**<br>
 **Phase 5.1 基线提交：`7ea750d6617f6346de37e19e2d20c9c76f5b682f`**<br>
-**当前状态：Step 0 已于 2026-08-17 由项目作者确认；Phase 6A 尚未开始。**
+**Step 0 计划提交：`a3a34969be04036fe919f9599ace609f0f508ceb`**<br>
+**当前状态：Phase 6A 实现与自动验收通过，项目作者已于 2026-08-17 确认；等待本地封板提交，未推送。**
 
 本文件只把既有 Phase 6 规则拆成可独立验收的实施步骤，不新增研究模型、公式、参数、方法或日志字段。规则冲突仍按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.6 顺序处理。
 
@@ -46,7 +47,7 @@ Phase 6 不负责：
 | 检查点 | 目标 | 状态 |
 |---|---|---|
 | Step 0 | 冻结本增量计划、每步范围和确认流程 | 作者已确认 |
-| Phase 6A | 建立 `Initialize / StepHour / Finalize` 生产会话 | 未开始 |
+| Phase 6A | 建立 `Initialize / StepHour / Finalize` 生产会话 | 作者已确认，等待封板提交 |
 | Phase 6B | 建立最小 `ISimulationBackend` 边界 | 未开始 |
 | Phase 6C | 建立只读 Observer/Event Sink | 未开始 |
 | Phase 6D | 输出 Run Manifest 与原始 CSV/JSONL | 未开始 |
@@ -71,6 +72,19 @@ Phase 6 不负责：
 - `Audit` 与 `Snapshot` 仍观察同一 T+1 状态；
 - Phase 0—5 的 18 项测试继续通过，并新增会话等价性测试；
 - 编译与测试证据写入本文件后停止，等待作者确认 6A。
+
+### 6A 实施与验收记录（2026-08-17）
+
+- 新增公开的 `FUnifiedSimulationSession` 门面，提供 `Initialize / StepHour / Finalize`、完成状态、当前时间和完成小时数；内部 Runtime 继续保持私有。
+- 原阻塞入口 `FUnifiedSimulationRunner::Run` 现在只负责创建并驱动同一个 Session；旧的 Runtime 67 日循环已移除，每小时权威逻辑只存在于 `FUnifiedRuntime::StepHour`。
+- 会话状态阻止初始化前推进、重复初始化、D60 前 Finalize、D60 后继续推进和重复 Finalize；终点保护拒绝任何 `Clock >= D60` 的额外小时。
+- 新增 `AILODResearch.Phase6.SessionLifecycleAndParity`，逐组验证 200 人下四方法 × 四场景。
+- 16 组阻塞入口与逐小时入口均执行 1608 个小时步，停在 D60；最终两国 Snapshot 均标记为 T+1 的 D60。
+- 16 组 Digest、Transaction、Event 和生产规划次数与 Phase 5.1 §5 冻结基线逐项一致；没有领域结果迁移。
+- UE 5.4 Development Editor 编译成功。
+- NullRHI 全套 `AILODResearch`：`19/19 Success`，`0 Failed`，自动化错误 `0`，最终退出码 `0`。
+- 本步未建立 `ISimulationBackend`，未加入 Observer、文件日志、Experiment Runner、离线指标或性能优化；Phase 6B 仍为未开始。
+- 项目作者已于 2026-08-17 确认 6A 检查点，并授权在新分支继续实施 6B、6C、6D；本步随封板提交保存，不推送。
 
 ## 5. Phase 6B：最小 Backend 边界
 
@@ -181,8 +195,4 @@ Phase 6 不负责：
 
 Step 0 只完成计划拆分，没有修改 Phase 6 代码。项目作者已于 2026-08-17 确认本计划。
 
-确认后的执行顺序为：
-
-1. 将 Step 0 文档作为独立本地提交；
-2. 只实施 Phase 6A；
-3. 完成 6A 编译、测试和检查点报告后再次停止，等待下一次确认。
+Step 0 与 6A 已分别完成。项目作者随后确认 6A，并于 2026-08-17 明确授权在新分支按 6B → 6C → 6D 顺序继续实施；每一步仍须独立执行检查点，但本轮不在步骤之间暂停等待。

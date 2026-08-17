@@ -126,10 +126,13 @@ namespace AILOD
 			{
 			}
 
-			bool Run(FUnifiedRunResult& OutResult, FString& OutError);
+			bool Initialize(FString& OutError);
+			bool StepHour(FString& OutError);
+			bool Finalize(FUnifiedRunResult& OutResult, FString& OutError);
+			bool IsComplete() const { return Clock.Now() == FSimulationTime::FromDays(60); }
+			FSimulationTime GetCurrentTime() const { return Clock.Now(); }
 
 		private:
-			bool Initialize(FString& OutError);
 			bool InitializeLedger(FString& OutError);
 			bool BuildDay14ActivationSample(FString& OutError);
 			bool ProcessHour(FSimulationTime Time, FString& OutError);
@@ -456,44 +459,40 @@ namespace AILOD
 			return true;
 		}
 
-		bool FUnifiedRuntime::Run(FUnifiedRunResult& OutResult, FString& OutError)
+		bool FUnifiedRuntime::StepHour(FString& OutError)
 		{
-			if (!Initialize(OutError))
+			if (Clock.Now().Minutes >= FSimulationTime::FromDays(60).Minutes)
+			{
+				OutError = TEXT("Unified runtime is already at D60T00:00.");
+				return false;
+			}
+
+			const FSimulationTime Time = Clock.Now();
+			if (!ProcessHour(Time, OutError))
 			{
 				return false;
 			}
 
-			const int32 TotalHourSteps = 67 * static_cast<int32>(HoursPerDay);
-			for (int32 Step = 0; Step < TotalHourSteps; ++Step)
+			const FSimulationTime StepEnd = FSimulationTime::FromMinutes(Time.Minutes + MinutesPerHour);
+			if (!AdvanceChronologically(StepEnd, OutError)
+				|| !ApplyActivationTrace(StepEnd, OutError)
+				|| (Options.Mode != EUnifiedRunMode::Performance && !AuditHour(OutError)))
 			{
-				const FSimulationTime Time = Clock.Now();
-				if (!ProcessHour(Time, OutError))
-				{
-					return false;
-				}
-
-				const FSimulationTime StepEnd = FSimulationTime::FromMinutes(Time.Minutes + MinutesPerHour);
-				if (!AdvanceChronologically(StepEnd, OutError))
-				{
-					return false;
-				}
-				if (!ApplyActivationTrace(StepEnd, OutError))
-				{
-					return false;
-				}
-				if (Options.Mode != EUnifiedRunMode::Performance && !AuditHour(OutError))
-				{
-					return false;
-				}
-				if (Options.Mode != EUnifiedRunMode::Performance && Options.bRecordSnapshots && StepEnd.Minutes > 0)
-				{
-					AddSnapshot(StepEnd);
-				}
+				return false;
 			}
-
-			if (!(Clock.Now() == FSimulationTime::FromDays(60)))
+			if (Options.Mode != EUnifiedRunMode::Performance && Options.bRecordSnapshots && StepEnd.Minutes > 0)
 			{
-				OutError = TEXT("Unified runtime did not stop at D60T00:00.");
+				AddSnapshot(StepEnd);
+			}
+			OutError.Reset();
+			return true;
+		}
+
+		bool FUnifiedRuntime::Finalize(FUnifiedRunResult& OutResult, FString& OutError)
+		{
+			if (!IsComplete())
+			{
+				OutError = TEXT("Unified runtime can only finalize at D60T00:00.");
 				return false;
 			}
 			if (Options.Mode == EUnifiedRunMode::Performance && !AuditHour(OutError))
@@ -2802,6 +2801,144 @@ namespace AILOD
 		}
 	}
 
+	class FUnifiedSimulationSession::FImpl
+	{
+	public:
+		FImpl(
+			const FPhase0Config& Config,
+			const EUnifiedSimulationMethod Method,
+			const EStage2Scenario Scenario,
+			const FUnifiedRunOptions& Options)
+			: Runtime(Config, Method, Scenario, Options)
+		{
+		}
+
+		bool Initialize(FString& OutError)
+		{
+			if (State != EState::Created)
+			{
+				OutError = TEXT("Unified simulation session can only initialize once.");
+				return false;
+			}
+			if (!Runtime.Initialize(OutError))
+			{
+				State = EState::Failed;
+				return false;
+			}
+			State = EState::Running;
+			OutError.Reset();
+			return true;
+		}
+
+		bool StepHour(FString& OutError)
+		{
+			if (State != EState::Running)
+			{
+				OutError = TEXT("Unified simulation session is not ready to step.");
+				return false;
+			}
+			if (!Runtime.StepHour(OutError))
+			{
+				State = EState::Failed;
+				return false;
+			}
+			++CompletedHourSteps;
+			if (Runtime.IsComplete())
+			{
+				State = EState::Complete;
+			}
+			OutError.Reset();
+			return true;
+		}
+
+		bool Finalize(FUnifiedRunResult& OutResult, FString& OutError)
+		{
+			if (State != EState::Complete)
+			{
+				OutError = TEXT("Unified simulation session can only finalize after reaching D60T00:00.");
+				return false;
+			}
+			if (!Runtime.Finalize(OutResult, OutError))
+			{
+				State = EState::Failed;
+				return false;
+			}
+			State = EState::Finalized;
+			OutError.Reset();
+			return true;
+		}
+
+		bool IsComplete() const
+		{
+			return State == EState::Complete || State == EState::Finalized;
+		}
+
+		FSimulationTime GetCurrentTime() const
+		{
+			return Runtime.GetCurrentTime();
+		}
+
+		int32 GetCompletedHourSteps() const
+		{
+			return CompletedHourSteps;
+		}
+
+	private:
+		enum class EState : uint8
+		{
+			Created,
+			Running,
+			Complete,
+			Finalized,
+			Failed
+		};
+
+		FUnifiedRuntime Runtime;
+		EState State = EState::Created;
+		int32 CompletedHourSteps = 0;
+	};
+
+	FUnifiedSimulationSession::FUnifiedSimulationSession(
+		const FPhase0Config& Config,
+		const EUnifiedSimulationMethod Method,
+		const EStage2Scenario Scenario,
+		const FUnifiedRunOptions& Options)
+		: Impl(MakeUnique<FImpl>(Config, Method, Scenario, Options))
+	{
+	}
+
+	FUnifiedSimulationSession::~FUnifiedSimulationSession() = default;
+
+	bool FUnifiedSimulationSession::Initialize(FString& OutError)
+	{
+		return Impl->Initialize(OutError);
+	}
+
+	bool FUnifiedSimulationSession::StepHour(FString& OutError)
+	{
+		return Impl->StepHour(OutError);
+	}
+
+	bool FUnifiedSimulationSession::Finalize(FUnifiedRunResult& OutResult, FString& OutError)
+	{
+		return Impl->Finalize(OutResult, OutError);
+	}
+
+	bool FUnifiedSimulationSession::IsComplete() const
+	{
+		return Impl->IsComplete();
+	}
+
+	FSimulationTime FUnifiedSimulationSession::GetCurrentTime() const
+	{
+		return Impl->GetCurrentTime();
+	}
+
+	int32 FUnifiedSimulationSession::GetCompletedHourSteps() const
+	{
+		return Impl->GetCompletedHourSteps();
+	}
+
 	const TCHAR* ToString(const EUnifiedSimulationMethod Method)
 	{
 		switch (Method)
@@ -2845,8 +2982,19 @@ namespace AILOD
 		FUnifiedRunResult& OutResult,
 		FString& OutError)
 	{
-		FUnifiedRuntime Runtime(Config, Method, Scenario, Options);
-		return Runtime.Run(OutResult, OutError);
+		FUnifiedSimulationSession Session(Config, Method, Scenario, Options);
+		if (!Session.Initialize(OutError))
+		{
+			return false;
+		}
+		while (!Session.IsComplete())
+		{
+			if (!Session.StepHour(OutError))
+			{
+				return false;
+			}
+		}
+		return Session.Finalize(OutResult, OutError);
 	}
 
 	FString FUnifiedSimulationRunner::BuildDeterministicDigest(const FUnifiedRunResult& Result)

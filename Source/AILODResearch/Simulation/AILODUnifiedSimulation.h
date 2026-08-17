@@ -142,6 +142,32 @@ namespace AILOD
 		int32 GetHomeStateCount(EKingdom Kingdom, EHomeState HomeState) const;
 	};
 
+	class FUnifiedSimulationSession
+	{
+	public:
+		FUnifiedSimulationSession(
+			const FPhase0Config& Config,
+			EUnifiedSimulationMethod Method,
+			EStage2Scenario Scenario,
+			const FUnifiedRunOptions& Options);
+		~FUnifiedSimulationSession();
+
+		FUnifiedSimulationSession(const FUnifiedSimulationSession&) = delete;
+		FUnifiedSimulationSession& operator=(const FUnifiedSimulationSession&) = delete;
+
+		bool Initialize(FString& OutError);
+		bool StepHour(FString& OutError);
+		bool Finalize(FUnifiedRunResult& OutResult, FString& OutError);
+
+		bool IsComplete() const;
+		FSimulationTime GetCurrentTime() const;
+		int32 GetCompletedHourSteps() const;
+
+	private:
+		class FImpl;
+		TUniquePtr<FImpl> Impl;
+	};
+
 	class FUnifiedSimulationRunner
 	{
 	public:
