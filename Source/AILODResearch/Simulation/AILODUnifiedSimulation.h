@@ -17,6 +17,9 @@ namespace AILOD
 
 	const TCHAR* ToString(EUnifiedSimulationMethod Method);
 
+	class IUnifiedSimulationObserver;
+	class IUnifiedSimulationEventSink;
+
 	enum class EUnifiedRunMode : uint8
 	{
 		Validation,
@@ -69,6 +72,8 @@ namespace AILOD
 		bool bRecordSnapshots = true;
 		bool bVerifyCohortApproximation = false;
 		EUnifiedFaultInjectionPoint FaultInjection = EUnifiedFaultInjectionPoint::None;
+		IUnifiedSimulationObserver* Observer = nullptr;
+		IUnifiedSimulationEventSink* EventSink = nullptr;
 	};
 
 	struct FUnifiedRunDiagnostics
@@ -109,6 +114,52 @@ namespace AILOD
 		bool bContinuedCommittedEvent = false;
 	};
 
+	struct FUnifiedCohortObservation
+	{
+		FSimulationTime GameTime;
+		FString CohortKey;
+		int32 Count = 0;
+		int64 CashSum = 0;
+		int64 CashSquaredSum = 0;
+		int64 RepairCreditSum = 0;
+		int32 WoodCounts[5] = {};
+		EMacroIntent MacroIntent = EMacroIntent::Routine;
+	};
+
+	struct FUnifiedNPCObservation
+	{
+		FSimulationTime GameTime;
+		FResidentCoreState Resident;
+		EIndividualAction FirstAction = EIndividualAction::None;
+	};
+
+	struct FUnifiedHourObservation
+	{
+		FSimulationTime GameTime;
+		FKingdomSnapshot KingdomA;
+		FKingdomSnapshot KingdomB;
+		FString PolicyState;
+		TArray<FUnifiedCohortObservation> Cohorts;
+	};
+
+	class IUnifiedSimulationObserver
+	{
+	public:
+		virtual ~IUnifiedSimulationObserver() = default;
+		virtual void OnHourCompleted(const FUnifiedHourObservation& Observation) = 0;
+		virtual void OnNPCSnapshot(const FUnifiedNPCObservation& Observation) = 0;
+	};
+
+	class IUnifiedSimulationEventSink
+	{
+	public:
+		virtual ~IUnifiedSimulationEventSink() = default;
+		virtual void OnEventCommitted(const FSimulationEventRecord& Event) = 0;
+		virtual void OnTransactionCommitted(const FLedgerTransaction& Transaction) = 0;
+		virtual void OnLODTransitionCommitted(const FLODTransitionRecord& Transition) = 0;
+		virtual void OnActivationObserved(const FUnifiedActivationObservation& Observation) = 0;
+	};
+
 	struct FUnifiedRunResult
 	{
 		EUnifiedSimulationMethod Method = EUnifiedSimulationMethod::Oracle;
@@ -136,6 +187,7 @@ namespace AILOD
 		TArray<FLedgerTransaction> Transactions;
 		TArray<FSimulationEventRecord> Events;
 		TArray<FKingdomSnapshot> Snapshots;
+		TArray<FLODTransitionRecord> LODTransitions;
 		TArray<FUnifiedActivationObservation> ActivationObservations;
 
 		bool IsHardErrorFree() const;

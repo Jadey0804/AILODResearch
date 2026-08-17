@@ -25,6 +25,49 @@ namespace
 		Config.PopulationPerKingdom = 100;
 		return Config;
 	}
+
+	class FPhase6CRecorder final
+		: public AILOD::IUnifiedSimulationObserver
+		, public AILOD::IUnifiedSimulationEventSink
+	{
+	public:
+		virtual void OnHourCompleted(const AILOD::FUnifiedHourObservation& Observation) override
+		{
+			Hours.Add(Observation);
+		}
+
+		virtual void OnNPCSnapshot(const AILOD::FUnifiedNPCObservation& Observation) override
+		{
+			NPCSnapshots.Add(Observation);
+		}
+
+		virtual void OnEventCommitted(const AILOD::FSimulationEventRecord& Event) override
+		{
+			Events.Add(Event);
+		}
+
+		virtual void OnTransactionCommitted(const AILOD::FLedgerTransaction& Transaction) override
+		{
+			Transactions.Add(Transaction);
+		}
+
+		virtual void OnLODTransitionCommitted(const AILOD::FLODTransitionRecord& Transition) override
+		{
+			LODTransitions.Add(Transition);
+		}
+
+		virtual void OnActivationObserved(const AILOD::FUnifiedActivationObservation& Observation) override
+		{
+			Activations.Add(Observation);
+		}
+
+		TArray<AILOD::FUnifiedHourObservation> Hours;
+		TArray<AILOD::FUnifiedNPCObservation> NPCSnapshots;
+		TArray<AILOD::FSimulationEventRecord> Events;
+		TArray<AILOD::FLedgerTransaction> Transactions;
+		TArray<AILOD::FLODTransitionRecord> LODTransitions;
+		TArray<AILOD::FUnifiedActivationObservation> Activations;
+	};
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -215,6 +258,107 @@ bool FAILODPhase6BBackendBoundaryTest::RunTest(const FString& Parameters)
 	FString Error;
 	TestFalse(TEXT("Oracle backend still rejects more than 200 residents"), LargeOracleSession.Initialize(Error));
 	TestTrue(TEXT("Oracle backend explains its frozen population boundary"), Error.Contains(TEXT("200 total residents")));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAILODPhase6CReadOnlyObservationTest,
+	"AILODResearch.Phase6.ReadOnlyObservation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAILODPhase6CReadOnlyObservationTest::RunTest(const FString& Parameters)
+{
+	using namespace AILOD;
+	FUnifiedRunOptions BaselineOptions;
+	BaselineOptions.bRecordSnapshots = true;
+	FUnifiedRunResult Baseline;
+	FString Error;
+	if (!FUnifiedSimulationRunner::Run(
+		MakePhase6AConfig(),
+		EUnifiedSimulationMethod::Proposed,
+		EStage2Scenario::StateImport,
+		BaselineOptions,
+		Baseline,
+		Error))
+	{
+		AddError(FString::Printf(TEXT("Unobserved baseline failed: %s"), *Error));
+		return false;
+	}
+
+	FPhase6CRecorder Recorder;
+	FUnifiedRunOptions ObservedOptions = BaselineOptions;
+	ObservedOptions.Observer = &Recorder;
+	ObservedOptions.EventSink = &Recorder;
+	FUnifiedRunResult Observed;
+	if (!FUnifiedSimulationRunner::Run(
+		MakePhase6AConfig(),
+		EUnifiedSimulationMethod::Proposed,
+		EStage2Scenario::StateImport,
+		ObservedOptions,
+		Observed,
+		Error))
+	{
+		AddError(FString::Printf(TEXT("Observed run failed: %s"), *Error));
+		return false;
+	}
+
+	TestEqual(TEXT("Read-only observation does not change the deterministic digest"),
+		FUnifiedSimulationRunner::BuildDeterministicDigest(Observed),
+		FUnifiedSimulationRunner::BuildDeterministicDigest(Baseline));
+	TestEqual(TEXT("Read-only observation does not change transaction count"), Observed.Transactions.Num(), Baseline.Transactions.Num());
+	TestEqual(TEXT("Read-only observation does not change event count"), Observed.Events.Num(), Baseline.Events.Num());
+	TestEqual(TEXT("Read-only observation does not change activation count"), Observed.ActivationObservations.Num(), Baseline.ActivationObservations.Num());
+	TestEqual(TEXT("Read-only observation does not change LOD transition count"), Observed.LODTransitions.Num(), Baseline.LODTransitions.Num());
+	TestEqual(TEXT("Observer reads are excluded from production ledger-query diagnostics"), Observed.Diagnostics.LedgerQueryCount, Baseline.Diagnostics.LedgerQueryCount);
+	TestTrue(TEXT("Observed run remains hard-error free"), Observed.IsHardErrorFree());
+
+	TestEqual(TEXT("Observer receives every T+1 hourly state"), Recorder.Hours.Num(), 67 * 24);
+	for (int32 Index = 0; Index < Recorder.Hours.Num(); ++Index)
+	{
+		const FUnifiedHourObservation& Hour = Recorder.Hours[Index];
+		const int64 ExpectedTime = FSimulationTime::FromDays(-7).Minutes + (Index + 1) * MinutesPerHour;
+		TestEqual(*FString::Printf(TEXT("Hour callback %d is monotonic T+1"), Index), Hour.GameTime.Minutes, ExpectedTime);
+		TestEqual(*FString::Printf(TEXT("Hour callback %d aligns Kingdom A"), Index), Hour.KingdomA.GameTime.Minutes, Hour.GameTime.Minutes);
+		TestEqual(*FString::Printf(TEXT("Hour callback %d aligns Kingdom B"), Index), Hour.KingdomB.GameTime.Minutes, Hour.GameTime.Minutes);
+		if (Hour.GameTime.Minutes % (6 * MinutesPerHour) == 0)
+		{
+			TestTrue(*FString::Printf(TEXT("Hour callback %d includes non-empty 6h cohorts"), Index), Hour.Cohorts.Num() > 0);
+		}
+		else
+		{
+			TestEqual(*FString::Printf(TEXT("Hour callback %d omits off-cadence cohorts"), Index), Hour.Cohorts.Num(), 0);
+		}
+	}
+
+	TestEqual(TEXT("Event sink records every authoritative event"), Recorder.Events.Num(), Observed.Events.Num());
+	TestEqual(TEXT("Event sink records every authoritative transaction"), Recorder.Transactions.Num(), Observed.Transactions.Num());
+	TestEqual(TEXT("Event sink records every authoritative LOD transition"), Recorder.LODTransitions.Num(), Observed.LODTransitions.Num());
+	TestEqual(TEXT("Event sink records every finalized activation"), Recorder.Activations.Num(), Observed.ActivationObservations.Num());
+	TestEqual(TEXT("Observer records one NPC snapshot per finalized activation"), Recorder.NPCSnapshots.Num(), Observed.ActivationObservations.Num());
+
+	for (int32 Index = 0; Index < Recorder.Events.Num(); ++Index)
+	{
+		TestEqual(*FString::Printf(TEXT("Event callback %d preserves EventID order"), Index), Recorder.Events[Index].EventID, Observed.Events[Index].EventID);
+	}
+	for (int32 Index = 0; Index < Recorder.Transactions.Num(); ++Index)
+	{
+		TestEqual(*FString::Printf(TEXT("Transaction callback %d preserves TransactionID order"), Index), Recorder.Transactions[Index].TransactionID, Observed.Transactions[Index].TransactionID);
+	}
+	for (int32 Index = 0; Index < Recorder.LODTransitions.Num(); ++Index)
+	{
+		const FLODTransitionRecord& Callback = Recorder.LODTransitions[Index];
+		const FLODTransitionRecord& Authority = Observed.LODTransitions[Index];
+		TestEqual(*FString::Printf(TEXT("LOD callback %d preserves resident identity"), Index), Callback.PersistentID, Authority.PersistentID);
+		TestEqual(*FString::Printf(TEXT("LOD callback %d preserves transition result"), Index), Callback.Result, ELODTransitionResult::Committed);
+		TestEqual(*FString::Printf(TEXT("LOD callback %d commits without time drift"), Index), Callback.CommittedTime.Minutes, Callback.RequestedTime.Minutes);
+	}
+	for (int32 Index = 0; Index < Recorder.Activations.Num(); ++Index)
+	{
+		TestEqual(*FString::Printf(TEXT("Activation callback %d preserves resident order"), Index), Recorder.Activations[Index].ResidentID, Observed.ActivationObservations[Index].ResidentID);
+		TestTrue(*FString::Printf(TEXT("NPC snapshot %d contains a finalized first action"), Index), Recorder.NPCSnapshots[Index].FirstAction != EIndividualAction::None);
+		TestEqual(*FString::Printf(TEXT("NPC snapshot %d uses the activation time"), Index), Recorder.NPCSnapshots[Index].GameTime.Minutes, Recorder.Activations[Index].ActivationTime.Minutes);
+	}
 
 	return true;
 }

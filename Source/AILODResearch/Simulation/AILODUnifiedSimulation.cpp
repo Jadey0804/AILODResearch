@@ -248,6 +248,7 @@ namespace AILOD
 			bool CalculateAidEligibility(FSimulationTime Time, FString& OutError);
 			bool PayRepairAid(FSimulationTime Time, FString& OutError);
 			bool CreateInstantEvent(const TCHAR* Type, FSimulationTime Time, int32 Participants, FPolicyID PolicyID, FString& OutError);
+			bool CreateEvent(const FSimulationEventRequest& Request, FEventID& OutEventID, FString& OutError);
 
 			bool ApplyForestGrowth(EKingdom Kingdom, FSimulationTime Time, FString& OutError);
 			bool ApplyBaselineImport(EKingdom Kingdom, FSimulationTime Time, FString& OutError);
@@ -284,14 +285,19 @@ namespace AILOD
 				FPolicyID PolicyID,
 				FString& OutError);
 			void SyncResident(FResidentCoreState& Resident);
+			void RecordLODTransition(const FResidentCoreState& Resident, EResidentRepresentation From, EResidentRepresentation To, FSimulationTime Time);
+			void PublishReadOnlyObservations(FSimulationTime GameTime, FSimulationTime ProcessedTime);
+			void BuildCohortObservations(FSimulationTime GameTime, TArray<FUnifiedCohortObservation>& OutObservations) const;
+			FString PolicyStateAt(FSimulationTime ProcessedTime) const;
 			FString ResidentLedgerAccount(FResidentID ResidentID, const TCHAR* Stock) const;
 			FResidentCoreState* FindResident(FResidentID ResidentID);
 			const FResidentCoreState* FindResident(FResidentID ResidentID) const;
 			const FInitialResidentRecord* FindInitialResident(FResidentID ResidentID) const;
-			FKingdomStocks ReadStocks(EKingdom Kingdom, bool bIncludeResidentTotals);
+			FKingdomStocks ReadStocks(EKingdom Kingdom, bool bIncludeResidentTotals, bool bCountDiagnostics = true);
 			int32 CountHomes(EKingdom Kingdom, EHomeState State) const;
 			FPopulationState PopulationState() const;
 			bool AuditHour(FString& OutError);
+			FKingdomSnapshot BuildKingdomSnapshot(FSimulationTime Time, EKingdom Kingdom, bool bCountDiagnostics);
 			void AddSnapshot(FSimulationTime Time);
 			void FillResult(FUnifiedRunResult& OutResult);
 
@@ -309,6 +315,12 @@ namespace AILOD
 			TArray<FResidentID> Day14ActivationResidents;
 			TMap<FResidentID, int32> PendingFirstActionObservations;
 			TArray<FUnifiedActivationObservation> ActivationObservations;
+			TMap<int32, FUnifiedNPCObservation> FinalizedNPCObservations;
+			TArray<FLODTransitionRecord> LODTransitions;
+			TArray<FSimulationEventRecord> PendingEventObservations;
+			int32 PublishedTransactionCount = 0;
+			int32 PublishedLODTransitionCount = 0;
+			int32 PublishedActivationObservationCount = 0;
 			FSimpleKingdomState SimpleStates[2];
 			TMap<FEventID, FSimpleDelayedAction> SimpleActions;
 			TArray<int32> AidEligibleResidentIndices;
@@ -576,6 +588,7 @@ namespace AILOD
 			{
 				AddSnapshot(StepEnd);
 			}
+			PublishReadOnlyObservations(StepEnd, Time);
 			OutError.Reset();
 			return true;
 		}
@@ -632,6 +645,22 @@ namespace AILOD
 			Request.PolicyID = PolicyID;
 			FTransactionID TransactionID = 0;
 			return Ledger.SubmitTransfer(Request, TransactionID, OutError);
+		}
+
+		bool FUnifiedRuntime::CreateEvent(
+			const FSimulationEventRequest& Request,
+			FEventID& OutEventID,
+			FString& OutError)
+		{
+			if (!EventStore.CreateEvent(Request, OutEventID, OutError))
+			{
+				return false;
+			}
+			if (Options.EventSink != nullptr)
+			{
+				PendingEventObservations.Add(*EventStore.Find(OutEventID));
+			}
+			return true;
 		}
 
 		FString FUnifiedRuntime::ResidentLedgerAccount(const FResidentID ResidentID, const TCHAR* Stock) const
@@ -717,7 +746,10 @@ namespace AILOD
 			return true;
 		}
 
-		FKingdomStocks FUnifiedRuntime::ReadStocks(const EKingdom Kingdom, const bool bIncludeResidentTotals)
+		FKingdomStocks FUnifiedRuntime::ReadStocks(
+			const EKingdom Kingdom,
+			const bool bIncludeResidentTotals,
+			const bool bCountDiagnostics)
 		{
 			FKingdomStocks Stocks;
 			Stocks.ForestCapacity = 20.0 * Config.PopulationPerKingdom;
@@ -731,7 +763,7 @@ namespace AILOD
 			Stocks.TreasuryReserved = FMath::RoundToInt64(Ledger.GetBalance(ESimulationResource::Coin, MakeKingdomAccount(Kingdom, TEXT("TreasuryReserved"))));
 			Stocks.MarketCoin = FMath::RoundToInt64(Ledger.GetBalance(ESimulationResource::Coin, MakeKingdomAccount(Kingdom, TEXT("MarketCoin"))));
 			Stocks.WoodPrice = WoodPrices[KingdomIndex(Kingdom)];
-			Diagnostics.LedgerQueryCount += 9;
+			Diagnostics.LedgerQueryCount += bCountDiagnostics ? 9 : 0;
 
 			if (bIncludeResidentTotals)
 			{
@@ -739,7 +771,7 @@ namespace AILOD
 				{
 					Stocks.ResidentInventoryWood = Ledger.GetBalance(ESimulationResource::Wood, SimpleAccount(Kingdom, TEXT("Wood")));
 					Stocks.ResidentRepairCredit = FMath::RoundToInt64(Ledger.GetBalance(ESimulationResource::Coin, SimpleAccount(Kingdom, TEXT("RepairCredit"))));
-					Diagnostics.LedgerQueryCount += 2;
+					Diagnostics.LedgerQueryCount += bCountDiagnostics ? 2 : 0;
 					for (const FResidentCoreState& Resident : Residents)
 					{
 						if (Resident.Kingdom == Kingdom)
@@ -902,20 +934,176 @@ namespace AILOD
 			return true;
 		}
 
+		FKingdomSnapshot FUnifiedRuntime::BuildKingdomSnapshot(
+			const FSimulationTime Time,
+			const EKingdom Kingdom,
+			const bool bCountDiagnostics)
+		{
+			FKingdomSnapshot Snapshot;
+			Snapshot.GameTime = Time;
+			Snapshot.Kingdom = Kingdom;
+			Snapshot.Stocks = ReadStocks(Kingdom, true, bCountDiagnostics);
+			Snapshot.Healthy = CountHomes(Kingdom, EHomeState::Healthy);
+			Snapshot.DamagedWaiting = CountHomes(Kingdom, EHomeState::DamagedWaiting);
+			Snapshot.UnderRepair = CountHomes(Kingdom, EHomeState::UnderRepair);
+			Snapshot.Repaired = CountHomes(Kingdom, EHomeState::Repaired);
+			Snapshot.LedgerTransactionCount = Ledger.GetTransactions().Num();
+			return Snapshot;
+		}
+
 		void FUnifiedRuntime::AddSnapshot(const FSimulationTime Time)
 		{
 			Diagnostics.SnapshotResidentVisitCount += 10ll * Residents.Num();
 			for (const EKingdom Kingdom : { EKingdom::A, EKingdom::B })
 			{
-				FKingdomSnapshot& Snapshot = Snapshots.AddDefaulted_GetRef();
-				Snapshot.GameTime = Time;
-				Snapshot.Kingdom = Kingdom;
-				Snapshot.Stocks = ReadStocks(Kingdom, true);
-				Snapshot.Healthy = CountHomes(Kingdom, EHomeState::Healthy);
-				Snapshot.DamagedWaiting = CountHomes(Kingdom, EHomeState::DamagedWaiting);
-				Snapshot.UnderRepair = CountHomes(Kingdom, EHomeState::UnderRepair);
-				Snapshot.Repaired = CountHomes(Kingdom, EHomeState::Repaired);
-				Snapshot.LedgerTransactionCount = Ledger.GetTransactions().Num();
+				Snapshots.Add(BuildKingdomSnapshot(Time, Kingdom, true));
+			}
+		}
+
+		FString FUnifiedRuntime::PolicyStateAt(const FSimulationTime ProcessedTime) const
+		{
+			const int64 Day2 = FSimulationTime::FromDays(2).Minutes;
+			const int64 Day3 = FSimulationTime::FromDays(3).Minutes;
+			switch (Scenario)
+			{
+			case EStage2Scenario::HarvestCap:
+				if (ProcessedTime.Minutes >= FSimulationTime::FromDays(30).Minutes) return TEXT("Ended");
+				if (ProcessedTime.Minutes >= Day3) return TEXT("Active");
+				return ProcessedTime.Minutes >= Day2 ? TEXT("Announced") : TEXT("Inactive");
+			case EStage2Scenario::StateImport:
+				if (ProcessedTime.Minutes >= FSimulationTime::FromDays(15).Minutes) return TEXT("Ended");
+				return ProcessedTime.Minutes >= Day2 ? TEXT("Active") : TEXT("Inactive");
+			case EStage2Scenario::RepairAid:
+				if (ProcessedTime.Minutes >= Day3) return TEXT("Paid");
+				return ProcessedTime.Minutes >= Day2 ? TEXT("EligibilityFrozen") : TEXT("Inactive");
+			case EStage2Scenario::None:
+			default:
+				return TEXT("None");
+			}
+		}
+
+		void FUnifiedRuntime::BuildCohortObservations(
+			const FSimulationTime GameTime,
+			TArray<FUnifiedCohortObservation>& OutObservations) const
+		{
+			TMap<FString, FUnifiedCohortObservation> Buckets;
+			auto AddResident = [&Buckets, GameTime](const FResidentCoreState& Resident)
+			{
+				const FString Key = FString::Printf(
+					TEXT("K=%d|P=%d|I=%d|H=%d|M=%d"),
+					static_cast<int32>(Resident.Kingdom),
+					static_cast<int32>(Resident.Profession),
+					static_cast<int32>(Resident.IncomeBand),
+					static_cast<int32>(Resident.HomeState),
+					static_cast<int32>(Resident.MacroIntent));
+				FUnifiedCohortObservation& Bucket = Buckets.FindOrAdd(Key);
+				Bucket.GameTime = GameTime;
+				Bucket.CohortKey = Key;
+				Bucket.MacroIntent = Resident.MacroIntent;
+				++Bucket.Count;
+				Bucket.CashSum += Resident.Cash;
+				Bucket.CashSquaredSum += static_cast<int64>(Resident.Cash) * Resident.Cash;
+				Bucket.RepairCreditSum += Resident.RepairCredit;
+				++Bucket.WoodCounts[FMath::Clamp(Resident.InventoryWood, 0, 4)];
+			};
+
+			if (Backend->GetPopulationRepresentation() == EBackendPopulationRepresentation::AggregateKingdom)
+			{
+				for (const EKingdom Kingdom : { EKingdom::A, EKingdom::B })
+				{
+					const FSimpleKingdomState& State = SimpleStates[KingdomIndex(Kingdom)];
+					int32 Count = 0;
+					for (const int32 HomeCount : State.HomeStates)
+					{
+						Count += HomeCount;
+					}
+					if (Count <= 0)
+					{
+						continue;
+					}
+					const FString Key = FString::Printf(TEXT("K=%d|Aggregate"), static_cast<int32>(Kingdom));
+					FUnifiedCohortObservation& Bucket = Buckets.FindOrAdd(Key);
+					Bucket.GameTime = GameTime;
+					Bucket.CohortKey = Key;
+					Bucket.Count = Count;
+					Bucket.CashSum = FMath::RoundToInt64(Ledger.GetBalance(ESimulationResource::Coin, SimpleAccount(Kingdom, TEXT("Cash"))));
+					const double MeanCash = static_cast<double>(Bucket.CashSum) / Count;
+					Bucket.CashSquaredSum = FMath::RoundToInt64(MeanCash * MeanCash * Count);
+					Bucket.RepairCreditSum = FMath::RoundToInt64(Ledger.GetBalance(ESimulationResource::Coin, SimpleAccount(Kingdom, TEXT("RepairCredit"))));
+					const double WoodSum = Ledger.GetBalance(ESimulationResource::Wood, SimpleAccount(Kingdom, TEXT("Wood")));
+					const int32 MeanWoodBin = FMath::Clamp(FMath::RoundToInt(WoodSum / Count), 0, 4);
+					Bucket.WoodCounts[MeanWoodBin] = Count;
+					Bucket.MacroIntent = EMacroIntent::Routine;
+				}
+			}
+
+			for (const FResidentCoreState& Resident : Residents)
+			{
+				AddResident(Resident);
+			}
+
+			TArray<FString> Keys;
+			Buckets.GetKeys(Keys);
+			Keys.Sort();
+			OutObservations.Reserve(Keys.Num());
+			for (const FString& Key : Keys)
+			{
+				OutObservations.Add(Buckets.FindChecked(Key));
+			}
+		}
+
+		void FUnifiedRuntime::PublishReadOnlyObservations(
+			const FSimulationTime GameTime,
+			const FSimulationTime ProcessedTime)
+		{
+			if (Options.EventSink != nullptr)
+			{
+				for (const FSimulationEventRecord& Event : PendingEventObservations)
+				{
+					Options.EventSink->OnEventCommitted(Event);
+				}
+				PendingEventObservations.Reset();
+
+				const TArray<FLedgerTransaction>& Transactions = Ledger.GetTransactions();
+				for (; PublishedTransactionCount < Transactions.Num(); ++PublishedTransactionCount)
+				{
+					Options.EventSink->OnTransactionCommitted(Transactions[PublishedTransactionCount]);
+				}
+				for (; PublishedLODTransitionCount < LODTransitions.Num(); ++PublishedLODTransitionCount)
+				{
+					Options.EventSink->OnLODTransitionCommitted(LODTransitions[PublishedLODTransitionCount]);
+				}
+			}
+
+			if (Options.Observer != nullptr || Options.EventSink != nullptr)
+			{
+				while (const FUnifiedNPCObservation* NPC = FinalizedNPCObservations.Find(PublishedActivationObservationCount))
+				{
+					if (Options.EventSink != nullptr)
+					{
+						Options.EventSink->OnActivationObserved(ActivationObservations[PublishedActivationObservationCount]);
+					}
+					if (Options.Observer != nullptr)
+					{
+						Options.Observer->OnNPCSnapshot(*NPC);
+					}
+					FinalizedNPCObservations.Remove(PublishedActivationObservationCount);
+					++PublishedActivationObservationCount;
+				}
+			}
+
+			if (Options.Observer != nullptr)
+			{
+				FUnifiedHourObservation Observation;
+				Observation.GameTime = GameTime;
+				Observation.KingdomA = BuildKingdomSnapshot(GameTime, EKingdom::A, false);
+				Observation.KingdomB = BuildKingdomSnapshot(GameTime, EKingdom::B, false);
+				Observation.PolicyState = PolicyStateAt(ProcessedTime);
+				if (GameTime.Minutes % (6 * MinutesPerHour) == 0)
+				{
+					BuildCohortObservations(GameTime, Observation.Cohorts);
+				}
+				Options.Observer->OnHourCompleted(Observation);
 			}
 		}
 
@@ -964,6 +1152,7 @@ namespace AILOD
 				return Left.EventID < Right.EventID;
 			});
 			OutResult.Snapshots = MoveTemp(Snapshots);
+			OutResult.LODTransitions = LODTransitions;
 			OutResult.ActivationObservations = ActivationObservations;
 		}
 
@@ -1117,8 +1306,43 @@ namespace AILOD
 			FUnifiedActivationObservation& Observation = ActivationObservations[*ObservationIndex];
 			Observation.FirstAction = Action;
 			Observation.bContinuedCommittedEvent = bContinuedCommittedEvent;
+			if (Options.Observer != nullptr || Options.EventSink != nullptr)
+			{
+				const FResidentCoreState* Resident = FindResident(ResidentID);
+				if (Resident != nullptr)
+				{
+					FUnifiedNPCObservation NPC;
+					NPC.GameTime = Observation.ActivationTime;
+					NPC.Resident = *Resident;
+					NPC.FirstAction = Action;
+					FinalizedNPCObservations.Add(*ObservationIndex, MoveTemp(NPC));
+				}
+			}
 			PendingFirstActionObservations.Remove(ResidentID);
 			++Diagnostics.FirstActionCount;
+		}
+
+		void FUnifiedRuntime::RecordLODTransition(
+			const FResidentCoreState& Resident,
+			const EResidentRepresentation From,
+			const EResidentRepresentation To,
+			const FSimulationTime Time)
+		{
+			FLODTransitionRecord& Transition = LODTransitions.AddDefaulted_GetRef();
+			Transition.PersistentID = Resident.PersistentID;
+			Transition.From = From;
+			Transition.To = To;
+			Transition.RequestedTime = Time;
+			Transition.CommittedTime = Time;
+			Transition.ArriveID = Resident.ActiveArriveID;
+			Transition.Bucket = FString::Printf(
+				TEXT("K=%d|P=%d|I=%d|H=%d|M=%d"),
+				static_cast<int32>(Resident.Kingdom),
+				static_cast<int32>(Resident.Profession),
+				static_cast<int32>(Resident.IncomeBand),
+				static_cast<int32>(Resident.HomeState),
+				static_cast<int32>(Resident.MacroIntent));
+			Transition.Result = ELODTransitionResult::Committed;
 		}
 
 		bool FUnifiedRuntime::ActivateResident(
@@ -1133,7 +1357,16 @@ namespace AILOD
 			}
 			if (Backend->GetActivationBridge() == EBackendActivationBridge::ReconstructedMicro)
 			{
-				return ActivateSimpleResident(ResidentID, Time, OutError);
+				if (!ActivateSimpleResident(ResidentID, Time, OutError))
+				{
+					return false;
+				}
+				RecordLODTransition(
+					*FindResident(ResidentID),
+					EResidentRepresentation::CohortManaged,
+					EResidentRepresentation::ActiveMicro,
+					Time);
+				return true;
 			}
 
 			FResidentCoreState* Resident = FindResident(ResidentID);
@@ -1147,6 +1380,7 @@ namespace AILOD
 			const FReservationID ReservationID = Resident->ActiveReservationID;
 			const FSimulationTime StartTime = Resident->ActionStartTime;
 			const FSimulationTime EndTime = Resident->ActionEndTime;
+			const EResidentRepresentation From = Resident->Representation;
 			Resident->Representation = EResidentRepresentation::ActiveMicro;
 			ActiveResidents.Add(ResidentID);
 			if (Resident->ActiveEventID != EventID
@@ -1158,6 +1392,7 @@ namespace AILOD
 				++TaskResetCount;
 			}
 			RecordActivation(*Resident, Time, false);
+			RecordLODTransition(*Resident, From, EResidentRepresentation::ActiveMicro, Time);
 			return true;
 		}
 
@@ -1173,7 +1408,18 @@ namespace AILOD
 			}
 			if (Backend->GetActivationBridge() == EBackendActivationBridge::ReconstructedMicro)
 			{
-				return DeactivateSimpleResident(ResidentID, Time, OutError);
+				const FResidentCoreState* ActiveResident = FindResident(ResidentID);
+				if (ActiveResident == nullptr)
+				{
+					return DeactivateSimpleResident(ResidentID, Time, OutError);
+				}
+				const FResidentCoreState Before = *ActiveResident;
+				if (!DeactivateSimpleResident(ResidentID, Time, OutError))
+				{
+					return false;
+				}
+				RecordLODTransition(Before, EResidentRepresentation::ActiveMicro, EResidentRepresentation::CohortManaged, Time);
+				return true;
 			}
 
 			FResidentCoreState* Resident = FindResident(ResidentID);
@@ -1187,6 +1433,7 @@ namespace AILOD
 			const FReservationID ReservationID = Resident->ActiveReservationID;
 			const FSimulationTime StartTime = Resident->ActionStartTime;
 			const FSimulationTime EndTime = Resident->ActionEndTime;
+			const EResidentRepresentation From = Resident->Representation;
 			Resident->Representation = EResidentRepresentation::CohortManaged;
 			ActiveResidents.Remove(ResidentID);
 			if (Resident->ActiveEventID != EventID
@@ -1201,6 +1448,7 @@ namespace AILOD
 			{
 				RecordFirstAction(ResidentID, Resident->CurrentAction == EIndividualAction::None ? EIndividualAction::Wait : Resident->CurrentAction, Resident->ActiveEventID != 0);
 			}
+			RecordLODTransition(*Resident, From, EResidentRepresentation::CohortManaged, Time);
 			return true;
 		}
 
@@ -1449,7 +1697,7 @@ namespace AILOD
 			Request.ParticipantCount = FMath::Max(1, Participants);
 			Request.PolicyID = PolicyID;
 			FEventID EventID = 0;
-			if (!EventStore.CreateEvent(Request, EventID, OutError)
+			if (!CreateEvent(Request, EventID, OutError)
 				|| !EventStore.CompleteEvent(EventID, OutError))
 			{
 				return false;
@@ -1502,7 +1750,7 @@ namespace AILOD
 			Event.ParticipantCount = 1;
 			Event.PolicyID = StateImportPolicyID;
 			FEventID EventID = 0;
-			if (!EventStore.CreateEvent(Event, EventID, OutError))
+			if (!CreateEvent(Event, EventID, OutError))
 			{
 				return false;
 			}
@@ -2095,7 +2343,7 @@ namespace AILOD
 			Event.ParticipantCount = 1;
 			Event.Cause = ToString(Resident.CurrentGoal);
 			FEventID EventID = 0;
-			if (!EventStore.CreateEvent(Event, EventID, OutError)
+			if (!CreateEvent(Event, EventID, OutError)
 				|| !Scheduler.Schedule({ EventID, Candidate.ArriveID, Event.EndTime }, Time, OutError))
 			{
 				return false;
@@ -2152,7 +2400,7 @@ namespace AILOD
 			Event.ParticipantCount = 1;
 			Event.Cause = ToString(Resident.CurrentGoal);
 			FEventID EventID = 0;
-			if (!EventStore.CreateEvent(Event, EventID, OutError))
+			if (!CreateEvent(Event, EventID, OutError))
 			{
 				return false;
 			}
@@ -2255,7 +2503,7 @@ namespace AILOD
 			Event.Cause = ToString(Resident.CurrentGoal);
 			Event.PolicyID = IsHarvestCapActive(Resident.Kingdom, Time) ? HarvestCapPolicyID : 0;
 			FEventID EventID = 0;
-			if (!EventStore.CreateEvent(Event, EventID, OutError))
+			if (!CreateEvent(Event, EventID, OutError))
 			{
 				return false;
 			}
@@ -2329,7 +2577,7 @@ namespace AILOD
 			Event.ParticipantCount = 1;
 			Event.Cause = ToString(EIndividualGoal::RestoreHome);
 			FEventID EventID = 0;
-			if (!EventStore.CreateEvent(Event, EventID, OutError))
+			if (!CreateEvent(Event, EventID, OutError))
 			{
 				return false;
 			}
@@ -2615,7 +2863,7 @@ namespace AILOD
 						Event.ArriveID = ArriveID;
 						Event.ParticipantCount = Participants;
 						Event.Cause = TEXT("SimpleAverageState");
-						if (!EventStore.CreateEvent(Event, EventID, OutError))
+						if (!CreateEvent(Event, EventID, OutError))
 						{
 							return false;
 						}
@@ -2707,7 +2955,7 @@ namespace AILOD
 					Event.ParticipantCount = BuyCount;
 					Event.Cause = TEXT("SimpleAverageState");
 					FEventID EventID = 0;
-					if (!EventStore.CreateEvent(Event, EventID, OutError))
+					if (!CreateEvent(Event, EventID, OutError))
 					{
 						return false;
 					}
@@ -2763,7 +3011,7 @@ namespace AILOD
 					Event.Cause = TEXT("SimpleAverageState");
 					Event.PolicyID = IsHarvestCapActive(Kingdom, Time) ? HarvestCapPolicyID : 0;
 					FEventID EventID = 0;
-					if (!EventStore.CreateEvent(Event, EventID, OutError))
+					if (!CreateEvent(Event, EventID, OutError))
 					{
 						return false;
 					}

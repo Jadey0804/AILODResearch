@@ -6,7 +6,8 @@
 **Phase 5.1 基线提交：`7ea750d6617f6346de37e19e2d20c9c76f5b682f`**<br>
 **Step 0 计划提交：`a3a34969be04036fe919f9599ace609f0f508ceb`**<br>
 **Phase 6A 封板提交：`71e3565`**<br>
-**当前状态：Phase 6B 实现与自动验收通过；依项目作者本轮授权继续 6C，未推送。**
+**Phase 6B 封板提交：`c0e84d2`**<br>
+**当前状态：Phase 6C 实现与自动验收通过；依项目作者本轮授权继续 6D，未推送。**
 
 本文件只把既有 Phase 6 规则拆成可独立验收的实施步骤，不新增研究模型、公式、参数、方法或日志字段。规则冲突仍按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.6 顺序处理。
 
@@ -49,8 +50,8 @@ Phase 6 不负责：
 |---|---|---|
 | Step 0 | 冻结本增量计划、每步范围和确认流程 | 作者已确认 |
 | Phase 6A | 建立 `Initialize / StepHour / Finalize` 生产会话 | 作者已确认，已封板 |
-| Phase 6B | 建立最小 `ISimulationBackend` 边界 | 实现与自动验收通过，等待封板提交 |
-| Phase 6C | 建立只读 Observer/Event Sink | 未开始 |
+| Phase 6B | 建立最小 `ISimulationBackend` 边界 | 已封板 |
+| Phase 6C | 建立只读 Observer/Event Sink | 实现与自动验收通过，等待封板提交 |
 | Phase 6D | 输出 Run Manifest 与原始 CSV/JSONL | 未开始 |
 | Phase 6E | 建立批量 Experiment Runner 与离线指标重建 | 未开始 |
 | Phase 6F | 分离测量成本并完成 Phase 6 集成验收 | 未开始 |
@@ -134,6 +135,19 @@ Phase 6 不负责：
 - 记录数量能与权威 Event Store、Ledger、转换和 Snapshot 对账；
 - Observer 不能提交动作、推进时间或改变资源；
 - 全套测试和无观察副作用测试通过后停止，等待作者确认 6C。
+
+### 6C 实施与验收记录（2026-08-17）
+
+- 新增公开的 `IUnifiedSimulationObserver` 与 `IUnifiedSimulationEventSink`；接口只接收 `const` 记录或当次值副本，不暴露 Runtime、Backend、Ledger、Event Store、Scheduler 或居民容器。
+- Observer 每小时接收同一次推进完成后的 T+1 两国权威状态；每 6 小时附带稳定排序的非空 Cohort 观察，并在 FirstAction 确定后接收固定激活 NPC 快照。
+- Event Sink 接收已经创建成功的事件、已经提交的账本事务、已经提交的 LOD 转换和 FirstAction 已确定的激活观察；记录顺序稳定。
+- 统一生产 Runtime 现保存 120 次固定 Trace 转换。转换记录复用居民进行中动作已有的 `ArriveID`，不向 Scheduler 申请新号，因此表示切换不会扰动竞争顺序或冻结领域结果。
+- 新增 `AILODResearch.Phase6.ReadOnlyObservation`：同一 Proposed/StateImport 配置分别关闭与开启 Observer/Event Sink，Digest、事件、事务、转换、激活、诊断与硬错误完全一致。
+- 该测试对账 `40334` 个事件、`13109` 笔事务、`120` 次 LOD 转换、`60` 次激活和 `60` 个 NPC 快照；1608 个小时回调严格单调到 D60，Cohort 只在 6 小时边界出现。
+- Observer 为构造只读视图发生的账户查询不进入生产 `LedgerQueryCount`；本步尚未写磁盘，观察成本的正式计时仍留给 6F。
+- 16 组 Phase 5.1 冻结 Digest 继续完全一致；2k/10k/20k 三种可部署方法的 StateImport 全时段冒烟继续通过。
+- UE 5.4 Development Editor 编译成功；NullRHI 全套 `AILODResearch`：`21/21 Success`，`0 Failed`，自动化错误 `0`，最终退出码 `0`。
+- 本步未写 Manifest/CSV/JSONL，未实现 Experiment Runner、离线指标或性能优化；依项目作者本轮授权，6C 独立封板后继续 6D。
 
 ## 7. Phase 6D：Manifest 与原始日志
 
