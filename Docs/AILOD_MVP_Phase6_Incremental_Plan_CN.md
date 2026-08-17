@@ -7,7 +7,8 @@
 **Step 0 计划提交：`a3a34969be04036fe919f9599ace609f0f508ceb`**<br>
 **Phase 6A 封板提交：`71e3565`**<br>
 **Phase 6B 封板提交：`c0e84d2`**<br>
-**当前状态：Phase 6C 实现与自动验收通过；依项目作者本轮授权继续 6D，未推送。**
+**Phase 6C 封板提交：`eb44bf3`**<br>
+**当前状态：Phase 6D 实现与自动验收通过，项目作者已于 2026-08-17 确认；等待本地封板提交，未推送。**
 
 本文件只把既有 Phase 6 规则拆成可独立验收的实施步骤，不新增研究模型、公式、参数、方法或日志字段。规则冲突仍按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.6 顺序处理。
 
@@ -51,8 +52,8 @@ Phase 6 不负责：
 | Step 0 | 冻结本增量计划、每步范围和确认流程 | 作者已确认 |
 | Phase 6A | 建立 `Initialize / StepHour / Finalize` 生产会话 | 作者已确认，已封板 |
 | Phase 6B | 建立最小 `ISimulationBackend` 边界 | 已封板 |
-| Phase 6C | 建立只读 Observer/Event Sink | 实现与自动验收通过，等待封板提交 |
-| Phase 6D | 输出 Run Manifest 与原始 CSV/JSONL | 未开始 |
+| Phase 6C | 建立只读 Observer/Event Sink | 已封板 |
+| Phase 6D | 输出 Run Manifest 与原始 CSV/JSONL | 作者已确认，等待封板提交 |
 | Phase 6E | 建立批量 Experiment Runner 与离线指标重建 | 未开始 |
 | Phase 6F | 分离测量成本并完成 Phase 6 集成验收 | 未开始 |
 | Phase 6G（可选） | 只在证据确认瓶颈后执行定向优化 | 默认不执行 |
@@ -168,6 +169,22 @@ Phase 6 不负责：
 - 相同 Seed 的确定性领域字段与行顺序一致；真实时间、CPU 和环境字段不得进入确定性 Digest；
 - 开启或关闭文件写入不改变模拟结果；
 - 全套测试和日志 Schema/回放测试通过后停止，等待作者确认 6D。
+
+### 6D 实施与验收记录（2026-08-17）
+
+- 新增 `FUnifiedRunLogWriter`，同时实现 6C 的只读 Observer/Event Sink；模拟期间只收集值副本，只有生产会话成功 Finalize 后才由调用方执行文件写入，文件系统不能取得 Runtime 引用。
+- 每个 Run 只输出本步规定的七个文件：`run_manifest.json`、三个原始 CSV 和三个原始 JSONL；没有提前生成 `metrics_summary.csv` 或 `performance_1s.csv`。
+- 三个 CSV 的表头直接由冻结 `AILODLogSchema` 生成；三个 JSONL 的每条记录都包含 `schema_version / experiment_id / run_id / method / scenario / seed / game_time` 及各自冻结字段。
+- Manifest 保存 Spec/Schema、方法、场景、Seed、ConfigHash、三份输入 SHA-256、Git commit、UE 版本、构建类型、硬件、日志模式、开始/结束时间、有效性和可重建的运行参数；SHA-256 必须是 64 位十六进制。
+- `RunManifestFields` 补入 v1.1 §31 文字已经明确要求、但原字段登记表遗漏的 `log_mode`；这只修正 Schema 登记缺口，不新增研究变量。
+- 新增 `AILODResearch.Phase6.RawRunLogging`：独立解析 Manifest、每一行 CSV 和每一行 JSONL，并逐字段验证冻结表头、必填字段、公共身份、记录数量与顺序。
+- Proposed/StateImport 工程 Run 对账结果：1608 个小时观察、3534 条 Cohort、60 个 NPC、40334 个事件、120 次 LOD 转换、13109 笔事务；全部与内存权威结果一致。
+- 同一 Seed 的两个独立 Run 产生逐字节一致的六份原始领域文件；测试夹具固定环境元数据后 Manifest 也一致。真实开始/结束时间、硬件和后续 CPU 字段不进入领域 Digest。
+- 关闭日志、Run A 开启日志、Run B 开启日志的确定性 Digest 均为 `D326B24A3D74128C955667DB42E8F1BADA9BC9CD`；开启文件写入不改变模拟结果。
+- 16 组 Phase 5.1 冻结 Digest 继续完全一致；2k/10k/20k 三种可部署方法的 StateImport 全时段冒烟继续通过。
+- UE 5.4 Development Editor 编译成功；最终 NullRHI 全套 `AILODResearch`：`22/22 Success`，`0 Failed`，自动化错误 `0`，最终退出码 `0`。
+- 本次只运行工程检查点，没有运行 Pilot、480 次准确性正式 Runs 或 90 次性能正式 Runs；Experiment Runner/离线指标仍属于 6E，性能成本分离仍属于 6F。
+- 项目作者已于 2026-08-17 确认 6D 检查点，并授权 6D 独立封板后在新分支开始 6E；本步仍不推送。
 
 ## 8. Phase 6E：Experiment Runner 与离线指标
 

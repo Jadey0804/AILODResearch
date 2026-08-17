@@ -89,6 +89,7 @@ namespace AILOD::LogSchema
 		{ TEXT("damage_list_sha256"), TEXT("sha256") }, { TEXT("persistent_pool_sha256"), TEXT("sha256") },
 		{ TEXT("git_commit"), TEXT("string") }, { TEXT("ue_version"), TEXT("string") },
 		{ TEXT("build_type"), TEXT("string") }, { TEXT("hardware"), TEXT("string") },
+		{ TEXT("log_mode"), TEXT("string") },
 		{ TEXT("start_time"), TEXT("string") }, { TEXT("end_time"), TEXT("string") },
 		{ TEXT("valid"), TEXT("bool") }
 	};

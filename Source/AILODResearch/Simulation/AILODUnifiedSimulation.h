@@ -165,6 +165,12 @@ namespace AILOD
 		EUnifiedSimulationMethod Method = EUnifiedSimulationMethod::Oracle;
 		EStage2Scenario Scenario = EStage2Scenario::None;
 		int32 Seed = 0;
+		int32 PopulationPerKingdom = 0;
+		EUnifiedRunMode Mode = EUnifiedRunMode::Validation;
+		bool bRetainCompletedEvents = true;
+		bool bRecordSnapshots = true;
+		bool bVerifyCohortApproximation = false;
+		EUnifiedFaultInjectionPoint FaultInjection = EUnifiedFaultInjectionPoint::None;
 		FString ConfigHash;
 		FSimulationTime FinalTime;
 		int32 WarmupHourSteps = 0;

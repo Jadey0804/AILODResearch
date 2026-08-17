@@ -2,8 +2,15 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Dom/JsonObject.h"
+#include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Serialization/JsonSerializer.h"
 
+#include "../Simulation/AILODExperimentLogging.h"
+#include "../Simulation/AILODLogSchema.h"
 #include "../Simulation/AILODUnifiedSimulation.h"
 
 namespace
@@ -68,6 +75,85 @@ namespace
 		TArray<AILOD::FLODTransitionRecord> LODTransitions;
 		TArray<AILOD::FUnifiedActivationObservation> Activations;
 	};
+
+	template <SIZE_T FieldCount>
+	FString ExpectedCsvHeader(const AILOD::LogSchema::FFieldDefinition (&Fields)[FieldCount])
+	{
+		TArray<FString> Names;
+		for (const AILOD::LogSchema::FFieldDefinition& Field : Fields)
+		{
+			Names.Add(Field.Name);
+		}
+		return FString::Join(Names, TEXT(","));
+	}
+
+	bool ParseCsvLine(const FString& Line, TArray<FString>& OutFields)
+	{
+		OutFields.Reset();
+		FString Field;
+		bool bQuoted = false;
+		for (int32 Index = 0; Index < Line.Len(); ++Index)
+		{
+			const TCHAR Character = Line[Index];
+			if (bQuoted)
+			{
+				if (Character == TEXT('"'))
+				{
+					if (Index + 1 < Line.Len() && Line[Index + 1] == TEXT('"'))
+					{
+						Field.AppendChar(TEXT('"'));
+						++Index;
+					}
+					else
+					{
+						bQuoted = false;
+					}
+				}
+				else
+				{
+					Field.AppendChar(Character);
+				}
+			}
+			else if (Character == TEXT('"') && Field.IsEmpty())
+			{
+				bQuoted = true;
+			}
+			else if (Character == TEXT(','))
+			{
+				OutFields.Add(MoveTemp(Field));
+				Field.Reset();
+			}
+			else
+			{
+				Field.AppendChar(Character);
+			}
+		}
+		if (bQuoted)
+		{
+			return false;
+		}
+		OutFields.Add(MoveTemp(Field));
+		return true;
+	}
+
+	AILOD::FUnifiedRunLogMetadata MakePhase6DMetadata(const FString& OutputDirectory)
+	{
+		AILOD::FUnifiedRunLogMetadata Metadata;
+		Metadata.OutputDirectory = OutputDirectory;
+		Metadata.ExperimentID = TEXT("PHASE6D-CHECKPOINT");
+		Metadata.RunID = TEXT("P-SI-20260810");
+		Metadata.PopulationManifestSHA256 = FString::ChrN(64, TEXT('1'));
+		Metadata.DamageListSHA256 = FString::ChrN(64, TEXT('2'));
+		Metadata.PersistentPoolSHA256 = FString::ChrN(64, TEXT('3'));
+		Metadata.GitCommit = TEXT("eb44bf3");
+		Metadata.UEVersion = TEXT("5.4");
+		Metadata.BuildType = TEXT("Development");
+		Metadata.Hardware = TEXT("Phase6D-AutomationFixture");
+		Metadata.LogMode = TEXT("EngineeringAccuracy");
+		Metadata.StartTime = TEXT("2026-08-17T00:00:00Z");
+		Metadata.EndTime = TEXT("2026-08-17T00:01:00Z");
+		return Metadata;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -360,6 +446,270 @@ bool FAILODPhase6CReadOnlyObservationTest::RunTest(const FString& Parameters)
 		TestEqual(*FString::Printf(TEXT("NPC snapshot %d uses the activation time"), Index), Recorder.NPCSnapshots[Index].GameTime.Minutes, Recorder.Activations[Index].ActivationTime.Minutes);
 	}
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAILODPhase6DRawRunLoggingTest,
+	"AILODResearch.Phase6.RawRunLogging",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAILODPhase6DRawRunLoggingTest::RunTest(const FString& Parameters)
+{
+	using namespace AILOD;
+	using namespace AILOD::LogSchema;
+	const FString TestRoot = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AILOD/Phase6DCheckpoint"));
+	const FString RunAPath = FPaths::Combine(TestRoot, TEXT("RunA"));
+	const FString RunBPath = FPaths::Combine(TestRoot, TEXT("RunB"));
+	IFileManager::Get().DeleteDirectory(*TestRoot, false, true);
+
+	FUnifiedRunOptions BaselineOptions;
+	BaselineOptions.Mode = EUnifiedRunMode::Accuracy;
+	BaselineOptions.bRecordSnapshots = true;
+	FUnifiedRunResult Baseline;
+	FString Error;
+	if (!FUnifiedSimulationRunner::Run(
+		MakePhase6AConfig(),
+		EUnifiedSimulationMethod::Proposed,
+		EStage2Scenario::StateImport,
+		BaselineOptions,
+		Baseline,
+		Error))
+	{
+		AddError(FString::Printf(TEXT("Phase 6D unlogged baseline failed: %s"), *Error));
+		return false;
+	}
+
+	auto RunLogged = [this, &BaselineOptions](FUnifiedRunLogWriter& Writer, FUnifiedRunResult& OutResult, FString& OutError)
+	{
+		FUnifiedRunOptions Options = BaselineOptions;
+		Options.Observer = &Writer;
+		Options.EventSink = &Writer;
+		return FUnifiedSimulationRunner::Run(
+			MakePhase6AConfig(),
+			EUnifiedSimulationMethod::Proposed,
+			EStage2Scenario::StateImport,
+			Options,
+			OutResult,
+			OutError);
+	};
+
+	FUnifiedRunLogWriter WriterA;
+	FUnifiedRunLogWriter WriterB;
+	FUnifiedRunResult ResultA;
+	FUnifiedRunResult ResultB;
+	if (!RunLogged(WriterA, ResultA, Error) || !RunLogged(WriterB, ResultB, Error))
+	{
+		AddError(FString::Printf(TEXT("Phase 6D logged run failed: %s"), *Error));
+		return false;
+	}
+
+	const FString BaselineDigest = FUnifiedSimulationRunner::BuildDeterministicDigest(Baseline);
+	TestEqual(TEXT("Enabling raw logging does not change the simulation digest"), FUnifiedSimulationRunner::BuildDeterministicDigest(ResultA), BaselineDigest);
+	TestEqual(TEXT("Repeating the logged Seed preserves the simulation digest"), FUnifiedSimulationRunner::BuildDeterministicDigest(ResultB), BaselineDigest);
+	TestTrue(TEXT("Logged run A remains hard-error free"), ResultA.IsHardErrorFree());
+	TestTrue(TEXT("Logged run B remains hard-error free"), ResultB.IsHardErrorFree());
+
+	const FUnifiedRunLogMetadata MetadataA = MakePhase6DMetadata(RunAPath);
+	const FUnifiedRunLogMetadata MetadataB = MakePhase6DMetadata(RunBPath);
+	TestTrue(TEXT("Run A raw logs write"), WriterA.WriteRun(ResultA, MetadataA, Error));
+	if (!Error.IsEmpty())
+	{
+		AddError(FString::Printf(TEXT("Run A logging error: %s"), *Error));
+	}
+	TestTrue(TEXT("Run B raw logs write"), WriterB.WriteRun(ResultB, MetadataB, Error));
+	if (!Error.IsEmpty())
+	{
+		AddError(FString::Printf(TEXT("Run B logging error: %s"), *Error));
+	}
+
+	TestEqual(TEXT("Writer hours reconcile with the production session"), WriterA.GetHourObservationCount(), 67 * 24);
+	TestEqual(TEXT("Writer events reconcile with the authoritative event count"), WriterA.GetEventCount(), static_cast<int32>(ResultA.Diagnostics.EventCount));
+	TestEqual(TEXT("Writer transactions reconcile with the authoritative ledger"), WriterA.GetTransactionCount(), ResultA.Transactions.Num());
+	TestEqual(TEXT("Writer transitions reconcile with the authoritative transition trace"), WriterA.GetLODTransitionCount(), ResultA.LODTransitions.Num());
+	TestEqual(TEXT("Writer activations reconcile with the authoritative activation trace"), WriterA.GetActivationObservationCount(), ResultA.ActivationObservations.Num());
+	TestEqual(TEXT("Writer NPC snapshots reconcile with finalized activations"), WriterA.GetNPCObservationCount(), ResultA.ActivationObservations.Num());
+
+	const TArray<FString> ExpectedFiles =
+	{
+		RunManifestFile,
+		KingdomTimeseriesFile,
+		CohortTimeseriesFile,
+		NPCSnapshotsFile,
+		SimulationEventsFile,
+		LODTransitionsFile,
+		LedgerTransactionsFile
+	};
+	for (const FString& Directory : { RunAPath, RunBPath })
+	{
+		TArray<FString> ActualFiles;
+		IFileManager::Get().FindFiles(ActualFiles, *FPaths::Combine(Directory, TEXT("*")), true, false);
+		ActualFiles.Sort();
+		TArray<FString> SortedExpected = ExpectedFiles;
+		SortedExpected.Sort();
+		TestEqual(*FString::Printf(TEXT("%s contains exactly the seven Phase 6D files"), *Directory), FString::Join(ActualFiles, TEXT("|")), FString::Join(SortedExpected, TEXT("|")));
+		TestFalse(TEXT("Phase 6D does not emit metrics_summary.csv"), FPaths::FileExists(FPaths::Combine(Directory, MetricsSummaryFile)));
+		TestFalse(TEXT("Phase 6D does not emit performance_1s.csv"), FPaths::FileExists(FPaths::Combine(Directory, PerformanceFile)));
+	}
+
+	for (const FString& FileName : ExpectedFiles)
+	{
+		FString ContentsA;
+		FString ContentsB;
+		TestTrue(*FString::Printf(TEXT("Run A %s loads"), *FileName), FFileHelper::LoadFileToString(ContentsA, *FPaths::Combine(RunAPath, FileName)));
+		TestTrue(*FString::Printf(TEXT("Run B %s loads"), *FileName), FFileHelper::LoadFileToString(ContentsB, *FPaths::Combine(RunBPath, FileName)));
+		TestEqual(*FString::Printf(TEXT("Same Seed preserves deterministic %s bytes"), *FileName), ContentsB, ContentsA);
+	}
+
+	FString ManifestText;
+	TestTrue(TEXT("Run manifest loads"), FFileHelper::LoadFileToString(ManifestText, *FPaths::Combine(RunAPath, RunManifestFile)));
+	TSharedPtr<FJsonObject> Manifest;
+	const TSharedRef<TJsonReader<>> ManifestReader = TJsonReaderFactory<>::Create(ManifestText);
+	TestTrue(TEXT("Run manifest parses independently"), FJsonSerializer::Deserialize(ManifestReader, Manifest) && Manifest.IsValid());
+	if (Manifest.IsValid())
+	{
+		for (const FFieldDefinition& Field : RunManifestFields)
+		{
+			TestTrue(*FString::Printf(TEXT("Run manifest contains %s"), Field.Name), Manifest->HasField(Field.Name));
+		}
+		TestEqual(TEXT("Manifest records the log mode"), Manifest->GetStringField(TEXT("log_mode")), MetadataA.LogMode);
+		TestEqual(TEXT("Manifest records the config hash"), Manifest->GetStringField(TEXT("config_hash")), ResultA.ConfigHash);
+		TestTrue(TEXT("Manifest records a valid run"), Manifest->GetBoolField(TEXT("valid")));
+		const TSharedPtr<FJsonObject>* RunParameters = nullptr;
+		TestTrue(TEXT("Manifest contains reproducible run parameters"), Manifest->TryGetObjectField(TEXT("parameters"), RunParameters) && RunParameters != nullptr);
+		if (RunParameters != nullptr)
+		{
+			TestEqual(TEXT("Manifest records population per kingdom"), static_cast<int32>((*RunParameters)->GetNumberField(TEXT("population_per_kingdom"))), ResultA.PopulationPerKingdom);
+			TestEqual(TEXT("Manifest records the run mode"), (*RunParameters)->GetStringField(TEXT("run_mode")), FString(TEXT("Accuracy")));
+		}
+	}
+
+	auto ValidateCsv = [this, &MetadataA](
+		const FString& FileName,
+		const FString& ExpectedHeader,
+		const int32 ExpectedFieldCount,
+		const int32 ExpectedDataRows)
+	{
+		FString Text;
+		if (!FFileHelper::LoadFileToString(Text, *FPaths::Combine(MetadataA.OutputDirectory, FileName)))
+		{
+			AddError(FString::Printf(TEXT("CSV %s failed to load."), *FileName));
+			return;
+		}
+		TArray<FString> Lines;
+		Text.ParseIntoArrayLines(Lines, true);
+		if (Lines.Num() != ExpectedDataRows + 1)
+		{
+			AddError(FString::Printf(TEXT("CSV %s row count is %d, expected %d."), *FileName, Lines.Num() - 1, ExpectedDataRows));
+			return;
+		}
+		if (Lines[0] != ExpectedHeader)
+		{
+			AddError(FString::Printf(TEXT("CSV %s header does not match the frozen Schema."), *FileName));
+			return;
+		}
+		for (int32 LineIndex = 1; LineIndex < Lines.Num(); ++LineIndex)
+		{
+			TArray<FString> Fields;
+			if (!ParseCsvLine(Lines[LineIndex], Fields) || Fields.Num() != ExpectedFieldCount)
+			{
+				AddError(FString::Printf(TEXT("CSV %s row %d is not independently parseable."), *FileName, LineIndex));
+				return;
+			}
+			if (Fields[0] != SchemaVersion
+				|| Fields[1] != MetadataA.ExperimentID
+				|| Fields[2] != MetadataA.RunID
+				|| Fields[3] != TEXT("Proposed")
+				|| Fields[4] != TEXT("StateImport")
+				|| Fields[5] != TEXT("20260810")
+				|| Fields[6].IsEmpty())
+			{
+				AddError(FString::Printf(TEXT("CSV %s row %d has invalid common identity fields."), *FileName, LineIndex));
+				return;
+			}
+		}
+	};
+
+	ValidateCsv(KingdomTimeseriesFile, ExpectedCsvHeader(KingdomTimeseriesFields), UE_ARRAY_COUNT(KingdomTimeseriesFields), WriterA.GetHourObservationCount() * 2);
+	ValidateCsv(CohortTimeseriesFile, ExpectedCsvHeader(CohortTimeseriesFields), UE_ARRAY_COUNT(CohortTimeseriesFields), WriterA.GetCohortObservationCount());
+	ValidateCsv(NPCSnapshotsFile, ExpectedCsvHeader(NPCSnapshotFields), UE_ARRAY_COUNT(NPCSnapshotFields), WriterA.GetNPCObservationCount());
+
+	auto ValidateJsonl = [this, &MetadataA](
+		const FString& FileName,
+		const FFieldDefinition* RequiredFields,
+		const int32 RequiredFieldCount,
+		const int32 ExpectedRows,
+		const TCHAR* OrderedIDField)
+	{
+		FString Text;
+		if (!FFileHelper::LoadFileToString(Text, *FPaths::Combine(MetadataA.OutputDirectory, FileName)))
+		{
+			AddError(FString::Printf(TEXT("JSONL %s failed to load."), *FileName));
+			return;
+		}
+		TArray<FString> Lines;
+		Text.ParseIntoArrayLines(Lines, true);
+		if (Lines.Num() != ExpectedRows)
+		{
+			AddError(FString::Printf(TEXT("JSONL %s row count is %d, expected %d."), *FileName, Lines.Num(), ExpectedRows));
+			return;
+		}
+		double PreviousID = 0.0;
+		for (int32 LineIndex = 0; LineIndex < Lines.Num(); ++LineIndex)
+		{
+			TSharedPtr<FJsonObject> Object;
+			const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Lines[LineIndex]);
+			if (!FJsonSerializer::Deserialize(Reader, Object) || !Object.IsValid())
+			{
+				AddError(FString::Printf(TEXT("JSONL %s row %d failed to parse."), *FileName, LineIndex));
+				return;
+			}
+			for (int32 FieldIndex = 0; FieldIndex < RequiredFieldCount; ++FieldIndex)
+			{
+				if (!Object->HasField(RequiredFields[FieldIndex].Name))
+				{
+					AddError(FString::Printf(TEXT("JSONL %s row %d is missing %s."), *FileName, LineIndex, RequiredFields[FieldIndex].Name));
+					return;
+				}
+			}
+			if (Object->GetStringField(TEXT("schema_version")) != SchemaVersion
+				|| Object->GetStringField(TEXT("experiment_id")) != MetadataA.ExperimentID
+				|| Object->GetStringField(TEXT("run_id")) != MetadataA.RunID
+				|| Object->GetStringField(TEXT("method")) != TEXT("Proposed")
+				|| Object->GetStringField(TEXT("scenario")) != TEXT("StateImport")
+				|| static_cast<int32>(Object->GetNumberField(TEXT("seed"))) != 20260810
+				|| Object->GetStringField(TEXT("game_time")).IsEmpty())
+			{
+				AddError(FString::Printf(TEXT("JSONL %s row %d has invalid common identity fields."), *FileName, LineIndex));
+				return;
+			}
+			if (OrderedIDField != nullptr)
+			{
+				const double CurrentID = Object->GetNumberField(OrderedIDField);
+				if (CurrentID <= PreviousID)
+				{
+					AddError(FString::Printf(TEXT("JSONL %s row order is not strictly increasing."), *FileName));
+					return;
+				}
+				PreviousID = CurrentID;
+			}
+		}
+	};
+
+	ValidateJsonl(SimulationEventsFile, SimulationEventFields, UE_ARRAY_COUNT(SimulationEventFields), WriterA.GetEventCount(), TEXT("event_id"));
+	ValidateJsonl(LODTransitionsFile, LODTransitionFields, UE_ARRAY_COUNT(LODTransitionFields), WriterA.GetLODTransitionCount(), nullptr);
+	ValidateJsonl(LedgerTransactionsFile, LedgerTransactionFields, UE_ARRAY_COUNT(LedgerTransactionFields), WriterA.GetTransactionCount(), TEXT("transaction_id"));
+
+	AddInfo(FString::Printf(
+		TEXT("Phase6D logs=%s hours=%d cohorts=%d npcs=%d events=%d transitions=%d transactions=%d digest=%s"),
+		*TestRoot,
+		WriterA.GetHourObservationCount(),
+		WriterA.GetCohortObservationCount(),
+		WriterA.GetNPCObservationCount(),
+		WriterA.GetEventCount(),
+		WriterA.GetLODTransitionCount(),
+		WriterA.GetTransactionCount(),
+		*BaselineDigest));
 	return true;
 }
 

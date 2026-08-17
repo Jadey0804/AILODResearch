@@ -1113,6 +1113,12 @@ namespace AILOD
 			OutResult.Method = Backend->GetMethod();
 			OutResult.Scenario = Scenario;
 			OutResult.Seed = Config.Seed;
+			OutResult.PopulationPerKingdom = Config.PopulationPerKingdom;
+			OutResult.Mode = Options.Mode;
+			OutResult.bRetainCompletedEvents = Options.bRetainCompletedEvents;
+			OutResult.bRecordSnapshots = Options.bRecordSnapshots;
+			OutResult.bVerifyCohortApproximation = Options.bVerifyCohortApproximation;
+			OutResult.FaultInjection = Options.FaultInjection;
 			OutResult.ConfigHash = PopulationManifest.ConfigHash;
 			OutResult.FinalTime = Clock.Now();
 			OutResult.WarmupHourSteps = 7 * static_cast<int32>(HoursPerDay);
