@@ -205,6 +205,23 @@ Phase 6 不负责：
 - 指标公式与 v1.1 §25—30 一致，不根据结果更换主要指标；
 - 全套测试和离线重建测试通过后停止，等待作者确认 6E。
 
+### 6E 实施与验收记录（2026-08-17，作者已确认）
+
+- 新增无 Actor 的 `FExperimentRunner`：单一入口按配置展开 `Method × Scenario × Seed`，并且直接创建、逐小时驱动和 Finalize 6A 的 `FUnifiedSimulationSession`；没有调用旧 Phase 2/3 Runner。
+- 每个 Seed 先在 `Inputs/Seed-*` 保存一套共享 Phase 0 输入，再在 `Runs/<Method>-<Scenario>-<Seed>` 生成各 Run 的七份 6D 原始文件；工程矩阵不会在单个 Run 目录混入跨 Run 指标或 6F 性能文件。
+- Runner 生成真实 SHA-256；测试再用系统独立实现对三个输入文件复算，Population、Damage、Persistent Pool 的 64 位 Hash 均与 Manifest 完全一致。
+- Manifest 增补 `deterministic_digest`、七项 Runtime 权威硬错误计数和完整运行参数；`IdentityMismatch` 不写死为 0，而由离线 Evaluator 将 NPC Snapshot 与同 Seed 的 Phase 0 初始人口身份逐项核验。`ReplayFromManifest` 会重新生成 Phase 0 输入并校验 ConfigHash/SHA-256，然后重跑生产会话并验证确定性 Digest。
+- 新增只读 `FOfflineMetricsEvaluator`：只从每个 Run 的 Manifest、CSV 和 JSONL 建立索引，不取得 Runtime 或 `FUnifiedRunResult` 引用；输出实验根目录下唯一的 `metrics_summary.csv`。
+- 轨迹误差和政策效应误差严格使用 v1.1 §25—26 的归一化 MAE；只统计 Warm-up 结束后的正式 60 日窗口。人数/房屋、Forest、Market、Price、Treasury 分别使用 `N`、`16N`、`2N`、`P0=1`、`5N`，其中 `N=PopulationPerKingdom`，与每条 Kingdom 轨迹的初始化尺度一致。
+- 政策效应必须同时找到同 Seed 的 `Method/None`、`Oracle/Policy` 和 `Oracle/None`；不发明 v1.1 尚未给出数值的 Onset 阈值。本步生成已冻结的主要 `E_policy`，阈值型次要时间指标须在正式实验前另行预注册。
+- 行为 TVD 使用固定八类 `Routine / Work / BuyWood / ChopWood / RepairStart / RepairComplete / Wait / AidReceived`，按事件 Participant 数计权；连续性输出 13 个冻结字段的 Oracle 配对不匹配率；八项硬错误直接报告计数和 `target=0`。
+- 性能采样仍归 6F：6E 只写 `Performance.SampleCount=0` 和明确的 `performance_1s.csv deferred to Phase6F`，没有伪造 CPU、内存或 Speedup 数据。
+- 固定工程矩阵为 `Oracle / Proposed × None / StateImport × Seed 20260810`，共 4 个 Run；它只是检查数据链路，不是 Pilot，更不是 480/90 次正式实验。
+- Proposed/StateImport 从 Manifest 重放后的七份文件逐字节一致，确定性 Digest 均为 `D326B24A3D74128C955667DB42E8F1BADA9BC9CD`；删除 `metrics_summary.csv` 后仅凭原始文件重建，结果逐字节一致。
+- 自动测试分别遮蔽一份必需原始文件、Oracle Policy Run 和 Method/None Run，Evaluator 均拒绝生成误导结果并返回明确错误；文件恢复后不影响工程矩阵。
+- UE 5.4 Development Editor 编译成功；最终 NullRHI 全套 `AILODResearch` 为 `23/23 Success`、`0 Failed`、自动化错误 `0`、退出码 `0`。
+- 项目作者已于 2026-08-17 确认 6E 检查点，并授权 6E 独立提交后在新分支完成 6F；6E 提交仍不推送。
+
 ## 9. Phase 6F：测量隔离与 Phase 6 总验收
 
 ### 范围

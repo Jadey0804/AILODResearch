@@ -287,6 +287,16 @@ namespace AILOD
 		Manifest->SetStringField(TEXT("start_time"), Metadata.StartTime);
 		Manifest->SetStringField(TEXT("end_time"), Metadata.EndTime);
 		Manifest->SetBoolField(TEXT("valid"), Result.IsHardErrorFree());
+		Manifest->SetStringField(TEXT("deterministic_digest"), FUnifiedSimulationRunner::BuildDeterministicDigest(Result));
+		TSharedRef<FJsonObject> HardErrors = MakeShared<FJsonObject>();
+		HardErrors->SetNumberField(TEXT("task_reset"), Result.TaskResetCount);
+		HardErrors->SetNumberField(TEXT("duplicate_completion"), Result.Audit.DuplicateCompletionCount);
+		HardErrors->SetNumberField(TEXT("event_owner_conflict"), Result.Audit.EventOwnerConflictCount);
+		HardErrors->SetNumberField(TEXT("duplicate_transaction"), Result.Audit.DuplicateTransactionCount);
+		HardErrors->SetNumberField(TEXT("negative_stock"), Result.Audit.NegativeStockCount);
+		HardErrors->SetNumberField(TEXT("population_residual"), Result.Audit.PopulationResidual);
+		HardErrors->SetNumberField(TEXT("wood_residual"), Result.Audit.WoodResidual);
+		Manifest->SetObjectField(TEXT("hard_errors"), HardErrors);
 		TSharedRef<FJsonObject> Parameters = MakeShared<FJsonObject>();
 		Parameters->SetNumberField(TEXT("population_per_kingdom"), Result.PopulationPerKingdom);
 		Parameters->SetStringField(TEXT("run_mode"), RunModeName(Result.Mode));

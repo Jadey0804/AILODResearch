@@ -10,7 +10,9 @@
 #include "Serialization/JsonSerializer.h"
 
 #include "../Simulation/AILODExperimentLogging.h"
+#include "../Simulation/AILODExperimentRunner.h"
 #include "../Simulation/AILODLogSchema.h"
+#include "../Simulation/AILODOfflineMetrics.h"
 #include "../Simulation/AILODUnifiedSimulation.h"
 
 namespace
@@ -710,6 +712,138 @@ bool FAILODPhase6DRawRunLoggingTest::RunTest(const FString& Parameters)
 		WriterA.GetLODTransitionCount(),
 		WriterA.GetTransactionCount(),
 		*BaselineDigest));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAILODPhase6EExperimentRunnerAndMetricsTest,
+	"AILODResearch.Phase6.ExperimentRunnerAndOfflineMetrics",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAILODPhase6EExperimentRunnerAndMetricsTest::RunTest(const FString& Parameters)
+{
+	using namespace AILOD;
+	using namespace AILOD::LogSchema;
+	const FString TestRoot = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AILOD/Phase6ECheckpoint"));
+	const FString ReplayRoot = FPaths::Combine(TestRoot, TEXT("Replay"));
+	const FString SummaryPath = FPaths::Combine(TestRoot, MetricsSummaryFile);
+	IFileManager::Get().DeleteDirectory(*TestRoot, false, true);
+
+	FExperimentMatrixRequest Request;
+	Request.OutputRoot = TestRoot;
+	Request.ExperimentID = TEXT("PHASE6E-ENGINEERING");
+	Request.Methods = { EUnifiedSimulationMethod::Oracle, EUnifiedSimulationMethod::Proposed };
+	Request.Scenarios = { EStage2Scenario::None, EStage2Scenario::StateImport };
+	Request.Seeds = { 20260810 };
+	Request.PopulationPerKingdom = 100;
+	Request.GitCommit = TEXT("93282ed");
+	Request.UEVersion = TEXT("5.4");
+	Request.BuildType = TEXT("Development");
+	Request.Hardware = TEXT("Phase6E-AutomationFixture");
+	Request.LogMode = TEXT("EngineeringAccuracy");
+	Request.StartTime = TEXT("2026-08-17T00:00:00Z");
+	Request.EndTime = TEXT("2026-08-17T00:01:00Z");
+
+	TArray<FExperimentRunRecord> Runs;
+	FString Error;
+	if (!FExperimentRunner::RunMatrix(Request, Runs, Error))
+	{
+		AddError(FString::Printf(TEXT("Phase 6E engineering matrix failed: %s"), *Error));
+		return false;
+	}
+	TestEqual(TEXT("Engineering matrix contains exactly method x scenario x seed runs"), Runs.Num(), 4);
+	TestTrue(TEXT("Runner writes the shared population input"), FPaths::FileExists(FPaths::Combine(TestRoot, TEXT("Inputs/Seed-20260810"), InitialPopulationManifestFile)));
+	TestTrue(TEXT("Runner writes the shared damage input"), FPaths::FileExists(FPaths::Combine(TestRoot, TEXT("Inputs/Seed-20260810"), EarthquakeDamageListFile)));
+	TestTrue(TEXT("Runner writes the shared continuity pool"), FPaths::FileExists(FPaths::Combine(TestRoot, TEXT("Inputs/Seed-20260810"), PersistentTestPoolFile)));
+
+	const FExperimentRunRecord* ProposedPolicyRun = Runs.FindByPredicate([](const FExperimentRunRecord& Run)
+	{
+		return Run.RunID == TEXT("Proposed-StateImport-20260810");
+	});
+	if (ProposedPolicyRun == nullptr)
+	{
+		AddError(TEXT("Engineering matrix did not produce Proposed-StateImport-20260810."));
+		return false;
+	}
+	for (const FExperimentRunRecord& Run : Runs)
+	{
+		TestFalse(*FString::Printf(TEXT("%s does not emit Phase 6F performance samples"), *Run.RunID), FPaths::FileExists(FPaths::Combine(Run.RunDirectory, PerformanceFile)));
+		TestFalse(*FString::Printf(TEXT("%s keeps cross-run metrics outside the raw run"), *Run.RunID), FPaths::FileExists(FPaths::Combine(Run.RunDirectory, MetricsSummaryFile)));
+	}
+
+	FExperimentRunRecord Replay;
+	if (!FExperimentRunner::ReplayFromManifest(FPaths::Combine(ProposedPolicyRun->RunDirectory, RunManifestFile), ReplayRoot, Replay, Error))
+	{
+		AddError(FString::Printf(TEXT("Manifest replay failed: %s"), *Error));
+		return false;
+	}
+	TestEqual(TEXT("Manifest replay reproduces the deterministic domain digest"), Replay.DeterministicDigest, ProposedPolicyRun->DeterministicDigest);
+	for (const FString& File : { FString(RunManifestFile), FString(KingdomTimeseriesFile), FString(CohortTimeseriesFile), FString(NPCSnapshotsFile), FString(SimulationEventsFile), FString(LODTransitionsFile), FString(LedgerTransactionsFile) })
+	{
+		FString Original;
+		FString Rebuilt;
+		TestTrue(*FString::Printf(TEXT("Original %s loads"), *File), FFileHelper::LoadFileToString(Original, *FPaths::Combine(ProposedPolicyRun->RunDirectory, File)));
+		TestTrue(*FString::Printf(TEXT("Replayed %s loads"), *File), FFileHelper::LoadFileToString(Rebuilt, *FPaths::Combine(ReplayRoot, File)));
+		TestEqual(*FString::Printf(TEXT("Manifest replay reproduces %s bytes"), *File), Rebuilt, Original);
+	}
+
+	TestTrue(TEXT("Offline evaluator builds metrics_summary.csv from raw logs"), FOfflineMetricsEvaluator::BuildSummary(TestRoot, SummaryPath, Error));
+	if (!Error.IsEmpty()) AddError(FString::Printf(TEXT("Offline metric error: %s"), *Error));
+	FString FirstSummary;
+	TestTrue(TEXT("First metrics summary loads"), FFileHelper::LoadFileToString(FirstSummary, *SummaryPath));
+	TestTrue(TEXT("Summary contains trajectory error"), FirstSummary.Contains(TEXT("Trajectory.DamagedWaiting")));
+	TestTrue(TEXT("Summary contains policy effect error"), FirstSummary.Contains(TEXT("PolicyEffect.ForestWood")));
+	TestTrue(TEXT("Summary contains behavior TVD"), FirstSummary.Contains(TEXT("Behavior.TVD")));
+	TestTrue(TEXT("Summary contains continuity mismatch rates"), FirstSummary.Contains(TEXT("Continuity.MoneyMismatchRate")));
+	TestTrue(TEXT("Summary contains hard-error counts"), FirstSummary.Contains(TEXT("HardError.wood_residual")));
+	TestTrue(TEXT("Summary explicitly defers performance samples to 6F"), FirstSummary.Contains(TEXT("performance_1s.csv deferred to Phase6F")));
+
+	TestTrue(TEXT("Metrics summary can be deleted"), IFileManager::Get().Delete(*SummaryPath));
+	TestTrue(TEXT("Offline evaluator rebuilds metrics using only raw files"), FOfflineMetricsEvaluator::BuildSummary(TestRoot, SummaryPath, Error));
+	FString RebuiltSummary;
+	TestTrue(TEXT("Rebuilt metrics summary loads"), FFileHelper::LoadFileToString(RebuiltSummary, *SummaryPath));
+	TestEqual(TEXT("Offline rebuild is byte-identical"), RebuiltSummary, FirstSummary);
+
+	const FString NPCPath = FPaths::Combine(ProposedPolicyRun->RunDirectory, NPCSnapshotsFile);
+	FString OriginalNPCs;
+	TestTrue(TEXT("Identity-mismatch fixture loads NPC snapshots"), FFileHelper::LoadFileToString(OriginalNPCs, *NPCPath));
+	const FString TamperedNPCs = OriginalNPCs.Replace(TEXT("Resident-"), TEXT("Tampered-"), ESearchCase::CaseSensitive);
+	TestTrue(TEXT("Identity-mismatch fixture writes changed immutable names"), FFileHelper::SaveStringToFile(TamperedNPCs, *NPCPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM));
+	TestTrue(TEXT("Offline evaluator rebuilds after an identity mutation"), FOfflineMetricsEvaluator::BuildSummary(TestRoot, SummaryPath, Error));
+	FString TamperedSummary;
+	TestTrue(TEXT("Identity-mismatch summary loads"), FFileHelper::LoadFileToString(TamperedSummary, *SummaryPath));
+	TArray<FString> TamperedLines;
+	TamperedSummary.ParseIntoArrayLines(TamperedLines, true);
+	const FString* IdentityLine = TamperedLines.FindByPredicate([](const FString& Line)
+	{
+		return Line.Contains(TEXT("Proposed-StateImport-20260810")) && Line.Contains(TEXT("HardError.identity_mismatch"));
+	});
+	TestTrue(TEXT("Identity mismatch is computed from raw snapshots and Phase 0 input"), IdentityLine != nullptr && IdentityLine->Contains(TEXT(",40.000000000000,")));
+	TestTrue(TEXT("Identity-mismatch fixture restores NPC snapshots"), FFileHelper::SaveStringToFile(OriginalNPCs, *NPCPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM));
+	TestTrue(TEXT("Clean summary rebuilds after identity fixture restoration"), FOfflineMetricsEvaluator::BuildSummary(TestRoot, SummaryPath, Error));
+
+	const FString LedgerPath = FPaths::Combine(ProposedPolicyRun->RunDirectory, LedgerTransactionsFile);
+	const FString HiddenLedgerPath = LedgerPath + TEXT(".hidden");
+	TestTrue(TEXT("Missing-file fixture hides a required raw log"), IFileManager::Get().Move(*HiddenLedgerPath, *LedgerPath));
+	TestFalse(TEXT("Offline evaluator rejects a missing raw file"), FOfflineMetricsEvaluator::BuildSummary(TestRoot, SummaryPath, Error));
+	TestTrue(TEXT("Missing raw file produces an explicit error"), Error.Contains(LedgerTransactionsFile));
+	TestTrue(TEXT("Missing-file fixture restores the raw log"), IFileManager::Get().Move(*LedgerPath, *HiddenLedgerPath));
+
+	const FString OraclePolicyPath = FPaths::Combine(TestRoot, TEXT("Runs/Oracle-StateImport-20260810"));
+	const FString HiddenOraclePath = FPaths::Combine(TestRoot, TEXT("Oracle-StateImport-20260810.hidden"));
+	TestTrue(TEXT("Pairing fixture hides the policy Oracle"), IFileManager::Get().Move(*HiddenOraclePath, *OraclePolicyPath, true, true, false, true));
+	TestFalse(TEXT("Offline evaluator rejects a missing Oracle pair"), FOfflineMetricsEvaluator::BuildSummary(TestRoot, SummaryPath, Error));
+	TestTrue(TEXT("Missing Oracle pair produces an explicit error"), Error.Contains(TEXT("no paired Oracle")));
+	TestTrue(TEXT("Pairing fixture restores the policy Oracle"), IFileManager::Get().Move(*OraclePolicyPath, *HiddenOraclePath, true, true, false, true));
+
+	const FString ProposedNonePath = FPaths::Combine(TestRoot, TEXT("Runs/Proposed-None-20260810"));
+	const FString HiddenNonePath = FPaths::Combine(TestRoot, TEXT("Proposed-None-20260810.hidden"));
+	TestTrue(TEXT("None-baseline fixture hides the method baseline"), IFileManager::Get().Move(*HiddenNonePath, *ProposedNonePath, true, true, false, true));
+	TestFalse(TEXT("Offline evaluator rejects a missing None baseline"), FOfflineMetricsEvaluator::BuildSummary(TestRoot, SummaryPath, Error));
+	TestTrue(TEXT("Missing None baseline produces an explicit error"), Error.Contains(TEXT("Method/None")));
+	TestTrue(TEXT("None-baseline fixture restores the method baseline"), IFileManager::Get().Move(*ProposedNonePath, *HiddenNonePath, true, true, false, true));
+
+	AddInfo(FString::Printf(TEXT("Phase6E root=%s runs=%d digest=%s summary_bytes=%d"), *TestRoot, Runs.Num(), *ProposedPolicyRun->DeterministicDigest, FirstSummary.Len()));
 	return true;
 }
 
