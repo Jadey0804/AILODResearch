@@ -353,6 +353,7 @@ namespace AILOD
 			bool bFaultInjectionConsumed = false;
 			FUnifiedStepMeasurement LastStepMeasurement;
 			FUnifiedCostBreakdown CostBreakdown;
+			FUnifiedMacroProfile MacroProfile;
 			double LastDetailedActivePlanningMs = 0.0;
 		};
 
@@ -1183,6 +1184,7 @@ namespace AILOD
 			OutResult.bRetainCompletedEvents = Options.bRetainCompletedEvents;
 			OutResult.bRecordSnapshots = Options.bRecordSnapshots;
 			OutResult.bVerifyCohortApproximation = Options.bVerifyCohortApproximation;
+			OutResult.bEnableMacroProfiling = Options.bEnableMacroProfiling;
 			OutResult.FaultInjection = Options.FaultInjection;
 			OutResult.ConfigHash = PopulationManifest.ConfigHash;
 			OutResult.FinalTime = Clock.Now();
@@ -1214,6 +1216,7 @@ namespace AILOD
 			Diagnostics.TransactionCount = Ledger.GetTransactions().Num();
 			OutResult.Diagnostics = Diagnostics;
 			OutResult.CostBreakdown = CostBreakdown;
+			OutResult.MacroProfile = MacroProfile;
 			OutResult.Transactions = Ledger.GetTransactions();
 			for (const TPair<FEventID, FSimulationEventRecord>& Pair : EventStore.GetEvents())
 			{
@@ -2202,9 +2205,14 @@ namespace AILOD
 
 			if (Backend->GetPlanningGranularity() == EBackendPlanningGranularity::Cohort)
 			{
+				const bool bProfileMacro = Options.bEnableMacroProfiling;
+				const double ActivePlanningBeforeScan = LastDetailedActivePlanningMs;
+				const double ScanStart = bProfileMacro ? FPlatformTime::Seconds() : 0.0;
+				if (bProfileMacro) ++MacroProfile.ProfiledHourCount;
 				TMap<FString, TArray<int32>> CohortGroups;
 				for (int32 ResidentIndex = 0; ResidentIndex < Residents.Num(); ++ResidentIndex)
 				{
+					if (bProfileMacro) ++MacroProfile.ResidentVisitCount;
 					FResidentCoreState& Resident = Residents[ResidentIndex];
 					if (Resident.ActiveEventID != 0)
 					{
@@ -2238,10 +2246,18 @@ namespace AILOD
 						WoodBand);
 					CohortGroups.FindOrAdd(Key).Add(ResidentIndex);
 				}
+				if (bProfileMacro)
+				{
+					MacroProfile.ResidentScanAndGroupingCpuMs += FMath::Max(
+						0.0,
+						(FPlatformTime::Seconds() - ScanStart) * 1000.0
+							- (LastDetailedActivePlanningMs - ActivePlanningBeforeScan));
+				}
 
 				TArray<FString> Keys;
 				CohortGroups.GetKeys(Keys);
 				Keys.Sort();
+				if (bProfileMacro) MacroProfile.CohortGroupCount += Keys.Num();
 				for (const FString& Key : Keys)
 				{
 					const TArray<int32>& Group = CohortGroups.FindChecked(Key);
@@ -2249,6 +2265,7 @@ namespace AILOD
 					{
 						continue;
 					}
+					const double RepresentativeStart = bProfileMacro ? FPlatformTime::Seconds() : 0.0;
 					FResidentCoreState Representative = Residents[Group[0]];
 					int64 CashSum = 0;
 					int64 CreditSum = 0;
@@ -2271,6 +2288,12 @@ namespace AILOD
 					const EIndividualAction Action = RepresentativePlan.Actions.Num() > 0 ? RepresentativePlan.Actions[0] : EIndividualAction::Wait;
 					++Diagnostics.PlanningEvaluationCount;
 					++Diagnostics.CohortPlanningEvaluationCount;
+					if (bProfileMacro)
+					{
+						MacroProfile.RepresentativePlanningCpuMs += (FPlatformTime::Seconds() - RepresentativeStart) * 1000.0;
+					}
+					const double ValidationBeforeAllocation = LastStepMeasurement.ValidationCpuMs;
+					const double AllocationStart = bProfileMacro ? FPlatformTime::Seconds() : 0.0;
 					for (const int32 ResidentIndex : Group)
 					{
 						if (Options.Mode == EUnifiedRunMode::Validation && Options.bVerifyCohortApproximation)
@@ -2287,7 +2310,15 @@ namespace AILOD
 						}
 						AddCandidate(ResidentIndex, Action, true);
 					}
+					if (bProfileMacro)
+					{
+						MacroProfile.MemberAllocationCpuMs += FMath::Max(
+							0.0,
+							(FPlatformTime::Seconds() - AllocationStart) * 1000.0
+								- (LastStepMeasurement.ValidationCpuMs - ValidationBeforeAllocation));
+					}
 				}
+				if (bProfileMacro) MacroProfile.CandidateCount += Candidates.Num();
 			}
 			else
 			{
@@ -2320,6 +2351,9 @@ namespace AILOD
 			TArray<FActionCandidate>& Candidates,
 			FString& OutError)
 		{
+			const bool bProfileMacro = Options.bEnableMacroProfiling
+				&& Backend->GetPlanningGranularity() == EBackendPlanningGranularity::Cohort;
+			const double SortStart = bProfileMacro ? FPlatformTime::Seconds() : 0.0;
 			Candidates.Sort([this](const FActionCandidate& Left, const FActionCandidate& Right)
 			{
 				if (Left.OrderKey != Right.OrderKey)
@@ -2328,7 +2362,9 @@ namespace AILOD
 				}
 				return Residents[Left.ResidentIndex].ResidentID < Residents[Right.ResidentIndex].ResidentID;
 			});
+			if (bProfileMacro) MacroProfile.CandidateSortCpuMs += (FPlatformTime::Seconds() - SortStart) * 1000.0;
 
+			const double CompetitionSetupStart = bProfileMacro ? FPlatformTime::Seconds() : 0.0;
 			TSet<FUnifiedCompetitionScope> Scopes;
 			TMap<FUnifiedCompetitionScope, uint8> RepresentationFlags;
 			for (FActionCandidate& Candidate : Candidates)
@@ -2346,10 +2382,12 @@ namespace AILOD
 			{
 				Diagnostics.MixedRepresentationCompetitionCount += Pair.Value == 0x3 ? 1 : 0;
 			}
+			if (bProfileMacro) MacroProfile.CompetitionSetupCpuMs += (FPlatformTime::Seconds() - CompetitionSetupStart) * 1000.0;
 
 			for (const FActionCandidate& Candidate : Candidates)
 			{
 				const FResidentCoreState& Resident = Residents[Candidate.ResidentIndex];
+				const double CompetitionCheckStart = bProfileMacro ? FPlatformTime::Seconds() : 0.0;
 				bool bWon = true;
 				switch (Candidate.Scope.Resource)
 				{
@@ -2374,15 +2412,14 @@ namespace AILOD
 				default:
 					break;
 				}
+				if (bProfileMacro) MacroProfile.CompetitionCheckCpuMs += (FPlatformTime::Seconds() - CompetitionCheckStart) * 1000.0;
 
-				if (bWon)
-				{
-					if (!StartCandidate(Candidate, Time, OutError))
-					{
-						return false;
-					}
-				}
-				else if (!StartFallbackWait(Candidate, Time, OutError))
+				const double CommitStart = bProfileMacro ? FPlatformTime::Seconds() : 0.0;
+				const bool bCommitted = bWon
+					? StartCandidate(Candidate, Time, OutError)
+					: StartFallbackWait(Candidate, Time, OutError);
+				if (bProfileMacro) MacroProfile.ActionCommitCpuMs += (FPlatformTime::Seconds() - CommitStart) * 1000.0;
+				if (!bCommitted)
 				{
 					return false;
 				}

@@ -313,6 +313,7 @@ namespace AILOD
 		Parameters->SetBoolField(TEXT("retain_completed_events"), Result.bRetainCompletedEvents);
 		Parameters->SetBoolField(TEXT("record_snapshots"), Result.bRecordSnapshots);
 		Parameters->SetBoolField(TEXT("verify_cohort_approximation"), Result.bVerifyCohortApproximation);
+		Parameters->SetBoolField(TEXT("enable_macro_profiling"), Result.bEnableMacroProfiling);
 		Parameters->SetStringField(TEXT("fault_injection"), FaultInjectionName(Result.FaultInjection));
 		Manifest->SetObjectField(TEXT("parameters"), Parameters);
 		TSharedRef<FJsonObject> Measurements = MakeShared<FJsonObject>();
@@ -329,6 +330,22 @@ namespace AILOD
 		Measurements->SetNumberField(TEXT("serialization_cpu_ms"), 0.0);
 		Measurements->SetNumberField(TEXT("file_write_cpu_ms"), 0.0);
 		Measurements->SetStringField(TEXT("ai_cpu_scope"), TEXT("production_only_excludes_validation_audit_snapshot_observer_and_logging"));
+		if (Result.bEnableMacroProfiling)
+		{
+			TSharedRef<FJsonObject> MacroProfile = MakeShared<FJsonObject>();
+			MacroProfile->SetNumberField(TEXT("resident_scan_and_grouping_cpu_ms"), Result.MacroProfile.ResidentScanAndGroupingCpuMs);
+			MacroProfile->SetNumberField(TEXT("representative_planning_cpu_ms"), Result.MacroProfile.RepresentativePlanningCpuMs);
+			MacroProfile->SetNumberField(TEXT("member_allocation_cpu_ms"), Result.MacroProfile.MemberAllocationCpuMs);
+			MacroProfile->SetNumberField(TEXT("candidate_sort_cpu_ms"), Result.MacroProfile.CandidateSortCpuMs);
+			MacroProfile->SetNumberField(TEXT("competition_setup_cpu_ms"), Result.MacroProfile.CompetitionSetupCpuMs);
+			MacroProfile->SetNumberField(TEXT("competition_check_cpu_ms"), Result.MacroProfile.CompetitionCheckCpuMs);
+			MacroProfile->SetNumberField(TEXT("action_commit_cpu_ms"), Result.MacroProfile.ActionCommitCpuMs);
+			MacroProfile->SetNumberField(TEXT("profiled_hour_count"), Result.MacroProfile.ProfiledHourCount);
+			MacroProfile->SetNumberField(TEXT("resident_visit_count"), Result.MacroProfile.ResidentVisitCount);
+			MacroProfile->SetNumberField(TEXT("cohort_group_count"), Result.MacroProfile.CohortGroupCount);
+			MacroProfile->SetNumberField(TEXT("candidate_count"), Result.MacroProfile.CandidateCount);
+			Measurements->SetObjectField(TEXT("macro_profile"), MacroProfile);
+		}
 		Manifest->SetObjectField(TEXT("measurement_summary"), Measurements);
 
 		if (Result.Mode == EUnifiedRunMode::Performance)

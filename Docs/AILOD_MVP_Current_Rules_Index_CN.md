@@ -1,6 +1,6 @@
 # AILOD MVP 当前有效规则索引
 
-**索引版本：1.9**<br>
+**索引版本：2.1**<br>
 **日期：2026-08-17**<br>
 **用途：说明当前规则的读取顺序、冲突优先级和各文档职责。**<br>
 **性质：本文件只做导航，不新增模型规则、不替代原规格，也不构成阶段验收。**
@@ -38,6 +38,7 @@
 | Phase 5.1 Checkpoint | Phase 5.1 实现证据、Hash、Digest、自动验收结果、已知边界和待完成项 | 是验收记录，不新增或覆盖模型规则 |
 | Phase 6 Incremental Plan | 将既有 Phase 6 范围拆成 6A—6F 检查点并记录逐步验收状态 | 是实施导航与检查点，不新增或覆盖模型规则；每一步必须经作者确认后才能进入下一步 |
 | Phase 6 Checkpoint | Phase 6A—6F 的实验基础设施、测量边界、回放/重建证据、工程成本分解和待确认状态 | 是总验收记录，不新增或覆盖模型规则；工程冒烟不得当作正式研究结论 |
+| Phase 6G-A Checkpoint | Proposed Macro 子阶段定向计时、计数、Digest 回归和瓶颈边界 | 是工程诊断记录，不新增模型规则，也不是正式性能实验或论文结论 |
 
 ## 3. 当前最容易误读的有效规则
 
@@ -76,7 +77,7 @@ Phase 6A—6F 已经实现以下内容：
 
 以上边界以 v1.6 §8 和 Phase 5.1 Checkpoint §8 为准。
 
-当前位于 `phase-6-performance-measurement`。Phase 6A—6E 已分别以本地提交 `71e3565`、`c0e84d2`、`eb44bf3`、`93282ed`、`6ee6873` 封板；6F 的模式边界、性能采样、离线性能汇总和 200/2k/10k/20k 工程检查已经通过，Phase 6 总检查点见 `AILOD_MVP_Phase6_Checkpoint_CN.md`。项目作者已于 2026-08-17 确认整个 Phase 6，并授权 6F 独立提交后在新分支执行只测量、不优化的 6G-A；所有提交均未推送。6G-B、Phase 7 和 Phase 8 均未开始。
+当前位于 `phase-6g-macro-profile`。Phase 6A—6F 已分别以本地提交 `71e3565`、`c0e84d2`、`eb44bf3`、`93282ed`、`6ee6873`、`c629bb6` 封板；Phase 6 总检查点见 `AILOD_MVP_Phase6_Checkpoint_CN.md`。项目作者已于 2026-08-17 授权 6G-A 只测量 Proposed Macro 子阶段并归因瓶颈，不允许优化；6G-A 实现与自动验收已通过，并于 2026-08-18 获作者确认和本地封板授权，检查点见 `AILOD_MVP_Phase6G_A_Checkpoint_CN.md`。6G-B 正在进行规则审查，尚未开始实现。所有提交均未推送，Phase 7 和 Phase 8 均未开始。
 
 ## 5. 后续修改规则
 

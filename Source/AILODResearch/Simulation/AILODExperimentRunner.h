@@ -16,6 +16,7 @@ namespace AILOD
 		TArray<int32> Seeds;
 		int32 PopulationPerKingdom = 100;
 		EUnifiedRunMode Mode = EUnifiedRunMode::Accuracy;
+		bool bEnableMacroProfiling = false;
 		FString GitCommit;
 		FString UEVersion;
 		FString BuildType;
@@ -36,6 +37,7 @@ namespace AILOD
 		int32 PerformanceSampleCount = 0;
 		FUnifiedRunDiagnostics Diagnostics;
 		FUnifiedCostBreakdown CostBreakdown;
+		FUnifiedMacroProfile MacroProfile;
 	};
 
 	class FExperimentRunner

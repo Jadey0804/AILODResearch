@@ -1,8 +1,8 @@
 # AILOD MVP Phase 6 增量实施计划与检查点
 
-**计划版本：1.1**<br>
+**计划版本：1.3**<br>
 **日期：2026-08-17**<br>
-**分支：`phase-6-performance-measurement`**<br>
+**分支：`phase-6g-macro-profile`**<br>
 **Phase 5.1 基线提交：`7ea750d6617f6346de37e19e2d20c9c76f5b682f`**<br>
 **Step 0 计划提交：`a3a34969be04036fe919f9599ace609f0f508ceb`**<br>
 **Phase 6A 封板提交：`71e3565`**<br>
@@ -10,7 +10,8 @@
 **Phase 6C 封板提交：`eb44bf3`**<br>
 **Phase 6D 封板提交：`93282ed`**<br>
 **Phase 6E 封板提交：`6ee6873`**<br>
-**当前状态：Phase 6F 实现与自动验收通过，项目作者已于 2026-08-17 确认；本检查点随 6F 封板提交，所有提交均未推送。**
+**Phase 6F 封板提交：`c629bb6`**<br>
+**当前状态：Phase 6G-A 实现与自动验收通过，项目作者已于 2026-08-18 确认并授权本地封板提交；6G-B 正在进行规则审查、尚未开始实现；所有提交均未推送。**
 
 本文件只把既有 Phase 6 规则拆成可独立验收的实施步骤，不新增研究模型、公式、参数、方法或日志字段。规则冲突仍按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.6 顺序处理。
 
@@ -57,8 +58,9 @@ Phase 6 不负责：
 | Phase 6C | 建立只读 Observer/Event Sink | 作者已确认，已封板 |
 | Phase 6D | 输出 Run Manifest 与原始 CSV/JSONL | 作者已确认，已封板 |
 | Phase 6E | 建立批量 Experiment Runner 与离线指标重建 | 作者已确认，已封板 |
-| Phase 6F | 分离测量成本并完成 Phase 6 集成验收 | 作者已确认，等待封板提交 |
-| Phase 6G（可选） | 只在证据确认瓶颈后执行定向优化 | 默认不执行 |
+| Phase 6F | 分离测量成本并完成 Phase 6 集成验收 | 作者已确认，已封板 |
+| Phase 6G-A | 只测量 Proposed Macro 子阶段并归因瓶颈 | 作者已确认，本次提交封板 |
+| Phase 6G-B（可选） | 审查并处理 6G-A 证实的最大瓶颈 | 规则审查中，尚未开始实现 |
 
 ## 4. Phase 6A：可逐小时推进的生产会话
 
@@ -258,17 +260,46 @@ Phase 6 不负责：
 - UE 5.4 Development Editor 编译成功；最终 NullRHI 全套 `AILODResearch` 为 `25/25 Success`、`0 Failed`、自动化错误 `0`、退出码 `0`。其中 Phase 0—4 为 14 项、Phase 5 为 4 项、Phase 6 为 7 项。
 - 本步没有运行 Pilot、480 次准确性正式 Runs 或 90 次性能正式 Runs，没有执行可选 6G 优化，也没有进入 Phase 7。项目作者已于 2026-08-17 确认 6F，并授权 6F 独立提交后在新分支把 6G 拆为“只测量的 6G-A”和“需再次确认的 6G-B”；本检查点随 6F 封板提交，不推送。
 
-## 10. Phase 6G：证据触发的可选优化
+## 10. Phase 6G-A：Proposed Macro 定向 Profile
 
-6G 默认不执行。只有 6F 的成本分解明确证明某一项是主要瓶颈，并由项目作者批准后，才建立独立检查点，例如：
+### 范围
 
-- 用稳定账户句柄替代高频字符串账户查询；
-- 用增量总量替代 Performance 模式的重复完整审计；
-- 对不影响个人连续性的普通离屏记录做定向批处理。
+- 只为 Proposed 的 Macro 路径增加可关闭的诊断计时和计数，不改变 Cohort Key、分组、代表、候选、竞争、提交、事件或账本语义；
+- 把现有 Macro 总成本拆为居民扫描与分组、Cohort 代表合成/规划、成员分配与候选构造、候选排序、竞争准备、竞争检查、动作提交；
+- Profile 字段只写入 Manifest 的诊断子对象和自动化日志，不改变冻结的 `performance_1s.csv` 字段；
+- 使用固定工程 Seed `20260810`，在总人口 2k、10k、20k 的 Proposed/StateImport Performance Run 上执行；
+- 对照 6F 冻结 Digest、硬错误和模式边界，确认开启 Profile 只增加观察成本，不改变领域结果；
+- 只报告子阶段占比与候选瓶颈，不修改实现，不宣称正式性能或显著性。
 
-任何优化都必须保持领域结果、日志 Schema、硬错误门和确定性不变。不得为了制造速度优势而削弱 Per-Agent，或根据正式实验结果反向调算法。
+### 6G-A 检查点
 
-## 11. Step 0 确认门
+- Profile 默认关闭，只有显式工程请求才开启；
+- 2k/10k/20k 的领域 Digest 与 6F 完全一致，所有硬错误为 0；
+- Macro 子阶段时间非负、可解释，子项总和不超过带 Profile 的 Macro 总时间；
+- Manifest 能保留 Profile 开关、时间和计数，重放保持相同领域 Digest；
+- Development Editor 编译和全套自动测试通过；
+- 更新 6G-A 检查点后停止，等待项目作者确认是否允许 6G-B。
+
+### 6G-A 实施与验收记录（2026-08-17，作者于 2026-08-18 确认）
+
+- 新增默认关闭的 `bEnableMacroProfiling` 工程开关；不开启时不记录子阶段计时，也不在 Manifest 写入 `macro_profile`。
+- Profile 只在 Proposed 的 Cohort 粒度路径开启，按现有 Macro 计费边界记录居民扫描/分组、代表合成/规划、成员分配/候选构造、候选排序、竞争准备、竞争检查和动作提交七段累计时间，以及小时、居民访问、Cohort 和候选计数。
+- Profile 结果只嵌入既有 `run_manifest.json` 的 `measurement_summary.macro_profile`；`performance_1s.csv` 的冻结表头和产物集合均未改变，Replay 能恢复 Profile 开关。
+- 固定 Seed `20260810` 的 Proposed/StateImport Performance 定向测试在总人口 2k、10k、20k 全部完成，冻结 Digest 分别保持 `8DC871F8DE2969291D42C8CC49CB1F7E4433698E`、`9F0DD3AC2AF2B8E3523DC30F3F2516F751BD5137`、`9AB01FA7115EF32D31443F8831004CE55DE22D0E`，最终硬错误均为 0；2k Manifest 重放保持相同 Digest。
+- 单独定向运行中，七个子阶段解释了 Macro 总时间的 `93.0% / 97.6% / 98.6%`。动作提交占已归因时间的 `66.1% / 85.2% / 90.8%`，是三档共同的第一瓶颈；居民扫描与分组占 `24.3% / 10.2% / 6.3%`，不是大规模下的第一瓶颈。
+- 2k、10k、20k 分别访问居民 `3,216,000 / 16,080,000 / 32,160,000` 次，生成候选 `403,071 / 2,014,934 / 4,030,235` 个。每小时全员扫描和逐候选个人提交仍随人口增长；Cohort 总组数只有 `2,807 / 2,848 / 2,848`，说明“群体决策次数少”没有自动消除“个人承诺写入成本”。
+- `ActionCommit` 当前仍是宽边界，包含动作复核、事件创建、Scheduler、Reservation/Ledger（按动作需要）、居民 CoreState 写回和失败后的 Wait 提交；6G-A 能定位到该边界，但不能只凭本次结果断言其中哪一种容器或调用是根因。
+- Development Editor 编译成功；NullRHI 全套 `AILODResearch` 为 `26/26 Success`、`0 Failed`、自动化错误 `0`、退出码 `0`。全套回归中的第二次 Profile 仍得到相同 Digest、计数和相同第一瓶颈，绝对时间因运行环境而变化。
+- 这些数据仍是单 Seed、单次、Development Editor + NullRHI 的工程定位数据，计时开关本身也有开销；它们不能作为正式 Speedup、P95、显著性或论文假设结论。
+- 本步没有修改 Cohort Key、决策、候选、竞争、事件、资源或个人状态规则，没有优化实现，也没有运行 Pilot 或正式实验。独立 6G-A 检查点见 `AILOD_MVP_Phase6G_A_Checkpoint_CN.md`。项目作者已于 2026-08-18 确认本检查点并授权本地封板提交；6G-B 只进入规则审查，尚未授权实现。
+
+## 11. Phase 6G-B：经确认后的最小定向优化
+
+6G-B 默认不执行。只有 6G-A 明确证明某个子阶段是主要瓶颈，并由项目作者再次批准后，才建立独立分支和检查点。候选方向可以包括整数 Cohort Key、稳定分组缓存、稳定账户句柄或不破坏个人连续性的定向批处理，但不能提前选定。
+
+任何 6G-B 优化都必须保持领域结果、冻结日志 Schema、硬错误门和确定性不变。不得为了制造速度优势削弱 Per-Agent、删除个人 CoreState/独立承诺，或根据正式实验结果反向更换指标。
+
+## 12. Step 0 确认门
 
 Step 0 只完成计划拆分，没有修改 Phase 6 代码。项目作者已于 2026-08-17 确认本计划。
 

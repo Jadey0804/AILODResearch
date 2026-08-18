@@ -71,6 +71,7 @@ namespace AILOD
 		bool bRetainCompletedEvents = true;
 		bool bRecordSnapshots = true;
 		bool bVerifyCohortApproximation = false;
+		bool bEnableMacroProfiling = false;
 		EUnifiedFaultInjectionPoint FaultInjection = EUnifiedFaultInjectionPoint::None;
 		IUnifiedSimulationObserver* Observer = nullptr;
 		IUnifiedSimulationEventSink* EventSink = nullptr;
@@ -132,6 +133,21 @@ namespace AILOD
 		double SnapshotCpuMs = 0.0;
 		double ObserverCpuMs = 0.0;
 		double FinalizeCpuMs = 0.0;
+	};
+
+	struct FUnifiedMacroProfile
+	{
+		double ResidentScanAndGroupingCpuMs = 0.0;
+		double RepresentativePlanningCpuMs = 0.0;
+		double MemberAllocationCpuMs = 0.0;
+		double CandidateSortCpuMs = 0.0;
+		double CompetitionSetupCpuMs = 0.0;
+		double CompetitionCheckCpuMs = 0.0;
+		double ActionCommitCpuMs = 0.0;
+		int64 ProfiledHourCount = 0;
+		int64 ResidentVisitCount = 0;
+		int64 CohortGroupCount = 0;
+		int64 CandidateCount = 0;
 	};
 
 	struct FUnifiedPerformanceSample
@@ -211,6 +227,7 @@ namespace AILOD
 		bool bRetainCompletedEvents = true;
 		bool bRecordSnapshots = true;
 		bool bVerifyCohortApproximation = false;
+		bool bEnableMacroProfiling = false;
 		EUnifiedFaultInjectionPoint FaultInjection = EUnifiedFaultInjectionPoint::None;
 		FString ConfigHash;
 		FSimulationTime FinalTime;
@@ -232,6 +249,7 @@ namespace AILOD
 		int32 SimpleIndividualCoreStateCount = 0;
 		FUnifiedRunDiagnostics Diagnostics;
 		FUnifiedCostBreakdown CostBreakdown;
+		FUnifiedMacroProfile MacroProfile;
 		TArray<FUnifiedPerformanceSample> PerformanceSamples;
 		TArray<FLedgerTransaction> Transactions;
 		TArray<FSimulationEventRecord> Events;

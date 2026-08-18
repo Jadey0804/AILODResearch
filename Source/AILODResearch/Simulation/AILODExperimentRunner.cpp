@@ -210,6 +210,7 @@ namespace AILOD
 			OutRun.PerformanceSampleCount = Result.PerformanceSamples.Num();
 			OutRun.Diagnostics = Result.Diagnostics;
 			OutRun.CostBreakdown = Result.CostBreakdown;
+			OutRun.MacroProfile = Result.MacroProfile;
 			return true;
 		}
 	}
@@ -234,6 +235,7 @@ namespace AILOD
 		Options.bRetainCompletedEvents = Request.Mode != EUnifiedRunMode::Performance;
 		Options.bRecordSnapshots = Request.Mode != EUnifiedRunMode::Performance;
 		Options.bVerifyCohortApproximation = Request.Mode == EUnifiedRunMode::Validation;
+		Options.bEnableMacroProfiling = Request.bEnableMacroProfiling;
 		for (const int32 Seed : Request.Seeds)
 		{
 			FPhase0Config Config;
@@ -335,6 +337,8 @@ namespace AILOD
 		Options.bRetainCompletedEvents = (*Parameters)->GetBoolField(TEXT("retain_completed_events"));
 		Options.bRecordSnapshots = (*Parameters)->GetBoolField(TEXT("record_snapshots"));
 		Options.bVerifyCohortApproximation = (*Parameters)->GetBoolField(TEXT("verify_cohort_approximation"));
+		Options.bEnableMacroProfiling = (*Parameters)->HasField(TEXT("enable_macro_profiling"))
+			&& (*Parameters)->GetBoolField(TEXT("enable_macro_profiling"));
 
 		FUnifiedRunLogMetadata Metadata;
 		Metadata.OutputDirectory = OutputDirectory;

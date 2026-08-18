@@ -1079,6 +1079,8 @@ bool FAILODPhase6FPerformanceLoggingSmokeTest::RunTest(const FString& Parameters
 			TestFalse(*FString::Printf(TEXT("%s manifest disables completed-event retention"), *Run.RunID), (*RunParameters)->GetBoolField(TEXT("retain_completed_events")));
 			TestFalse(*FString::Printf(TEXT("%s manifest disables snapshots"), *Run.RunID), (*RunParameters)->GetBoolField(TEXT("record_snapshots")));
 			TestFalse(*FString::Printf(TEXT("%s manifest disables approximation recompute"), *Run.RunID), (*RunParameters)->GetBoolField(TEXT("verify_cohort_approximation")));
+			TestFalse(*FString::Printf(TEXT("%s manifest disables macro profiling by default"), *Run.RunID), (*RunParameters)->GetBoolField(TEXT("enable_macro_profiling")));
+			TestFalse(*FString::Printf(TEXT("%s manifest omits macro profile when disabled"), *Run.RunID), (*Measurements)->HasField(TEXT("macro_profile")));
 			TestTrue(*FString::Printf(TEXT("%s manifest records positive production cost"), *Run.RunID), (*Measurements)->GetNumberField(TEXT("production_cpu_ms")) > 0.0);
 			TestEqual(*FString::Printf(TEXT("%s manifest has zero validation cost"), *Run.RunID), (*Measurements)->GetNumberField(TEXT("validation_cpu_ms")), 0.0);
 			TestEqual(*FString::Printf(TEXT("%s manifest has zero snapshot cost"), *Run.RunID), (*Measurements)->GetNumberField(TEXT("snapshot_cpu_ms")), 0.0);
@@ -1162,6 +1164,169 @@ bool FAILODPhase6FPerformanceLoggingSmokeTest::RunTest(const FString& Parameters
 	if (!ReplayError.IsEmpty()) AddError(FString::Printf(TEXT("Performance manifest replay failed: %s"), *ReplayError));
 	TestEqual(TEXT("Performance manifest replay preserves the deterministic digest"), Replay.DeterministicDigest, Proposed200.DeterministicDigest);
 	TestTrue(TEXT("Performance manifest replay regenerates performance_1s.csv"), FPaths::FileExists(FPaths::Combine(ReplayRoot, PerformanceFile)));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAILODPhase6GAMacroProfileAtScaleTest,
+	"AILODResearch.Phase6G.MacroProfileAtScale",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAILODPhase6GAMacroProfileAtScaleTest::RunTest(const FString& Parameters)
+{
+	using namespace AILOD;
+	using namespace AILOD::LogSchema;
+	const FString TestRoot = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AILOD/Phase6GACheckpoint"));
+	IFileManager::Get().DeleteDirectory(*TestRoot, false, true);
+	FExperimentRunRecord Proposed2000;
+	bool bFoundProposed2000 = false;
+
+	for (const int32 TotalPopulation : { 2000, 10000, 20000 })
+	{
+		FString ExpectedDigest;
+		switch (TotalPopulation)
+		{
+		case 2000:
+			ExpectedDigest = TEXT("8DC871F8DE2969291D42C8CC49CB1F7E4433698E");
+			break;
+		case 10000:
+			ExpectedDigest = TEXT("9F0DD3AC2AF2B8E3523DC30F3F2516F751BD5137");
+			break;
+		default:
+			ExpectedDigest = TEXT("9AB01FA7115EF32D31443F8831004CE55DE22D0E");
+			break;
+		}
+
+		FExperimentMatrixRequest Request;
+		Request.OutputRoot = FPaths::Combine(TestRoot, FString::Printf(TEXT("Population-%d"), TotalPopulation));
+		Request.ExperimentID = FString::Printf(TEXT("PHASE6GA-PROFILE-%d"), TotalPopulation);
+		Request.Methods = { EUnifiedSimulationMethod::Proposed };
+		Request.Scenarios = { EStage2Scenario::StateImport };
+		Request.Seeds = { 20260810 };
+		Request.PopulationPerKingdom = TotalPopulation / 2;
+		Request.Mode = EUnifiedRunMode::Performance;
+		Request.bEnableMacroProfiling = true;
+		Request.GitCommit = TEXT("c629bb6");
+		Request.UEVersion = TEXT("5.4");
+		Request.BuildType = TEXT("Development");
+		Request.Hardware = TEXT("Phase6GA-AutomationFixture");
+		Request.LogMode = TEXT("EngineeringMacroProfile");
+		Request.StartTime = TEXT("2026-08-17T00:00:00Z");
+		Request.EndTime = TEXT("2026-08-17T00:01:00Z");
+
+		TArray<FExperimentRunRecord> Runs;
+		FString Error;
+		if (!FExperimentRunner::RunMatrix(Request, Runs, Error))
+		{
+			AddError(FString::Printf(TEXT("Phase 6G-A %d-person profile failed: %s"), TotalPopulation, *Error));
+			return false;
+		}
+		TestEqual(*FString::Printf(TEXT("%d-person profile runs only Proposed"), TotalPopulation), Runs.Num(), 1);
+		if (Runs.Num() != 1)
+		{
+			return false;
+		}
+
+		const FExperimentRunRecord& Run = Runs[0];
+		const FUnifiedMacroProfile& Profile = Run.MacroProfile;
+		const double ProfiledCpuMs = Profile.ResidentScanAndGroupingCpuMs
+			+ Profile.RepresentativePlanningCpuMs
+			+ Profile.MemberAllocationCpuMs
+			+ Profile.CandidateSortCpuMs
+			+ Profile.CompetitionSetupCpuMs
+			+ Profile.CompetitionCheckCpuMs
+			+ Profile.ActionCommitCpuMs;
+		TestTrue(*FString::Printf(TEXT("%d-person profile is hard-error free"), TotalPopulation), Run.bHardErrorFree);
+		TestEqual(*FString::Printf(TEXT("%d-person profile preserves the frozen digest"), TotalPopulation), Run.DeterministicDigest, ExpectedDigest);
+		TestTrue(*FString::Printf(TEXT("%d-person profile records substage time"), TotalPopulation), ProfiledCpuMs > 0.0);
+		TestTrue(
+			*FString::Printf(TEXT("%d-person profile remains within total macro time"), TotalPopulation),
+			ProfiledCpuMs <= Run.CostBreakdown.MacroCpuMs + 1.0);
+		TestEqual(*FString::Printf(TEXT("%d-person profile covers every simulated hour"), TotalPopulation), Profile.ProfiledHourCount, int64(1608));
+		TestEqual(
+			*FString::Printf(TEXT("%d-person profile records the full resident scan count"), TotalPopulation),
+			Profile.ResidentVisitCount,
+			int64(1608) * TotalPopulation);
+		TestTrue(*FString::Printf(TEXT("%d-person profile records cohort groups"), TotalPopulation), Profile.CohortGroupCount > 0);
+		TestTrue(*FString::Printf(TEXT("%d-person profile records candidates"), TotalPopulation), Profile.CandidateCount > 0);
+
+		TArray<FString> ActualFiles;
+		IFileManager::Get().FindFiles(ActualFiles, *FPaths::Combine(Run.RunDirectory, TEXT("*")), true, false);
+		ActualFiles.Sort();
+		TArray<FString> ExpectedFiles = { PerformanceFile, RunManifestFile };
+		ExpectedFiles.Sort();
+		TestEqual(
+			*FString::Printf(TEXT("%d-person profile does not add a new artifact type"), TotalPopulation),
+			FString::Join(ActualFiles, TEXT("|")),
+			FString::Join(ExpectedFiles, TEXT("|")));
+
+		FString ManifestText;
+		TSharedPtr<FJsonObject> Manifest;
+		if (!FFileHelper::LoadFileToString(ManifestText, *FPaths::Combine(Run.RunDirectory, RunManifestFile))
+			|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(ManifestText), Manifest)
+			|| !Manifest.IsValid())
+		{
+			AddError(FString::Printf(TEXT("%d-person profile manifest failed to parse."), TotalPopulation));
+			return false;
+		}
+		const TSharedPtr<FJsonObject>* RunParameters = nullptr;
+		const TSharedPtr<FJsonObject>* Measurements = nullptr;
+		const TSharedPtr<FJsonObject>* LoggedProfile = nullptr;
+		if (!Manifest->TryGetObjectField(TEXT("parameters"), RunParameters) || RunParameters == nullptr
+			|| !Manifest->TryGetObjectField(TEXT("measurement_summary"), Measurements) || Measurements == nullptr
+			|| !(*Measurements)->TryGetObjectField(TEXT("macro_profile"), LoggedProfile) || LoggedProfile == nullptr)
+		{
+			AddError(FString::Printf(TEXT("%d-person profile manifest is missing the macro profile."), TotalPopulation));
+			return false;
+		}
+		TestTrue(*FString::Printf(TEXT("%d-person manifest enables macro profiling"), TotalPopulation), (*RunParameters)->GetBoolField(TEXT("enable_macro_profiling")));
+		TestEqual(
+			*FString::Printf(TEXT("%d-person manifest records resident visits"), TotalPopulation),
+			static_cast<int64>((*LoggedProfile)->GetNumberField(TEXT("resident_visit_count"))),
+			Profile.ResidentVisitCount);
+		TestEqual(
+			*FString::Printf(TEXT("%d-person manifest records the same action-commit time"), TotalPopulation),
+			(*LoggedProfile)->GetNumberField(TEXT("action_commit_cpu_ms")),
+			Profile.ActionCommitCpuMs);
+
+		AddInfo(FString::Printf(
+			TEXT("Phase6GA population=%d macro_ms=%.3f profiled_ms=%.3f scan_group_ms=%.3f representative_ms=%.3f allocation_ms=%.3f sort_ms=%.3f competition_setup_ms=%.3f competition_check_ms=%.3f action_commit_ms=%.3f resident_visits=%lld cohorts=%lld candidates=%lld digest=%s"),
+			TotalPopulation,
+			Run.CostBreakdown.MacroCpuMs,
+			ProfiledCpuMs,
+			Profile.ResidentScanAndGroupingCpuMs,
+			Profile.RepresentativePlanningCpuMs,
+			Profile.MemberAllocationCpuMs,
+			Profile.CandidateSortCpuMs,
+			Profile.CompetitionSetupCpuMs,
+			Profile.CompetitionCheckCpuMs,
+			Profile.ActionCommitCpuMs,
+			Profile.ResidentVisitCount,
+			Profile.CohortGroupCount,
+			Profile.CandidateCount,
+			*Run.DeterministicDigest));
+
+		if (TotalPopulation == 2000)
+		{
+			Proposed2000 = Run;
+			bFoundProposed2000 = true;
+		}
+	}
+
+	if (!bFoundProposed2000)
+	{
+		AddError(TEXT("Phase 6G-A profile did not retain the 2,000-person run for replay."));
+		return false;
+	}
+	FExperimentRunRecord Replay;
+	FString ReplayError;
+	const FString ReplayRoot = FPaths::Combine(TestRoot, TEXT("Replay-2000-Proposed"));
+	TestTrue(
+		TEXT("Macro profile manifest can replay the production session"),
+		FExperimentRunner::ReplayFromManifest(FPaths::Combine(Proposed2000.RunDirectory, RunManifestFile), ReplayRoot, Replay, ReplayError));
+	if (!ReplayError.IsEmpty()) AddError(FString::Printf(TEXT("Macro profile replay failed: %s"), *ReplayError));
+	TestEqual(TEXT("Macro profile replay preserves the deterministic digest"), Replay.DeterministicDigest, Proposed2000.DeterministicDigest);
+	TestTrue(TEXT("Macro profile replay preserves profiling"), Replay.MacroProfile.ProfiledHourCount > 0);
 	return true;
 }
 
