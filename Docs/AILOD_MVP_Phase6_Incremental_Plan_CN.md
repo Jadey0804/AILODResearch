@@ -1,8 +1,8 @@
 # AILOD MVP Phase 6 增量实施计划与检查点
 
-**计划版本：1.3**<br>
-**日期：2026-08-17**<br>
-**分支：`phase-6g-macro-profile`**<br>
+**计划版本：2.0**<br>
+**日期：2026-08-18**<br>
+**分支：`phase-6g-b-cohort-batch`**<br>
 **Phase 5.1 基线提交：`7ea750d6617f6346de37e19e2d20c9c76f5b682f`**<br>
 **Step 0 计划提交：`a3a34969be04036fe919f9599ace609f0f508ceb`**<br>
 **Phase 6A 封板提交：`71e3565`**<br>
@@ -11,9 +11,10 @@
 **Phase 6D 封板提交：`93282ed`**<br>
 **Phase 6E 封板提交：`6ee6873`**<br>
 **Phase 6F 封板提交：`c629bb6`**<br>
-**当前状态：Phase 6G-A 实现与自动验收通过，项目作者已于 2026-08-18 确认并授权本地封板提交；6G-B 正在进行规则审查、尚未开始实现；所有提交均未推送。**
+**Phase 6G-A 封板提交：`41d3bae`**<br>
+**当前状态：项目作者已于 2026-08-18 确认 6G-B0 并授权独立本地封板；B1 Shadow Cohort 已获授权但尚未开始；B2—B5 未开始；所有提交均未推送。**
 
-本文件只把既有 Phase 6 规则拆成可独立验收的实施步骤，不新增研究模型、公式、参数、方法或日志字段。规则冲突仍按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.6 顺序处理。
+本文件把 Phase 6 和经证据触发的 6G-B 拆成可独立验收的实施步骤；模型事实只由版本化规格定义。本计划从 6G-B0 起按 `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.7.md` 导航，不自行新增或覆盖模型规则。规则冲突按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.7 顺序处理。
 
 ## 1. Phase 6 最终要交付什么
 
@@ -32,15 +33,15 @@ Phase 6 不负责：
 - Phase 7 的地图、UI、Actor、望远镜和动态 King 演示；
 - Phase 8 的 Pilot 调参；
 - 480 次准确性正式 Runs 或 90 次性能正式 Runs；
-- 在没有成本证据前优化字符串账户查询、全人口扫描或事件存储；
-- 改变已冻结的人口、政策、场景、公式、Seeds、Runs、Active Cap、方法边界和日志字段。
+- 在没有成本证据前优化字符串账户查询、全人口扫描或事件存储；6G-A 已提供证据，6G-B 只能按 v1.7 明确批准的范围处理；
+- 改变人口、政策、场景、公式、Seeds、Runs、Active Cap 和其他三种方法边界；Proposed 表示与日志语义只允许按 v1.7 覆盖。
 
 ## 2. 逐步实施规则
 
 每一步都使用以下流程：
 
 1. 只实现当前一步，不预做下一步；
-2. 执行 Development Editor 编译、全部既有自动测试和本步新增测试；
+2. 执行 Development Editor 编译、全部既有自动测试和本步新增测试；纯文档 B0 只执行文档/版本/Git 一致性检查；
 3. 更新本文件的状态与证据，明确完成内容、未完成内容和风险；
 4. 停止实施，保持下一步为“未开始”，等待项目作者确认；
 5. 作者确认后，将当前步作为独立本地提交，再开始下一步；
@@ -59,8 +60,14 @@ Phase 6 不负责：
 | Phase 6D | 输出 Run Manifest 与原始 CSV/JSONL | 作者已确认，已封板 |
 | Phase 6E | 建立批量 Experiment Runner 与离线指标重建 | 作者已确认，已封板 |
 | Phase 6F | 分离测量成本并完成 Phase 6 集成验收 | 作者已确认，已封板 |
-| Phase 6G-A | 只测量 Proposed Macro 子阶段并归因瓶颈 | 作者已确认，本次提交封板 |
-| Phase 6G-B（可选） | 审查并处理 6G-A 证实的最大瓶颈 | 规则审查中，尚未开始实现 |
+| Phase 6G-A | 只测量 Proposed Macro 子阶段并归因瓶颈 | 作者已确认，`41d3bae` 封板 |
+| Phase 6G-B0 | 冻结 v1.7、权威索引和 B0—B5 检查点 | 作者已确认，本次提交封板 |
+| Phase 6G-B1 | 建立不修改权威结果的 Shadow Cohort | 已授权，尚未开始 |
+| Phase 6G-B2A | 隔离 Wait/Routine Batch 切片 | 未开始 |
+| Phase 6G-B2B | 隔离 Work 与工资/国库 Batch 切片 | 未开始 |
+| Phase 6G-B3 | 全动作资源竞争批量化并一次性切换 Macro 权威 | 未开始 |
+| Phase 6G-B4 | Dynamic Lift/Restrict、Capsule 与 Batch Split/Merge | 未开始 |
+| Phase 6G-B5 | 200 准确性、2k—20k 回归/性能和 50k/100k 压力总验收 | 未开始 |
 
 ## 4. Phase 6A：可逐小时推进的生产会话
 
@@ -293,11 +300,90 @@ Phase 6 不负责：
 - 这些数据仍是单 Seed、单次、Development Editor + NullRHI 的工程定位数据，计时开关本身也有开销；它们不能作为正式 Speedup、P95、显著性或论文假设结论。
 - 本步没有修改 Cohort Key、决策、候选、竞争、事件、资源或个人状态规则，没有优化实现，也没有运行 Pilot 或正式实验。独立 6G-A 检查点见 `AILOD_MVP_Phase6G_A_Checkpoint_CN.md`。项目作者已于 2026-08-18 确认本检查点并授权本地封板提交；6G-B 只进入规则审查，尚未授权实现。
 
-## 11. Phase 6G-B：经确认后的最小定向优化
+## 11. Phase 6G-B：v1.7 Cohort 批量提交与动态解聚
 
-6G-B 默认不执行。只有 6G-A 明确证明某个子阶段是主要瓶颈，并由项目作者再次批准后，才建立独立分支和检查点。候选方向可以包括整数 Cohort Key、稳定分组缓存、稳定账户句柄或不破坏个人连续性的定向批处理，但不能提前选定。
+6G-A 证明当前 Proposed 已减少代表规划，却没有减少每小时全员扫描、约 `201.5 × N` 个候选和个人提交；20k 的 `ActionCommit` 占已归因 Macro 时间约 91%。项目作者于 2026-08-18 批准 6G-B 不再限于保持旧 Digest 的函数级优化，而是按 v1.7 分步建立权威 Cohort Joint State、Batch 提交与 Dynamic Lift/Restrict。
 
-任何 6G-B 优化都必须保持领域结果、冻结日志 Schema、硬错误门和确定性不变。不得为了制造速度优势削弱 Per-Agent、删除个人 CoreState/独立承诺，或根据正式实验结果反向更换指标。
+6G-B 必须遵守：
+
+- v1.7 是唯一新增模型规则来源；本文件只记录实施步骤和证据；
+- B1、B2A、B2B 期间当前 v1.6 Proposed 仍是完整 Run 的唯一权威；B2 切片只在隔离夹具验证，B3 全动作齐备后才允许一次性切换 Macro 权威；
+- 任何步骤不得提前实现下一步，不得顺手削弱 Per-Agent/Simple/Oracle；
+- 旧 v1.6 Proposed 作为 `ProposedExactCommit` 工程消融保留，不自动进入正式方法矩阵；
+- B5 通过前不得把 v1.7 写成已经达到正式性能或准确性目标。
+
+### 6G-B0：v1.7 冻结设计
+
+范围：
+
+- 新增 v1.7 覆盖规格；
+- 更新当前有效规则索引；
+- 冻结 B0、B1、B2A、B2B、B3、B4、B5 的顺序和确认门；
+- 新增独立 B0 检查点；
+- 不修改 Source、Tests、Config、日志实现或领域 Digest。
+
+B0 检查点：
+
+- v1.7 明确列出对 v1.4/v1.6 的每项覆盖；
+- Identity、Joint State、Ledger、Batch Event、Active、Capsule 和表现层只有一个权威来源；
+- 精确守恒、允许近似和硬错误边界分开；
+- Macro Batch 与 Active `Count=1` 竞争、Batch 原子提交、Lift/Restrict、Split/Merge、新 Digest/Schema 均有可执行规则；
+- 规则索引读取顺序为 v1.1 → v1.7；
+- 文档与 Git 一致性检查通过后停止，等待作者确认。
+
+实施记录（2026-08-18，作者已确认）：
+
+- 从 6G-A 封板提交 `41d3bae` 创建 `phase-6g-b-cohort-batch`；
+- 新增 `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.7.md` 与 `AILOD_MVP_Phase6G_B0_Checkpoint_CN.md`；
+- v1.7 冻结外层三维 Cohort Key、内层稀疏联合格子、Action Flow、Batch Claim/Event、确定性整数配额、聚合 Ledger、Identity/Capsule 和原子 Lift/Restrict；
+- v1.7 明确一次性 Identity 初始化允许 `O(N)`，每小时 Identity 扫描、个人候选、个人提交和个人日志禁止 `O(N)`；
+- v1.7 权威接管时使用 Spec 1.7、Schema 1.2、新 ConfigHash/Digest；B1 Shadow 仍不改变 v1.6 权威结果；
+- B2A/B2B 只做隔离 Batch 切片，禁止与 v1.6 个人 Money/HomeState 长期双写或组成混合权威；
+- 本步未修改 C++、测试或配置，未实现 B1；纯文档 B0 不重复运行未受影响的 UE 二进制测试，最近可执行基线仍为 6G-A 的 Development Editor 成功与 `26/26 Success`。
+- 项目作者已于 2026-08-18 确认 B0，并授权独立本地提交后继续 B1 Shadow Cohort；B1 不得修改 v1.6 权威结果。
+
+### 6G-B1：Shadow Cohort
+
+- 旁路构建 Identity、Joint State、Action Flow 和 Batch 结果，v1.6 Proposed 仍是唯一权威；
+- 对账人口、Coin/Credit/Wood、联合 HomeState、行动 ParticipantCount 和 Pending ParticipantCount；
+- Shadow 不写权威 Ledger/Event/Scheduler，不改变旧 Digest；
+- 200/2k/20k 工程 Run、编译和全套测试通过后停止等待确认。
+
+### 6G-B2A：Wait / Routine Batch 切片
+
+- 只在隔离的 v1.7 Batch 测试夹具实现无资源、无稀缺容量的 Wait/Routine；
+- 不按 ParticipantCount 创建个人 Event 或 fallback；
+- v1.6 Proposed 继续是完整 Run 的唯一权威，不与旧个人动态状态双写；
+- 行动人数、Batch Event、确定性与硬错误通过后停止。
+
+### 6G-B2B：Work / Ledger Batch 切片
+
+- 在隔离夹具增加 Work 工资、国库和到期 Flow；
+- 聚合 Ledger 事务必须整数、幂等、可故障回滚并守恒；
+- 当前完整 Run 仍使用 v1.6 权威；未经确认不进入 B3 稀缺资源动作。
+
+### 6G-B3：资源竞争批量化
+
+- 迁移 BuyWood、ChopWood、Repair 和 Reservation；
+- Macro Batch 与 Active `Count=1` 使用 v1.7 同一 Claim Scope 和确定性整数配额；
+- 验证 Market、Forest、Repair Capacity 混合竞争、Batch Preflight/Commit、故障注入和事件谱系；
+- 全部离屏动作齐备后一次性把 Joint State、聚合 Ledger 和 Batch Event 切换为 Macro 权威；禁止长期双写或按动作混合两套权威；
+- B3 可先在无动态 Trace 的权威 Macro 会话验收，完整 Lift/Restrict Trace 留给 B4。
+
+### 6G-B4：Dynamic Lift / Restrict
+
+- 实现 Identity 直接查询、Capsule、Joint Cell 提取/写回和 Batch Event Split/Merge；
+- 覆盖固定 Trace、样本外 ResidentID、零时间往返、维修中途切换和 Active≤50；
+- 资源、人口、事件、Reservation 和谱系残差全部为 0。
+
+### 6G-B5：新 Proposed 总验收
+
+- 200 人对 Oracle 报告既有准确性、TVD、政策效应、FirstAction 和连续性；
+- 2k/10k/20k 完成确定性、回放、Schema 1.2、离线重建、硬错误和生产成本检查；
+- 50k/100k 完成无 Oracle 工程压力测试；
+- 工程目标为同环境 20k Proposed Production 至少比 Per-Agent 快 3 倍；未达到则停止复核，不把目标当正式统计结论；
+- 人口 20k→100k 时 Identity 可增长 5 倍，但每小时 Identity Scan 必须为 0，Batch 对象数、ResidentTouches 和后台动态工作不得近似增长 5 倍；
+- B5 通过前不进入 Pilot、正式 480/90 Runs 或 Phase 7 动态演示。
 
 ## 12. Step 0 确认门
 
