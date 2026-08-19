@@ -371,7 +371,7 @@ B0 检查点：
 - v1.6 Proposed 继续是完整 Run 的唯一权威，不与旧个人动态状态双写；
 - 行动人数、Batch Event、确定性与硬错误通过后停止。
 
-实施记录（2026-08-19，等待作者确认）：
+实施记录（2026-08-19，作者已确认并封板）：
 
 - 新增与完整 Proposed 隔离的 `FV17NoResourceBatchPrototype`，只接受 Wait/Routine，不读写个人 Money、Wood、HomeState 或 Ledger；
 - 一批 1000 人 Routine 与一批 600 人 Wait 只创建 2 条 Batch Claim、2 条 Batch Event 和 2 条 Scheduler 记录，没有按 1600 名参与者展开；
@@ -388,7 +388,7 @@ B0 检查点：
 - 聚合 Ledger 事务必须整数、幂等、可故障回滚并守恒；
 - 当前完整 Run 仍使用 v1.6 权威；未经确认不进入 B3 稀缺资源动作。
 
-实施记录（2026-08-19，等待作者确认）：
+实施记录（2026-08-19，作者已确认并以 `37120c4` 封板）：
 
 - 在同一隔离原型增加 Work，群体 Cell 保存 Kingdom、IncomeBand 和聚合现金账户，两国 TreasuryAvailable 一并初始化和审计；
 - Work 继续继承冻结 Domain：Low 每人 1 Coin、NonLow 每人 2 Coin、持续 24 小时，工资为 `ExternalBoundary → CellCash`；Treasury 不作为工资来源且必须保持初值；
@@ -398,7 +398,7 @@ B0 检查点：
 - 在第一笔工资已经提交后故意失败，Ledger、Count、Event、Scheduler 和幂等状态全部恢复；重试结果与无故障重放相同；
 - 初始化、提交和完成 Digest 分别固定为 `BB99B3AA6FB8B38634C287C7BD8515486065B284`、`F291A9A526A0DB8C9AF2F7041CD53B3AFE9E30C0`、`7F2B78F035390E7DA8CC8046AFC1142174235FDE`；B2A 四个旧 Digest 不变；
 - UE 5.4 Development Editor 编译成功；NullRHI 全套 `AILODResearch` 为 `29/29 Success`、`0 Failed`；独立证据见 `AILOD_MVP_Phase6G_B2B_Checkpoint_CN.md`；
-- 本步没有实现 BuyWood/ChopWood/Repair/Reservation 竞争、完整 Proposed 切换或 Dynamic Lift/Restrict，不能作为规模性能或正式实验结论；项目作者已于 2026-08-19 确认 B2B，并授权本步随独立本地提交封板后进入 B3；不推送。
+- 本步没有实现 BuyWood/ChopWood/Repair/Reservation 竞争、完整 Proposed 切换或 Dynamic Lift/Restrict，不能作为规模性能或正式实验结论；项目作者已于 2026-08-19 确认 B2B，本步已以本地提交 `37120c4` 封板且未推送，并获授权进入 B3。
 
 ### 6G-B3：资源竞争批量化
 
@@ -407,6 +407,18 @@ B0 检查点：
 - 验证 Market、Forest、Repair Capacity 混合竞争、Batch Preflight/Commit、故障注入和事件谱系；
 - 全部离屏动作齐备后一次性把 Joint State、聚合 Ledger 和 Batch Event 切换为 Macro 权威；禁止长期双写或按动作混合两套权威；
 - B3 可先在无动态 Trace 的权威 Macro 会话验收，完整 Lift/Restrict Trace 留给 B4。
+
+实施记录（2026-08-19，作者已确认并授权进入 B4）：
+
+- 新增隔离的 v1.7 权威 Macro 会话，远处居民只由 Joint Cell 人数、聚合 Ledger 和 Batch Event 负责；旧 v1.6 完整运行器没有与它双写；
+- 六种共享离屏行动全部进入 Batch 路径；Macro 与预先放入的 Active `Count=1` 使用同一资源分配公式；
+- Market、Forest、Repair Capacity 各有 6 人竞争，均批准 3 人、拒绝 3 人；Active 三个请求只成功一个，没有保留名额；
+- 市场测试同时覆盖每人需求不同：Macro 每人缺 4 Wood，Active 只缺 1 Wood，仍按冻结整数公式分配且不超卖；
+- 48 人只形成 12 条 Batch Event、25 笔账本修改和 2 条 Reservation；9 名资源竞争失败者形成整批 Wait；
+- 买木付款/交付、砍木库存与每日额度、维修木材与每日名额、跨日恢复、人口与资源对账全部通过；
+- 提交中途和完成中途两次故障都会把所有修改一起撤销；相反请求顺序和故障重试保持同一结果；
+- B3 四个 Digest 已冻结，B2A/B2B 旧 Digest 不变；Development Editor 编译成功，全套 `30/30 Success`、`0 Failed`；
+- 本步没有实现 B4 的 Identity/Capsule、动态 Lift/Restrict、正式 Trace，也没有执行 B5 规模和准确性验收；独立检查点见 `AILOD_MVP_Phase6G_B3_Checkpoint_CN.md`；项目作者已确认 B3，并授权独立本地提交后进入 B4；不推送。
 
 ### 6G-B4：Dynamic Lift / Restrict
 

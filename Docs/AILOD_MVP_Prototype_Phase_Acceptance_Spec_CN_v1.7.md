@@ -3,22 +3,22 @@
 **版本：v1.7**<br>
 **日期：2026-08-18**<br>
 **验收文档可读性规则增补：2026-08-19**<br>
-**状态：研究方向与 6G-B0 规则已由项目作者于 2026-08-18 确认；B0 已随独立本地提交封板；B1、B2A 已分别以 `90020f2`、`af3b253` 封板；项目作者已于 2026-08-19 确认 B2B 并授权封板后开始 B3；B4—B5 尚未实现**<br>
+**状态：研究方向与 6G-B0 规则已由项目作者于 2026-08-18 确认；B0、B1、B2A、B2B 已分别封板，其中 B1、B2A、B2B 提交为 `90020f2`、`af3b253`、`37120c4`；项目作者已于 2026-08-19 确认 B3 并授权封板后开始 B4；B4—B5 尚未完成**<br>
 **基准文档：`AILOD_MVP_Prototype_Implementation_Spec_CN.md` v1.1**<br>
 **前序修订：v1.2、v1.3、v1.4、v1.5、v1.6**<br>
-**工程证据：`AILOD_MVP_Phase6G_A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B1_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2B_Checkpoint_CN.md`**<br>
+**工程证据：`AILOD_MVP_Phase6G_A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B1_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2B_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B3_Checkpoint_CN.md`**<br>
 **用途：用结构化 Cohort 权威状态、批量 Claim/Event 和按需 Lift/Restrict 替代 Proposed 的每小时全员候选与个人提交；历史文档保留不改。**
 
 ## 1. 文档优先级、实施生效点与不变项
 
 实现依次读取 v1.1、v1.2、v1.3、v1.4、v1.5、v1.6 和本文件。本文件只覆盖第 2 节明确列出的冲突；未覆盖内容继续有效。
 
-v1.7 的模型规则已经冻结，但当前代码在 6G-B2 第一条权威 Batch 路径通过检查点前仍执行 v1.6 Proposed。实施期间必须区分：
+v1.7 的模型规则已经冻结。B3 目前已经建立无动态玩家轨迹的 v1.7 权威宏观测试会话；正式 Experiment Runner 的完整 Proposed 仍执行 v1.6，直到 B4 接入动态切换并由 B5 完成总验收。实施期间必须区分：
 
 - **v1.6 Current Proposed：** 当前个人 CoreState、个人候选和独立提交实现；
 - **v1.7 Shadow Proposed：** 6G-B1 只在旁路计算，不修改权威结果或旧 Digest；
 - **v1.7 Batch Slice Prototype：** 6G-B2A/B2B 在隔离的新后端测试夹具中验证 Batch Event/Ledger 语义，不与 v1.6 个人状态形成混合权威；
-- **v1.7 Authoritative Proposed：** 6G-B3 在全部离屏动作都具备 Batch 路径后，才把 Cohort Joint State 一次性切换为未激活人口的权威；6G-B4 接入完整 Lift/Restrict，到 6G-B5 总验收通过后才成为正式 Proposed。
+- **v1.7 Authoritative Proposed：** 6G-B3 已在隔离且无动态 Trace 的测试会话中，让 Cohort Joint State、聚合 Ledger 和 Batch Event 一次性负责全部离屏动作；6G-B4 接入完整 Lift/Restrict，到 6G-B5 总验收通过后才成为正式 Proposed。
 
 以下冻结项不变：
 
@@ -409,6 +409,18 @@ B1—B4 的 Manifest 必须标记 `valid_for_formal_experiment=false` 和当前 
 - Market、Forest、Repair Capacity 均通过混合竞争、原子失败和资源守恒测试；
 - 只有全部共享离屏动作都有 Batch 路径后，才允许一次性从 v1.6 个人动态真相切换为 v1.7 Joint State + 聚合 Ledger + Batch Event 权威；不允许长期双写或按动作混用两套权威状态；
 - B3 的权威 Macro 可在无动态 Trace 的测试会话中验收；完整正式 Activation Trace 留给 B4。
+
+实施记录（2026-08-19，项目作者已确认并授权进入 B4）：
+
+- 新增一个与 v1.6 完整运行器隔离的 v1.7 权威 Macro 会话；远处人口只由 Joint Cell 人数、聚合 Ledger 和 Batch Event 负责，不与旧个人动态状态双写；
+- Wait、Routine、Work、BuyWood、ChopWood 和 Repair 已全部进入同一权威 Batch 路径；预先放入的 Active 使用 `Count=1` Claim 参与同一资源范围；
+- Market、Forest、Repair Capacity 三组混合竞争都满足整数容量、`Requested=Granted+Rejected` 和稳定重放；Active 没有保留容量或固定优先权；
+- 48 名参与者只创建 12 条 Batch Event；没获批的 9 人形成整批 Wait；账本、Reservation 和完成记录不按参与人数逐个展开；
+- BuyWood 付款与交付、ChopWood 的森林库存和每日可砍额度、Repair 的每日名额与 48 小时完成均通过资源对账；跨日后每日额度恢复；
+- 在第一条 Claim 已写入后和第一次资源完成后分别制造失败，两次都恢复 Joint Cell、Active、Ledger、Event、Scheduler 和 Reservation，之后重试结果与正常重放相同；
+- 四个 B3 Digest 固定为 `99A149ED3562B40F5B50753F8901503F2AFA2B9F`、`0E04957B7078C06BC7C05678E07CEF1A0ED5F70E`、`74736CFA1DD97E9B989481935E7D5FB2AF281DD1`、`1E9E92F077220DF3A44DFB8B7BF2E866D873F342`；B2A/B2B 旧 Digest 不变；
+- UE 5.4 Development Editor 编译成功；NullRHI 全套 `AILODResearch` 为 `30/30 Success`、`0 Failed`；独立证据见 `AILOD_MVP_Phase6G_B3_Checkpoint_CN.md`；
+- 本步没有实现 Identity/Capsule、动态 Lift/Restrict、正式 Activation Trace 或规模性能验收，仍标记 `valid_for_formal_experiment=false`；项目作者已确认 B3，并授权独立本地提交后进入 B4；不推送。
 
 ### 6G-B4 — Dynamic Lift / Restrict
 

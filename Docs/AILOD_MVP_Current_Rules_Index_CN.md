@@ -1,6 +1,6 @@
 # AILOD MVP 当前有效规则索引
 
-**索引版本：3.2**<br>
+**索引版本：3.3**<br>
 **日期：2026-08-19**<br>
 **用途：说明当前规则的读取顺序、冲突优先级和各文档职责。**<br>
 **性质：本文件只做导航，不新增模型规则、不替代原规格，也不构成阶段验收。**
@@ -45,6 +45,7 @@
 | Phase 6G-B1 Checkpoint | v1.7 Shadow Identity/Joint State/Action Flow/Claim 的三方对账、旧 Digest 回归和工程诊断成本 | 是只读旁路验收记录；v1.6 仍是权威，不能把 B1 当作已获得 Batch 性能或正式实验资格 |
 | Phase 6G-B2A Checkpoint | Wait/Routine 用一条事件代表整批人数、到期归还、错误拒绝和重复运行证据 | 是隔离原型验收记录；未接入完整 Proposed，不代表 Work/Ledger、资源竞争、Dynamic LOD 或规模性能已经完成 |
 | Phase 6G-B2B Checkpoint | Work 整批工资、整数 Coin、到期结算、防重复付款、失败恢复和国库不变证据 | 是隔离原型验收记录；未接入完整 Proposed，不代表有限资源竞争、完整 Cohort 迁移或规模性能已经完成 |
+| Phase 6G-B3 Checkpoint | 六种共享离屏行动、Macro 与 Active 单人统一竞争、Market/Forest/Repair 批量预约和结算、失败恢复与权威 Macro 会话证据 | 是无动态玩家轨迹的 v1.7 权威 Macro 验收记录；尚未实现 B4 的任意居民 Lift/Restrict、Capsule、正式 Trace，也不代表 B5 性能和准确性已通过 |
 
 ## 3. 当前最容易误读的有效规则
 
