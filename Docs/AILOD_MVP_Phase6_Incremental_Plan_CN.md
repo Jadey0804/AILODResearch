@@ -12,7 +12,8 @@
 **Phase 6E 封板提交：`6ee6873`**<br>
 **Phase 6F 封板提交：`c629bb6`**<br>
 **Phase 6G-A 封板提交：`41d3bae`**<br>
-**当前状态：项目作者已于 2026-08-18 确认 6G-B0 并授权独立本地封板；B1 Shadow Cohort 已获授权但尚未开始；B2—B5 未开始；所有提交均未推送。**
+**Phase 6G-B0 封板提交：`8a1ac11`**<br>
+**当前状态：项目作者已于 2026-08-19 确认 6G-B1；B1 随独立本地提交封板，B2A 已获授权开始；B2B—B5 未开始；所有既有提交均未推送。**
 
 本文件把 Phase 6 和经证据触发的 6G-B 拆成可独立验收的实施步骤；模型事实只由版本化规格定义。本计划从 6G-B0 起按 `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.7.md` 导航，不自行新增或覆盖模型规则。规则冲突按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.7 顺序处理。
 
@@ -61,9 +62,9 @@ Phase 6 不负责：
 | Phase 6E | 建立批量 Experiment Runner 与离线指标重建 | 作者已确认，已封板 |
 | Phase 6F | 分离测量成本并完成 Phase 6 集成验收 | 作者已确认，已封板 |
 | Phase 6G-A | 只测量 Proposed Macro 子阶段并归因瓶颈 | 作者已确认，`41d3bae` 封板 |
-| Phase 6G-B0 | 冻结 v1.7、权威索引和 B0—B5 检查点 | 作者已确认，本次提交封板 |
-| Phase 6G-B1 | 建立不修改权威结果的 Shadow Cohort | 已授权，尚未开始 |
-| Phase 6G-B2A | 隔离 Wait/Routine Batch 切片 | 未开始 |
+| Phase 6G-B0 | 冻结 v1.7、权威索引和 B0—B5 检查点 | 作者已确认，提交 `8a1ac11` 封板 |
+| Phase 6G-B1 | 建立不修改权威结果的 Shadow Cohort | 作者已确认，本次独立提交封板 |
+| Phase 6G-B2A | 隔离 Wait/Routine Batch 切片 | 已授权开始 |
 | Phase 6G-B2B | 隔离 Work 与工资/国库 Batch 切片 | 未开始 |
 | Phase 6G-B3 | 全动作资源竞争批量化并一次性切换 Macro 权威 | 未开始 |
 | Phase 6G-B4 | Dynamic Lift/Restrict、Capsule 与 Batch Split/Merge | 未开始 |
@@ -348,6 +349,18 @@ B0 检查点：
 - 对账人口、Coin/Credit/Wood、联合 HomeState、行动 ParticipantCount 和 Pending ParticipantCount；
 - Shadow 不写权威 Ledger/Event/Scheduler，不改变旧 Digest；
 - 200/2k/20k 工程 Run、编译和全套测试通过后停止等待确认。
+
+实施记录（2026-08-18，作者于 2026-08-19 确认）：
+
+- 新增默认关闭、仅允许 Proposed 开启的 `bEnableV17ShadowCohort`，初始化一次构建稳定 Identity Registry；
+- 每小时旁路构建 v1.7 外层三维 Cohort、内层联合格子、整数 Action Flow 和 Batch Claim；Active 使用 `Count=1` Claim，Pending 参与者不重复规划；
+- Shadow 对人口、HomeState、Pending 和行动 ParticipantCount 做逐小时对账；Cash、RepairCredit、Wood 同时对旧 CoreState、Shadow 聚合和权威 Ledger 做三方核对；
+- 资源 Claim 使用 v1.7 确定性整数配额，只记录 Granted/Rejected，不写 Ledger、Event、Scheduler、Reservation 或 Resident；
+- Manifest 明确标记 `v1.7_shadow`、v1.6 权威和 `valid_for_formal_experiment=false`；Shadow 成本进入 Validation，不污染 Production；
+- 固定 Proposed/StateImport/Performance/Seed `20260810` 的 200/2k/20k Run 保持 v1.6 Digest `D326B24A3D74128C955667DB42E8F1BADA9BC9CD`、`8DC871F8DE2969291D42C8CC49CB1F7E4433698E`、`9AB01FA7115EF32D31443F8831004CE55DE22D0E`；人口、资源、住宅、Pending、Flow、Batch 和容量残差全部为 0；
+- 20k 的 4,030,235 Requested Participants 在 Shadow 中只形成累计 3,030 个 Claim 和 2,848 个 Action Flow；但 B1 仍有 32,160,000 次居民访问和逐人 Ledger 验证，因此不能作为新 Proposed 的性能成绩；
+- UE 5.4 Development Editor 编译成功；NullRHI 全套 `AILODResearch` 为 `27/27 Success`、`0 Failed`；独立证据见 `AILOD_MVP_Phase6G_B1_Checkpoint_CN.md`；
+- 项目作者已于 2026-08-19 确认本检查点，并授权 B1 随独立本地提交封板后开始 B2A；本步不推送。
 
 ### 6G-B2A：Wait / Routine Batch 切片
 

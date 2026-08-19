@@ -211,6 +211,7 @@ namespace AILOD
 			OutRun.Diagnostics = Result.Diagnostics;
 			OutRun.CostBreakdown = Result.CostBreakdown;
 			OutRun.MacroProfile = Result.MacroProfile;
+			OutRun.V17ShadowProfile = Result.V17ShadowProfile;
 			return true;
 		}
 	}
@@ -236,6 +237,7 @@ namespace AILOD
 		Options.bRecordSnapshots = Request.Mode != EUnifiedRunMode::Performance;
 		Options.bVerifyCohortApproximation = Request.Mode == EUnifiedRunMode::Validation;
 		Options.bEnableMacroProfiling = Request.bEnableMacroProfiling;
+		Options.bEnableV17ShadowCohort = Request.bEnableV17ShadowCohort;
 		for (const int32 Seed : Request.Seeds)
 		{
 			FPhase0Config Config;
@@ -339,6 +341,8 @@ namespace AILOD
 		Options.bVerifyCohortApproximation = (*Parameters)->GetBoolField(TEXT("verify_cohort_approximation"));
 		Options.bEnableMacroProfiling = (*Parameters)->HasField(TEXT("enable_macro_profiling"))
 			&& (*Parameters)->GetBoolField(TEXT("enable_macro_profiling"));
+		Options.bEnableV17ShadowCohort = (*Parameters)->HasField(TEXT("enable_v17_shadow_cohort"))
+			&& (*Parameters)->GetBoolField(TEXT("enable_v17_shadow_cohort"));
 
 		FUnifiedRunLogMetadata Metadata;
 		Metadata.OutputDirectory = OutputDirectory;

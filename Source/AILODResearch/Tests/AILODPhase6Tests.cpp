@@ -1081,6 +1081,8 @@ bool FAILODPhase6FPerformanceLoggingSmokeTest::RunTest(const FString& Parameters
 			TestFalse(*FString::Printf(TEXT("%s manifest disables approximation recompute"), *Run.RunID), (*RunParameters)->GetBoolField(TEXT("verify_cohort_approximation")));
 			TestFalse(*FString::Printf(TEXT("%s manifest disables macro profiling by default"), *Run.RunID), (*RunParameters)->GetBoolField(TEXT("enable_macro_profiling")));
 			TestFalse(*FString::Printf(TEXT("%s manifest omits macro profile when disabled"), *Run.RunID), (*Measurements)->HasField(TEXT("macro_profile")));
+			TestFalse(*FString::Printf(TEXT("%s manifest disables the v1.7 shadow by default"), *Run.RunID), (*RunParameters)->GetBoolField(TEXT("enable_v17_shadow_cohort")));
+			TestFalse(*FString::Printf(TEXT("%s manifest omits the v1.7 shadow when disabled"), *Run.RunID), (*Measurements)->HasField(TEXT("v17_shadow")));
 			TestTrue(*FString::Printf(TEXT("%s manifest records positive production cost"), *Run.RunID), (*Measurements)->GetNumberField(TEXT("production_cpu_ms")) > 0.0);
 			TestEqual(*FString::Printf(TEXT("%s manifest has zero validation cost"), *Run.RunID), (*Measurements)->GetNumberField(TEXT("validation_cpu_ms")), 0.0);
 			TestEqual(*FString::Printf(TEXT("%s manifest has zero snapshot cost"), *Run.RunID), (*Measurements)->GetNumberField(TEXT("snapshot_cpu_ms")), 0.0);
@@ -1327,6 +1329,179 @@ bool FAILODPhase6GAMacroProfileAtScaleTest::RunTest(const FString& Parameters)
 	if (!ReplayError.IsEmpty()) AddError(FString::Printf(TEXT("Macro profile replay failed: %s"), *ReplayError));
 	TestEqual(TEXT("Macro profile replay preserves the deterministic digest"), Replay.DeterministicDigest, Proposed2000.DeterministicDigest);
 	TestTrue(TEXT("Macro profile replay preserves profiling"), Replay.MacroProfile.ProfiledHourCount > 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAILODPhase6GB1V17ShadowCohortTest,
+	"AILODResearch.Phase6G.V17ShadowCohort",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAILODPhase6GB1V17ShadowCohortTest::RunTest(const FString& Parameters)
+{
+	using namespace AILOD;
+	using namespace AILOD::LogSchema;
+	const FString TestRoot = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AILOD/Phase6GB1Checkpoint"));
+	IFileManager::Get().DeleteDirectory(*TestRoot, false, true);
+	FExperimentRunRecord Proposed2000;
+	bool bFoundProposed2000 = false;
+
+	for (const int32 TotalPopulation : { 200, 2000, 20000 })
+	{
+		FString ExpectedDigest;
+		switch (TotalPopulation)
+		{
+		case 200:
+			ExpectedDigest = TEXT("D326B24A3D74128C955667DB42E8F1BADA9BC9CD");
+			break;
+		case 2000:
+			ExpectedDigest = TEXT("8DC871F8DE2969291D42C8CC49CB1F7E4433698E");
+			break;
+		default:
+			ExpectedDigest = TEXT("9AB01FA7115EF32D31443F8831004CE55DE22D0E");
+			break;
+		}
+
+		FExperimentMatrixRequest Request;
+		Request.OutputRoot = FPaths::Combine(TestRoot, FString::Printf(TEXT("Population-%d"), TotalPopulation));
+		Request.ExperimentID = FString::Printf(TEXT("PHASE6GB1-SHADOW-%d"), TotalPopulation);
+		Request.Methods = { EUnifiedSimulationMethod::Proposed };
+		Request.Scenarios = { EStage2Scenario::StateImport };
+		Request.Seeds = { 20260810 };
+		Request.PopulationPerKingdom = TotalPopulation / 2;
+		Request.Mode = EUnifiedRunMode::Performance;
+		Request.bEnableV17ShadowCohort = true;
+		Request.GitCommit = TEXT("phase-6g-b1-working-tree");
+		Request.UEVersion = TEXT("5.4");
+		Request.BuildType = TEXT("Development");
+		Request.Hardware = TEXT("Phase6GB1-AutomationFixture");
+		Request.LogMode = TEXT("EngineeringV17Shadow");
+		Request.StartTime = TEXT("2026-08-18T00:00:00Z");
+		Request.EndTime = TEXT("2026-08-18T00:01:00Z");
+
+		TArray<FExperimentRunRecord> Runs;
+		FString Error;
+		if (!FExperimentRunner::RunMatrix(Request, Runs, Error))
+		{
+			AddError(FString::Printf(TEXT("Phase 6G-B1 %d-person shadow run failed: %s"), TotalPopulation, *Error));
+			return false;
+		}
+		TestEqual(*FString::Printf(TEXT("%d-person shadow runs only Proposed"), TotalPopulation), Runs.Num(), 1);
+		if (Runs.Num() != 1)
+		{
+			return false;
+		}
+
+		const FExperimentRunRecord& Run = Runs[0];
+		const FUnifiedV17ShadowProfile& Profile = Run.V17ShadowProfile;
+		TestTrue(*FString::Printf(TEXT("%d-person shadow is hard-error free"), TotalPopulation), Run.bHardErrorFree);
+		TestEqual(*FString::Printf(TEXT("%d-person shadow preserves the v1.6 digest"), TotalPopulation), Run.DeterministicDigest, ExpectedDigest);
+		TestEqual(*FString::Printf(TEXT("%d-person shadow registers every identity"), TotalPopulation), Profile.IdentityCount, int64(TotalPopulation));
+		TestEqual(*FString::Printf(TEXT("%d-person shadow covers every hour"), TotalPopulation), Profile.HourCount, int64(1608));
+		TestEqual(
+			*FString::Printf(TEXT("%d-person shadow accounts for its diagnostic resident visits"), TotalPopulation),
+			Profile.IdentityVisitCount,
+			int64(1608) * TotalPopulation);
+		TestTrue(*FString::Printf(TEXT("%d-person shadow records initialization cost"), TotalPopulation), Profile.InitializeCpuMs > 0.0);
+		TestTrue(*FString::Printf(TEXT("%d-person shadow records hourly cost"), TotalPopulation), Profile.CpuMs > 0.0);
+		TestTrue(*FString::Printf(TEXT("%d-person shadow isolates cost from production"), TotalPopulation), Run.CostBreakdown.ValidationCpuMs >= Profile.InitializeCpuMs + Profile.CpuMs - 1.0);
+		TestTrue(*FString::Printf(TEXT("%d-person shadow observes cohorts"), TotalPopulation), Profile.CohortObservationCount > 0);
+		TestTrue(*FString::Printf(TEXT("%d-person shadow observes joint cells"), TotalPopulation), Profile.JointCellObservationCount > 0);
+		TestTrue(*FString::Printf(TEXT("%d-person shadow creates action flows"), TotalPopulation), Profile.ActionFlowCount > 0);
+		TestTrue(*FString::Printf(TEXT("%d-person shadow creates batch claims"), TotalPopulation), Profile.BatchClaimCount > 0);
+		TestTrue(*FString::Printf(TEXT("%d-person shadow observes pending participants"), TotalPopulation), Profile.PendingParticipantObservationCount > 0);
+		TestEqual(
+			*FString::Printf(TEXT("%d-person shadow reconciles requested participants"), TotalPopulation),
+			Profile.RequestedParticipantCount,
+			Profile.GrantedParticipantCount + Profile.RejectedParticipantCount);
+		TestEqual(*FString::Printf(TEXT("%d-person shadow has no identity mismatch"), TotalPopulation), Profile.IdentityMismatchCount, int64(0));
+		TestEqual(*FString::Printf(TEXT("%d-person shadow has no population residual"), TotalPopulation), Profile.PopulationResidualCount, int64(0));
+		TestEqual(*FString::Printf(TEXT("%d-person shadow has no resource residual"), TotalPopulation), Profile.ResourceResidualCount, int64(0));
+		TestEqual(*FString::Printf(TEXT("%d-person shadow has no home-state residual"), TotalPopulation), Profile.HomeStateResidualCount, int64(0));
+		TestEqual(*FString::Printf(TEXT("%d-person shadow has no pending-participant residual"), TotalPopulation), Profile.PendingParticipantResidualCount, int64(0));
+		TestEqual(*FString::Printf(TEXT("%d-person shadow has no action-flow residual"), TotalPopulation), Profile.ActionFlowResidualCount, int64(0));
+		TestEqual(*FString::Printf(TEXT("%d-person shadow has no batch-result residual"), TotalPopulation), Profile.BatchResultResidualCount, int64(0));
+		TestEqual(*FString::Printf(TEXT("%d-person shadow never exceeds capacity"), TotalPopulation), Profile.CapacityOverflowCount, int64(0));
+
+		TArray<FString> ActualFiles;
+		IFileManager::Get().FindFiles(ActualFiles, *FPaths::Combine(Run.RunDirectory, TEXT("*")), true, false);
+		ActualFiles.Sort();
+		TArray<FString> ExpectedFiles = { PerformanceFile, RunManifestFile };
+		ExpectedFiles.Sort();
+		TestEqual(
+			*FString::Printf(TEXT("%d-person shadow adds no artifact type"), TotalPopulation),
+			FString::Join(ActualFiles, TEXT("|")),
+			FString::Join(ExpectedFiles, TEXT("|")));
+
+		FString ManifestText;
+		TSharedPtr<FJsonObject> Manifest;
+		if (!FFileHelper::LoadFileToString(ManifestText, *FPaths::Combine(Run.RunDirectory, RunManifestFile))
+			|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(ManifestText), Manifest)
+			|| !Manifest.IsValid())
+		{
+			AddError(FString::Printf(TEXT("%d-person shadow manifest failed to parse."), TotalPopulation));
+			return false;
+		}
+		const TSharedPtr<FJsonObject>* RunParameters = nullptr;
+		const TSharedPtr<FJsonObject>* Measurements = nullptr;
+		const TSharedPtr<FJsonObject>* LoggedShadow = nullptr;
+		if (!Manifest->TryGetObjectField(TEXT("parameters"), RunParameters) || RunParameters == nullptr
+			|| !Manifest->TryGetObjectField(TEXT("measurement_summary"), Measurements) || Measurements == nullptr
+			|| !(*Measurements)->TryGetObjectField(TEXT("v17_shadow"), LoggedShadow) || LoggedShadow == nullptr)
+		{
+			AddError(FString::Printf(TEXT("%d-person manifest is missing v1.7 shadow diagnostics."), TotalPopulation));
+			return false;
+		}
+		TestEqual(*FString::Printf(TEXT("%d-person shadow retains spec 1.6 authority"), TotalPopulation), Manifest->GetStringField(TEXT("spec_version")), FString(TEXT("1.6")));
+		TestEqual(*FString::Printf(TEXT("%d-person shadow labels proposed model 1.7"), TotalPopulation), Manifest->GetStringField(TEXT("proposed_model_version")), FString(TEXT("1.7")));
+		TestEqual(*FString::Printf(TEXT("%d-person shadow labels authority model 1.6"), TotalPopulation), Manifest->GetStringField(TEXT("authoritative_model_version")), FString(TEXT("1.6")));
+		TestEqual(*FString::Printf(TEXT("%d-person shadow labels its authority mode"), TotalPopulation), Manifest->GetStringField(TEXT("authority_mode")), FString(TEXT("v1.7_shadow")));
+		TestFalse(*FString::Printf(TEXT("%d-person shadow is excluded from formal experiments"), TotalPopulation), Manifest->GetBoolField(TEXT("valid_for_formal_experiment")));
+		TestTrue(*FString::Printf(TEXT("%d-person manifest enables the shadow"), TotalPopulation), (*RunParameters)->GetBoolField(TEXT("enable_v17_shadow_cohort")));
+		TestEqual(
+			*FString::Printf(TEXT("%d-person manifest records shadow identity visits"), TotalPopulation),
+			static_cast<int64>((*LoggedShadow)->GetNumberField(TEXT("identity_visit_count"))),
+			Profile.IdentityVisitCount);
+		TestEqual(
+			*FString::Printf(TEXT("%d-person manifest records zero resource residuals"), TotalPopulation),
+			static_cast<int64>((*LoggedShadow)->GetNumberField(TEXT("resource_residual_count"))),
+			int64(0));
+
+		AddInfo(FString::Printf(
+			TEXT("Phase6GB1 population=%d shadow_ms=%.3f identity_visits=%lld cohorts=%lld joint_cells=%lld action_flows=%lld claims=%lld requested=%lld granted=%lld rejected=%lld digest=%s"),
+			TotalPopulation,
+			Profile.CpuMs,
+			Profile.IdentityVisitCount,
+			Profile.CohortObservationCount,
+			Profile.JointCellObservationCount,
+			Profile.ActionFlowCount,
+			Profile.BatchClaimCount,
+			Profile.RequestedParticipantCount,
+			Profile.GrantedParticipantCount,
+			Profile.RejectedParticipantCount,
+			*Run.DeterministicDigest));
+
+		if (TotalPopulation == 2000)
+		{
+			Proposed2000 = Run;
+			bFoundProposed2000 = true;
+		}
+	}
+
+	if (!bFoundProposed2000)
+	{
+		AddError(TEXT("Phase 6G-B1 did not retain the 2,000-person run for replay."));
+		return false;
+	}
+	FExperimentRunRecord Replay;
+	FString ReplayError;
+	const FString ReplayRoot = FPaths::Combine(TestRoot, TEXT("Replay-2000-Proposed"));
+	TestTrue(
+		TEXT("v1.7 shadow manifest can replay the v1.6 authority session"),
+		FExperimentRunner::ReplayFromManifest(FPaths::Combine(Proposed2000.RunDirectory, RunManifestFile), ReplayRoot, Replay, ReplayError));
+	if (!ReplayError.IsEmpty()) AddError(FString::Printf(TEXT("v1.7 shadow replay failed: %s"), *ReplayError));
+	TestEqual(TEXT("v1.7 shadow replay preserves the authority digest"), Replay.DeterministicDigest, Proposed2000.DeterministicDigest);
+	TestEqual(TEXT("v1.7 shadow replay preserves identity visits"), Replay.V17ShadowProfile.IdentityVisitCount, Proposed2000.V17ShadowProfile.IdentityVisitCount);
 	return true;
 }
 

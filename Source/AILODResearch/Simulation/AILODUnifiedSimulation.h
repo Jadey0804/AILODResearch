@@ -72,6 +72,7 @@ namespace AILOD
 		bool bRecordSnapshots = true;
 		bool bVerifyCohortApproximation = false;
 		bool bEnableMacroProfiling = false;
+		bool bEnableV17ShadowCohort = false;
 		EUnifiedFaultInjectionPoint FaultInjection = EUnifiedFaultInjectionPoint::None;
 		IUnifiedSimulationObserver* Observer = nullptr;
 		IUnifiedSimulationEventSink* EventSink = nullptr;
@@ -148,6 +149,36 @@ namespace AILOD
 		int64 ResidentVisitCount = 0;
 		int64 CohortGroupCount = 0;
 		int64 CandidateCount = 0;
+	};
+
+	struct FUnifiedV17ShadowProfile
+	{
+		double InitializeCpuMs = 0.0;
+		double CpuMs = 0.0;
+		int64 HourCount = 0;
+		int64 IdentityCount = 0;
+		int64 IdentityVisitCount = 0;
+		int64 CohortObservationCount = 0;
+		int64 JointCellObservationCount = 0;
+		int64 ActionFlowCount = 0;
+		int64 BatchClaimCount = 0;
+		int64 RequestedParticipantCount = 0;
+		int64 GrantedParticipantCount = 0;
+		int64 RejectedParticipantCount = 0;
+		int64 PendingParticipantObservationCount = 0;
+		int64 IdentityMismatchCount = 0;
+		int64 PopulationResidualCount = 0;
+		int64 ResourceResidualCount = 0;
+		int64 HomeStateResidualCount = 0;
+		int64 PendingParticipantResidualCount = 0;
+		int64 ActionFlowResidualCount = 0;
+		int64 BatchResultResidualCount = 0;
+		int64 CapacityOverflowCount = 0;
+		int32 MaxCohortCount = 0;
+		int32 MaxJointCellCount = 0;
+		int32 MaxActionFlowCount = 0;
+		int32 MaxBatchClaimCount = 0;
+		int32 MaxPendingParticipantCount = 0;
 	};
 
 	struct FUnifiedPerformanceSample
@@ -228,6 +259,7 @@ namespace AILOD
 		bool bRecordSnapshots = true;
 		bool bVerifyCohortApproximation = false;
 		bool bEnableMacroProfiling = false;
+		bool bEnableV17ShadowCohort = false;
 		EUnifiedFaultInjectionPoint FaultInjection = EUnifiedFaultInjectionPoint::None;
 		FString ConfigHash;
 		FSimulationTime FinalTime;
@@ -250,6 +282,7 @@ namespace AILOD
 		FUnifiedRunDiagnostics Diagnostics;
 		FUnifiedCostBreakdown CostBreakdown;
 		FUnifiedMacroProfile MacroProfile;
+		FUnifiedV17ShadowProfile V17ShadowProfile;
 		TArray<FUnifiedPerformanceSample> PerformanceSamples;
 		TArray<FLedgerTransaction> Transactions;
 		TArray<FSimulationEventRecord> Events;

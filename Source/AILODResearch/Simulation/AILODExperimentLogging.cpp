@@ -298,6 +298,13 @@ namespace AILOD
 		Manifest->SetStringField(TEXT("end_time"), Metadata.EndTime);
 		Manifest->SetBoolField(TEXT("valid"), Result.IsHardErrorFree());
 		Manifest->SetStringField(TEXT("deterministic_digest"), FUnifiedSimulationRunner::BuildDeterministicDigest(Result));
+		if (Result.bEnableV17ShadowCohort)
+		{
+			Manifest->SetStringField(TEXT("proposed_model_version"), TEXT("1.7"));
+			Manifest->SetStringField(TEXT("authoritative_model_version"), TEXT("1.6"));
+			Manifest->SetStringField(TEXT("authority_mode"), TEXT("v1.7_shadow"));
+			Manifest->SetBoolField(TEXT("valid_for_formal_experiment"), false);
+		}
 		TSharedRef<FJsonObject> HardErrors = MakeShared<FJsonObject>();
 		HardErrors->SetNumberField(TEXT("task_reset"), Result.TaskResetCount);
 		HardErrors->SetNumberField(TEXT("duplicate_completion"), Result.Audit.DuplicateCompletionCount);
@@ -314,6 +321,7 @@ namespace AILOD
 		Parameters->SetBoolField(TEXT("record_snapshots"), Result.bRecordSnapshots);
 		Parameters->SetBoolField(TEXT("verify_cohort_approximation"), Result.bVerifyCohortApproximation);
 		Parameters->SetBoolField(TEXT("enable_macro_profiling"), Result.bEnableMacroProfiling);
+		Parameters->SetBoolField(TEXT("enable_v17_shadow_cohort"), Result.bEnableV17ShadowCohort);
 		Parameters->SetStringField(TEXT("fault_injection"), FaultInjectionName(Result.FaultInjection));
 		Manifest->SetObjectField(TEXT("parameters"), Parameters);
 		TSharedRef<FJsonObject> Measurements = MakeShared<FJsonObject>();
@@ -345,6 +353,38 @@ namespace AILOD
 			MacroProfile->SetNumberField(TEXT("cohort_group_count"), Result.MacroProfile.CohortGroupCount);
 			MacroProfile->SetNumberField(TEXT("candidate_count"), Result.MacroProfile.CandidateCount);
 			Measurements->SetObjectField(TEXT("macro_profile"), MacroProfile);
+		}
+		if (Result.bEnableV17ShadowCohort)
+		{
+			const FUnifiedV17ShadowProfile& Profile = Result.V17ShadowProfile;
+			TSharedRef<FJsonObject> Shadow = MakeShared<FJsonObject>();
+			Shadow->SetNumberField(TEXT("initialize_cpu_ms"), Profile.InitializeCpuMs);
+			Shadow->SetNumberField(TEXT("cpu_ms"), Profile.CpuMs);
+			Shadow->SetNumberField(TEXT("hour_count"), Profile.HourCount);
+			Shadow->SetNumberField(TEXT("identity_count"), Profile.IdentityCount);
+			Shadow->SetNumberField(TEXT("identity_visit_count"), Profile.IdentityVisitCount);
+			Shadow->SetNumberField(TEXT("cohort_observation_count"), Profile.CohortObservationCount);
+			Shadow->SetNumberField(TEXT("joint_cell_observation_count"), Profile.JointCellObservationCount);
+			Shadow->SetNumberField(TEXT("action_flow_count"), Profile.ActionFlowCount);
+			Shadow->SetNumberField(TEXT("batch_claim_count"), Profile.BatchClaimCount);
+			Shadow->SetNumberField(TEXT("requested_participant_count"), Profile.RequestedParticipantCount);
+			Shadow->SetNumberField(TEXT("granted_participant_count"), Profile.GrantedParticipantCount);
+			Shadow->SetNumberField(TEXT("rejected_participant_count"), Profile.RejectedParticipantCount);
+			Shadow->SetNumberField(TEXT("pending_participant_observation_count"), Profile.PendingParticipantObservationCount);
+			Shadow->SetNumberField(TEXT("identity_mismatch_count"), Profile.IdentityMismatchCount);
+			Shadow->SetNumberField(TEXT("population_residual_count"), Profile.PopulationResidualCount);
+			Shadow->SetNumberField(TEXT("resource_residual_count"), Profile.ResourceResidualCount);
+			Shadow->SetNumberField(TEXT("home_state_residual_count"), Profile.HomeStateResidualCount);
+			Shadow->SetNumberField(TEXT("pending_participant_residual_count"), Profile.PendingParticipantResidualCount);
+			Shadow->SetNumberField(TEXT("action_flow_residual_count"), Profile.ActionFlowResidualCount);
+			Shadow->SetNumberField(TEXT("batch_result_residual_count"), Profile.BatchResultResidualCount);
+			Shadow->SetNumberField(TEXT("capacity_overflow_count"), Profile.CapacityOverflowCount);
+			Shadow->SetNumberField(TEXT("max_cohort_count"), Profile.MaxCohortCount);
+			Shadow->SetNumberField(TEXT("max_joint_cell_count"), Profile.MaxJointCellCount);
+			Shadow->SetNumberField(TEXT("max_action_flow_count"), Profile.MaxActionFlowCount);
+			Shadow->SetNumberField(TEXT("max_batch_claim_count"), Profile.MaxBatchClaimCount);
+			Shadow->SetNumberField(TEXT("max_pending_participant_count"), Profile.MaxPendingParticipantCount);
+			Measurements->SetObjectField(TEXT("v17_shadow"), Shadow);
 		}
 		Manifest->SetObjectField(TEXT("measurement_summary"), Measurements);
 

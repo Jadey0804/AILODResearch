@@ -81,6 +81,40 @@ namespace AILOD
 			bool bCohortApproximation = false;
 		};
 
+		struct FV17ShadowIdentity
+		{
+			FResidentID ResidentID = 0;
+			FHomeID HomeID = 0;
+			FPersistentID PersistentID = 0;
+			FString Name;
+			EKingdom Kingdom = EKingdom::A;
+			EProfession Profession = EProfession::Worker;
+			EIncomeBand IncomeBand = EIncomeBand::Low;
+		};
+
+		struct FV17ShadowJointCell
+		{
+			int32 Count = 0;
+			int32 RepresentativeIndex = INDEX_NONE;
+			int64 CashTotal = 0;
+			int64 RepairCreditTotal = 0;
+			int64 WoodTotal = 0;
+			EHomeState HomeState = EHomeState::Healthy;
+			bool bCommitted = false;
+			uint64 StableKey = 0;
+		};
+
+		struct FV17ShadowClaim
+		{
+			FUnifiedCompetitionScope Scope;
+			EIndividualAction Action = EIndividualAction::None;
+			int32 RequestedCount = 0;
+			int32 PerParticipantDemand = 1;
+			int32 GrantedCount = 0;
+			int32 RejectedCount = 0;
+			uint64 StableOrderKey = 0;
+		};
+
 		struct FMutationFingerprint
 		{
 			int32 TransactionCount = 0;
@@ -229,6 +263,7 @@ namespace AILOD
 
 		private:
 			bool InitializeLedger(FString& OutError);
+			bool InitializeV17Shadow(FString& OutError);
 			bool BuildDay14ActivationSample(FString& OutError);
 			bool ProcessHour(FSimulationTime Time, FString& OutError);
 			bool AdvanceChronologically(FSimulationTime Target, FString& OutError);
@@ -257,6 +292,7 @@ namespace AILOD
 			bool ApplyCommercialHarvest(EKingdom Kingdom, FSimulationTime Time, FString& OutError);
 			bool ApplyRoutineConsumption(EKingdom Kingdom, FSimulationTime Time, FString& OutError);
 			void UpdateWoodPrice(EKingdom Kingdom);
+			void RunV17Shadow(FSimulationTime Time);
 			void EnsureHarvestDay(EKingdom Kingdom, FSimulationTime Time);
 			void EnsureRepairDay(EKingdom Kingdom, FSimulationTime Time);
 			bool IsHarvestCapActive(EKingdom Kingdom, FSimulationTime Time) const;
@@ -313,6 +349,7 @@ namespace AILOD
 			TArray<FResidentCoreState> Residents;
 			TMap<FResidentID, int32> ResidentIndices;
 			TMap<FResidentID, int32> InitialResidentIndices;
+			TMap<FResidentID, FV17ShadowIdentity> V17ShadowIdentities;
 			TSet<FResidentID> ActiveResidents;
 			TArray<FResidentID> Day14ActivationResidents;
 			TMap<FResidentID, int32> PendingFirstActionObservations;
@@ -354,6 +391,7 @@ namespace AILOD
 			FUnifiedStepMeasurement LastStepMeasurement;
 			FUnifiedCostBreakdown CostBreakdown;
 			FUnifiedMacroProfile MacroProfile;
+			FUnifiedV17ShadowProfile V17ShadowProfile;
 			double LastDetailedActivePlanningMs = 0.0;
 		};
 
@@ -367,6 +405,11 @@ namespace AILOD
 			}
 			if (!Backend || !Backend->ValidatePopulation(Config.PopulationPerKingdom, OutError))
 			{
+				return false;
+			}
+			if (Options.bEnableV17ShadowCohort && Backend->GetMethod() != EUnifiedSimulationMethod::Proposed)
+			{
+				OutError = TEXT("The v1.7 Shadow Cohort diagnostic is only valid for Proposed runs.");
 				return false;
 			}
 			if (!FPhase0ManifestGenerator::Generate(
@@ -419,6 +462,16 @@ namespace AILOD
 					ResidentIndices.Add(Resident.ResidentID, Residents.Num() - 1);
 				}
 			}
+			if (Options.bEnableV17ShadowCohort)
+			{
+				const double ShadowInitializeStart = FPlatformTime::Seconds();
+				if (!InitializeV17Shadow(OutError))
+				{
+					return false;
+				}
+				V17ShadowProfile.InitializeCpuMs = (FPlatformTime::Seconds() - ShadowInitializeStart) * 1000.0;
+				CostBreakdown.ValidationCpuMs += V17ShadowProfile.InitializeCpuMs;
+			}
 
 			ImportBudgetRemaining = Config.PopulationPerKingdom;
 			if (!InitializeLedger(OutError))
@@ -434,7 +487,34 @@ namespace AILOD
 			CostBreakdown.AuditCpuMs += InitialAuditMs;
 			CostBreakdown.InitializeCpuMs = FMath::Max(
 				0.0,
-				(FPlatformTime::Seconds() - InitializeStart) * 1000.0 - InitialAuditMs);
+				(FPlatformTime::Seconds() - InitializeStart) * 1000.0
+					- InitialAuditMs - V17ShadowProfile.InitializeCpuMs);
+			return true;
+		}
+
+		bool FUnifiedRuntime::InitializeV17Shadow(FString& OutError)
+		{
+			V17ShadowIdentities.Reset();
+			V17ShadowIdentities.Reserve(PopulationManifest.Residents.Num());
+			for (const FInitialResidentRecord& Initial : PopulationManifest.Residents)
+			{
+				if (V17ShadowIdentities.Contains(Initial.ResidentID))
+				{
+					OutError = FString::Printf(TEXT("Duplicate ResidentID %lld in the v1.7 Shadow Identity Registry."), Initial.ResidentID);
+					return false;
+				}
+				FV17ShadowIdentity Identity;
+				Identity.ResidentID = Initial.ResidentID;
+				Identity.HomeID = Initial.HomeID;
+				Identity.PersistentID = Initial.PersistentID;
+				Identity.Name = Initial.Name;
+				Identity.Kingdom = Initial.Kingdom;
+				Identity.Profession = Initial.Profession;
+				Identity.IncomeBand = Initial.IncomeBand;
+				V17ShadowIdentities.Add(Identity.ResidentID, MoveTemp(Identity));
+			}
+			V17ShadowProfile.IdentityCount = V17ShadowIdentities.Num();
+			OutError.Reset();
 			return true;
 		}
 
@@ -1185,6 +1265,7 @@ namespace AILOD
 			OutResult.bRecordSnapshots = Options.bRecordSnapshots;
 			OutResult.bVerifyCohortApproximation = Options.bVerifyCohortApproximation;
 			OutResult.bEnableMacroProfiling = Options.bEnableMacroProfiling;
+			OutResult.bEnableV17ShadowCohort = Options.bEnableV17ShadowCohort;
 			OutResult.FaultInjection = Options.FaultInjection;
 			OutResult.ConfigHash = PopulationManifest.ConfigHash;
 			OutResult.FinalTime = Clock.Now();
@@ -1217,6 +1298,7 @@ namespace AILOD
 			OutResult.Diagnostics = Diagnostics;
 			OutResult.CostBreakdown = CostBreakdown;
 			OutResult.MacroProfile = MacroProfile;
+			OutResult.V17ShadowProfile = V17ShadowProfile;
 			OutResult.Transactions = Ledger.GetTransactions();
 			for (const TPair<FEventID, FSimulationEventRecord>& Pair : EventStore.GetEvents())
 			{
@@ -1251,6 +1333,14 @@ namespace AILOD
 			}
 			UpdateWoodPrice(EKingdom::A);
 			UpdateWoodPrice(EKingdom::B);
+			if (Options.bEnableV17ShadowCohort)
+			{
+				const double ShadowStart = FPlatformTime::Seconds();
+				RunV17Shadow(Time);
+				const double ShadowMs = (FPlatformTime::Seconds() - ShadowStart) * 1000.0;
+				V17ShadowProfile.CpuMs += ShadowMs;
+				LastStepMeasurement.ValidationCpuMs += ShadowMs;
+			}
 
 			if (Backend->GetPlanningGranularity() == EBackendPlanningGranularity::Aggregate)
 			{
@@ -2138,6 +2228,439 @@ namespace AILOD
 				3.0);
 			const int32 Index = KingdomIndex(Kingdom);
 			WoodPrices[Index] += (Target - WoodPrices[Index]) / HoursPerGameDay;
+		}
+
+		void FUnifiedRuntime::RunV17Shadow(const FSimulationTime Time)
+		{
+			struct FShadowTotals
+			{
+				int64 Population = 0;
+				int64 Cash = 0;
+				int64 RepairCredit = 0;
+				int64 Wood = 0;
+				int64 Pending = 0;
+				int64 HomeStates[4] = {};
+			};
+
+			++V17ShadowProfile.HourCount;
+			FIndividualWorldFacts WorldByKingdom[2];
+			FKingdomStocks StocksByKingdom[2];
+			for (const EKingdom Kingdom : { EKingdom::A, EKingdom::B })
+			{
+				const int32 Index = KingdomIndex(Kingdom);
+				StocksByKingdom[Index] = ReadStocks(Kingdom, false, false);
+				WorldByKingdom[Index].MarketWoodAvailable = StocksByKingdom[Index].MarketWoodAvailable;
+				WorldByKingdom[Index].ForestWood = StocksByKingdom[Index].ForestWood;
+				WorldByKingdom[Index].HarvestAllowance = HarvestRemaining[Index];
+				WorldByKingdom[Index].WoodPrice = StocksByKingdom[Index].WoodPrice;
+			}
+
+			TSet<int32> AidEligible;
+			for (const int32 ResidentIndex : AidEligibleResidentIndices)
+			{
+				AidEligible.Add(ResidentIndex);
+			}
+
+			FShadowTotals Authority;
+			FShadowTotals LedgerAuthority;
+			FShadowTotals Represented;
+			TSet<uint64> Cohorts;
+			TMap<FString, FV17ShadowJointCell> JointCells;
+			TArray<int32> ActiveIdleResidents;
+			for (int32 ResidentIndex = 0; ResidentIndex < Residents.Num(); ++ResidentIndex)
+			{
+				const FResidentCoreState& Resident = Residents[ResidentIndex];
+				++V17ShadowProfile.IdentityVisitCount;
+				++Authority.Population;
+				Authority.Cash += Resident.Cash;
+				Authority.RepairCredit += Resident.RepairCredit;
+				Authority.Wood += Resident.InventoryWood;
+				Authority.Pending += Resident.ActiveEventID != 0 ? 1 : 0;
+				++Authority.HomeStates[HomeStateIndex(Resident.HomeState)];
+				LedgerAuthority.Cash += FMath::RoundToInt64(Ledger.GetBalance(
+					ESimulationResource::Coin,
+					ResidentLedgerAccount(Resident.ResidentID, TEXT("Cash"))));
+				LedgerAuthority.RepairCredit += FMath::RoundToInt64(Ledger.GetBalance(
+					ESimulationResource::Coin,
+					ResidentLedgerAccount(Resident.ResidentID, TEXT("RepairCredit"))));
+				LedgerAuthority.Wood += FMath::RoundToInt64(Ledger.GetBalance(
+					ESimulationResource::Wood,
+					ResidentLedgerAccount(Resident.ResidentID, TEXT("Wood"))));
+
+				const FV17ShadowIdentity* Identity = V17ShadowIdentities.Find(Resident.ResidentID);
+				if (Identity == nullptr
+					|| Identity->ResidentID != Resident.ResidentID
+					|| Identity->HomeID != Resident.HomeID
+					|| Identity->PersistentID != Resident.PersistentID
+					|| Identity->Name != Resident.Name
+					|| Identity->Kingdom != Resident.Kingdom
+					|| Identity->Profession != Resident.Profession
+					|| Identity->IncomeBand != Resident.IncomeBand)
+				{
+					++V17ShadowProfile.IdentityMismatchCount;
+				}
+
+				if (ActiveResidents.Contains(Resident.ResidentID))
+				{
+					++Represented.Population;
+					Represented.Cash += Resident.Cash;
+					Represented.RepairCredit += Resident.RepairCredit;
+					Represented.Wood += Resident.InventoryWood;
+					Represented.Pending += Resident.ActiveEventID != 0 ? 1 : 0;
+					++Represented.HomeStates[HomeStateIndex(Resident.HomeState)];
+					if (Resident.ActiveEventID == 0)
+					{
+						ActiveIdleResidents.Add(ResidentIndex);
+					}
+					continue;
+				}
+
+				const int32 PurchasingPower = Resident.Cash + Resident.RepairCredit;
+				const int32 PurchasingPowerBand = PurchasingPower < 4 ? 0 : PurchasingPower < 8 ? 1 : 2;
+				const int32 WoodBand = Resident.InventoryWood <= 0
+					? 0
+					: Resident.InventoryWood < static_cast<int32>(RepairWoodPerHome) ? 1 : 2;
+				const bool bCommitted = Resident.ActiveEventID != 0;
+				const bool bAidEligible = AidEligible.Contains(ResidentIndex);
+				const uint64 CohortKey = static_cast<uint64>(Resident.Kingdom)
+					| (static_cast<uint64>(Resident.Profession) << 2)
+					| (static_cast<uint64>(Resident.IncomeBand) << 4);
+				const uint64 JointKeyValue = CohortKey
+					| (static_cast<uint64>(Resident.HomeState) << 6)
+					| (static_cast<uint64>(Resident.MacroIntent) << 9)
+					| (static_cast<uint64>(bCommitted ? 1 : 0) << 13)
+					| (static_cast<uint64>(PurchasingPowerBand) << 14)
+					| (static_cast<uint64>(WoodBand) << 16)
+					| (static_cast<uint64>(bAidEligible ? 1 : 0) << 18);
+				const FString JointKey = FString::Printf(
+					TEXT("K=%d|P=%d|I=%d|H=%d|M=%d|C=%d|PP=%d|W=%d|A=%d"),
+					static_cast<int32>(Resident.Kingdom),
+					static_cast<int32>(Resident.Profession),
+					static_cast<int32>(Resident.IncomeBand),
+					static_cast<int32>(Resident.HomeState),
+					static_cast<int32>(Resident.MacroIntent),
+					bCommitted ? 1 : 0,
+					PurchasingPowerBand,
+					WoodBand,
+					bAidEligible ? 1 : 0);
+				Cohorts.Add(CohortKey);
+				FV17ShadowJointCell& Cell = JointCells.FindOrAdd(JointKey);
+				if (Cell.Count == 0)
+				{
+					Cell.RepresentativeIndex = ResidentIndex;
+					Cell.HomeState = Resident.HomeState;
+					Cell.bCommitted = bCommitted;
+					Cell.StableKey = Mix64(JointKeyValue ^ 0xB17C011ull);
+				}
+				++Cell.Count;
+				Cell.CashTotal += Resident.Cash;
+				Cell.RepairCreditTotal += Resident.RepairCredit;
+				Cell.WoodTotal += Resident.InventoryWood;
+			}
+
+			for (const TPair<FString, FV17ShadowJointCell>& Pair : JointCells)
+			{
+				const FV17ShadowJointCell& Cell = Pair.Value;
+				Represented.Population += Cell.Count;
+				Represented.Cash += Cell.CashTotal;
+				Represented.RepairCredit += Cell.RepairCreditTotal;
+				Represented.Wood += Cell.WoodTotal;
+				Represented.Pending += Cell.bCommitted ? Cell.Count : 0;
+				Represented.HomeStates[HomeStateIndex(Cell.HomeState)] += Cell.Count;
+			}
+
+			if (Authority.Population != Represented.Population)
+			{
+				++V17ShadowProfile.PopulationResidualCount;
+			}
+			if (Authority.Cash != Represented.Cash
+				|| Authority.RepairCredit != Represented.RepairCredit
+				|| Authority.Wood != Represented.Wood
+				|| LedgerAuthority.Cash != Represented.Cash
+				|| LedgerAuthority.RepairCredit != Represented.RepairCredit
+				|| LedgerAuthority.Wood != Represented.Wood)
+			{
+				++V17ShadowProfile.ResourceResidualCount;
+			}
+			for (int32 StateIndex = 0; StateIndex < 4; ++StateIndex)
+			{
+				if (Authority.HomeStates[StateIndex] != Represented.HomeStates[StateIndex])
+				{
+					++V17ShadowProfile.HomeStateResidualCount;
+					break;
+				}
+			}
+			if (Authority.Pending != Represented.Pending)
+			{
+				++V17ShadowProfile.PendingParticipantResidualCount;
+			}
+
+			const int32 HourlyCohortCount = Cohorts.Num();
+			const int32 HourlyJointCellCount = JointCells.Num();
+			V17ShadowProfile.CohortObservationCount += HourlyCohortCount;
+			V17ShadowProfile.JointCellObservationCount += HourlyJointCellCount;
+			V17ShadowProfile.PendingParticipantObservationCount += Authority.Pending;
+			V17ShadowProfile.MaxCohortCount = FMath::Max(V17ShadowProfile.MaxCohortCount, HourlyCohortCount);
+			V17ShadowProfile.MaxJointCellCount = FMath::Max(V17ShadowProfile.MaxJointCellCount, HourlyJointCellCount);
+			V17ShadowProfile.MaxPendingParticipantCount = FMath::Max(
+				V17ShadowProfile.MaxPendingParticipantCount,
+				static_cast<int32>(Authority.Pending));
+
+			TArray<FV17ShadowClaim> Claims;
+			auto AddClaim = [&Claims, Time](
+				const FResidentCoreState& Representative,
+				const EIndividualAction Action,
+				const int32 RequestedCount,
+				const uint64 StableOrderKey)
+			{
+				FV17ShadowClaim Claim;
+				Claim.Scope.Kingdom = Representative.Kingdom;
+				Claim.Action = Action;
+				Claim.RequestedCount = RequestedCount;
+				Claim.StableOrderKey = Mix64(StableOrderKey ^ (static_cast<uint64>(Action) << 48));
+				const int32 MissingWood = FMath::Max(
+					0,
+					static_cast<int32>(RepairWoodPerHome) - Representative.InventoryWood);
+				switch (Action)
+				{
+				case EIndividualAction::BuyWood:
+					Claim.Scope.Resource = EUnifiedCompetitionResource::MarketWood;
+					Claim.Scope.Window = static_cast<int32>(Time.Minutes / MinutesPerHour);
+					Claim.PerParticipantDemand = FMath::Max(1, MissingWood);
+					break;
+				case EIndividualAction::ChopWood:
+					Claim.Scope.Resource = EUnifiedCompetitionResource::ForestWood;
+					Claim.Scope.Window = static_cast<int32>(Time.Minutes / MinutesPerHour);
+					Claim.PerParticipantDemand = FMath::Max(1, MissingWood);
+					break;
+				case EIndividualAction::StartRepair:
+					Claim.Scope.Resource = EUnifiedCompetitionResource::RepairCapacity;
+					Claim.Scope.Window = static_cast<int32>(Time.Minutes / MinutesPerDay);
+					break;
+				default:
+					Claim.Scope.Resource = EUnifiedCompetitionResource::None;
+					Claim.Scope.Window = static_cast<int32>(Time.Minutes / MinutesPerHour);
+					break;
+				}
+				Claims.Add(Claim);
+			};
+
+			TArray<FString> JointKeys;
+			JointCells.GetKeys(JointKeys);
+			JointKeys.Sort();
+			int64 OffscreenIdleParticipants = 0;
+			int64 ActionFlowParticipants = 0;
+			int32 HourlyActionFlowCount = 0;
+			for (const FString& JointKey : JointKeys)
+			{
+				const FV17ShadowJointCell& Cell = JointCells.FindChecked(JointKey);
+				if (Cell.bCommitted)
+				{
+					continue;
+				}
+				OffscreenIdleParticipants += Cell.Count;
+				FResidentCoreState Representative = Residents[Cell.RepresentativeIndex];
+				Representative.ResidentID = 0;
+				Representative.PersistentID = 0;
+				Representative.Name.Reset();
+				Representative.Cash = FMath::RoundToInt(static_cast<double>(Cell.CashTotal) / Cell.Count);
+				Representative.RepairCredit = FMath::RoundToInt(static_cast<double>(Cell.RepairCreditTotal) / Cell.Count);
+				Representative.InventoryWood = FMath::RoundToInt(static_cast<double>(Cell.WoodTotal) / Cell.Count);
+				Representative.CurrentGoal = FIndividualDomain::SelectGoal(Representative);
+				const FIndividualPlan Plan = FIndividualDomain::BuildPlan(
+					Representative,
+					WorldByKingdom[KingdomIndex(Representative.Kingdom)]);
+				const EIndividualAction Action = Plan.Actions.Num() > 0 ? Plan.Actions[0] : EIndividualAction::Wait;
+				AddClaim(Representative, Action, Cell.Count, Cell.StableKey);
+				ActionFlowParticipants += Cell.Count;
+				++HourlyActionFlowCount;
+			}
+			if (OffscreenIdleParticipants != ActionFlowParticipants)
+			{
+				++V17ShadowProfile.ActionFlowResidualCount;
+			}
+
+			for (const int32 ResidentIndex : ActiveIdleResidents)
+			{
+				FResidentCoreState Representative = Residents[ResidentIndex];
+				Representative.CurrentGoal = FIndividualDomain::SelectGoal(Representative);
+				const FIndividualPlan Plan = FIndividualDomain::BuildPlan(
+					Representative,
+					WorldByKingdom[KingdomIndex(Representative.Kingdom)]);
+				const EIndividualAction Action = Plan.Actions.Num() > 0 ? Plan.Actions[0] : EIndividualAction::Wait;
+				AddClaim(
+					Representative,
+					Action,
+					1,
+					CompetitionOrderKey(Config.Seed, Time.Minutes, Representative.ResidentID, static_cast<uint64>(Action)));
+			}
+
+			int64 RequestedParticipants = 0;
+			TMap<FUnifiedCompetitionScope, TArray<int32>> CompetitionScopes;
+			for (int32 ClaimIndex = 0; ClaimIndex < Claims.Num(); ++ClaimIndex)
+			{
+				FV17ShadowClaim& Claim = Claims[ClaimIndex];
+				RequestedParticipants += Claim.RequestedCount;
+				if (Claim.Scope.Resource == EUnifiedCompetitionResource::None)
+				{
+					Claim.GrantedCount = Claim.RequestedCount;
+				}
+				else
+				{
+					CompetitionScopes.FindOrAdd(Claim.Scope).Add(ClaimIndex);
+				}
+			}
+			if (RequestedParticipants != Authority.Population - Authority.Pending)
+			{
+				++V17ShadowProfile.ActionFlowResidualCount;
+			}
+
+			auto ScopeCapacity = [this, Time, &StocksByKingdom](const FUnifiedCompetitionScope& Scope)
+			{
+				const int32 Index = KingdomIndex(Scope.Kingdom);
+				switch (Scope.Resource)
+				{
+				case EUnifiedCompetitionResource::MarketWood:
+					return FMath::Max<int64>(0, FMath::FloorToInt64(StocksByKingdom[Index].MarketWoodAvailable));
+				case EUnifiedCompetitionResource::ForestWood:
+					return FMath::Max<int64>(0, FMath::FloorToInt64(FMath::Min(StocksByKingdom[Index].ForestWood, HarvestRemaining[Index])));
+				case EUnifiedCompetitionResource::RepairCapacity:
+				{
+					const int32 Day = static_cast<int32>(FMath::FloorToDouble(static_cast<double>(Time.Minutes) / MinutesPerDay));
+					return static_cast<int64>(RepairDays[Index] == Day
+						? RepairRemaining[Index]
+						: FMath::FloorToInt(RepairStartCapacityPerPersonPerDay * Config.PopulationPerKingdom));
+				}
+				case EUnifiedCompetitionResource::None:
+				default:
+					return int64(0);
+				}
+			};
+
+			for (const TPair<FUnifiedCompetitionScope, TArray<int32>>& ScopePair : CompetitionScopes)
+			{
+				const int64 Capacity = ScopeCapacity(ScopePair.Key);
+				int64 TotalRequestedUnits = 0;
+				for (const int32 ClaimIndex : ScopePair.Value)
+				{
+					const FV17ShadowClaim& Claim = Claims[ClaimIndex];
+					TotalRequestedUnits += static_cast<int64>(Claim.RequestedCount) * Claim.PerParticipantDemand;
+				}
+
+				if (TotalRequestedUnits <= Capacity)
+				{
+					for (const int32 ClaimIndex : ScopePair.Value)
+					{
+						Claims[ClaimIndex].GrantedCount = Claims[ClaimIndex].RequestedCount;
+					}
+				}
+				else
+				{
+					struct FAllocationShare
+					{
+						int32 ClaimIndex = INDEX_NONE;
+						int64 Remainder = 0;
+						uint64 TieKey = 0;
+					};
+					TArray<FAllocationShare> Shares;
+					int64 RemainingCapacity = Capacity;
+					const uint64 ScopeKey = static_cast<uint64>(ScopePair.Key.Kingdom)
+						| (static_cast<uint64>(ScopePair.Key.Resource) << 8)
+						| (static_cast<uint64>(static_cast<uint32>(ScopePair.Key.Window)) << 16);
+					for (const int32 ClaimIndex : ScopePair.Value)
+					{
+						FV17ShadowClaim& Claim = Claims[ClaimIndex];
+						const int64 Numerator = Capacity * Claim.RequestedCount;
+						Claim.GrantedCount = static_cast<int32>(Numerator / TotalRequestedUnits);
+						RemainingCapacity -= static_cast<int64>(Claim.GrantedCount) * Claim.PerParticipantDemand;
+						FAllocationShare& Share = Shares.AddDefaulted_GetRef();
+						Share.ClaimIndex = ClaimIndex;
+						Share.Remainder = Numerator % TotalRequestedUnits;
+						Share.TieKey = Mix64(
+							Claim.StableOrderKey
+							^ Mix64(static_cast<uint64>(static_cast<uint32>(Config.Seed)))
+							^ Mix64(static_cast<uint64>(Time.Minutes))
+							^ Mix64(ScopeKey));
+					}
+					Shares.Sort([&Claims](const FAllocationShare& Left, const FAllocationShare& Right)
+					{
+						if (Left.Remainder != Right.Remainder)
+						{
+							return Left.Remainder > Right.Remainder;
+						}
+						if (Left.TieKey != Right.TieKey)
+						{
+							return Left.TieKey < Right.TieKey;
+						}
+						return Claims[Left.ClaimIndex].StableOrderKey < Claims[Right.ClaimIndex].StableOrderKey;
+					});
+					for (const FAllocationShare& Share : Shares)
+					{
+						FV17ShadowClaim& Claim = Claims[Share.ClaimIndex];
+						if (Claim.GrantedCount < Claim.RequestedCount && RemainingCapacity >= Claim.PerParticipantDemand)
+						{
+							++Claim.GrantedCount;
+							RemainingCapacity -= Claim.PerParticipantDemand;
+						}
+					}
+					Shares.Sort([&Claims](const FAllocationShare& Left, const FAllocationShare& Right)
+					{
+						return Left.TieKey != Right.TieKey
+							? Left.TieKey < Right.TieKey
+							: Claims[Left.ClaimIndex].StableOrderKey < Claims[Right.ClaimIndex].StableOrderKey;
+					});
+					bool bGranted = true;
+					while (bGranted)
+					{
+						bGranted = false;
+						for (const FAllocationShare& Share : Shares)
+						{
+							FV17ShadowClaim& Claim = Claims[Share.ClaimIndex];
+							if (Claim.GrantedCount < Claim.RequestedCount && RemainingCapacity >= Claim.PerParticipantDemand)
+							{
+								++Claim.GrantedCount;
+								RemainingCapacity -= Claim.PerParticipantDemand;
+								bGranted = true;
+							}
+						}
+					}
+				}
+
+				int64 Consumed = 0;
+				for (const int32 ClaimIndex : ScopePair.Value)
+				{
+					FV17ShadowClaim& Claim = Claims[ClaimIndex];
+					Consumed += static_cast<int64>(Claim.GrantedCount) * Claim.PerParticipantDemand;
+				}
+				if (Consumed > Capacity)
+				{
+					++V17ShadowProfile.CapacityOverflowCount;
+				}
+			}
+
+			int64 GrantedParticipants = 0;
+			int64 RejectedParticipants = 0;
+			for (FV17ShadowClaim& Claim : Claims)
+			{
+				Claim.RejectedCount = Claim.RequestedCount - Claim.GrantedCount;
+				GrantedParticipants += Claim.GrantedCount;
+				RejectedParticipants += Claim.RejectedCount;
+				if (Claim.RequestedCount < 0
+					|| Claim.GrantedCount < 0
+					|| Claim.GrantedCount > Claim.RequestedCount
+					|| Claim.RequestedCount != Claim.GrantedCount + Claim.RejectedCount)
+				{
+					++V17ShadowProfile.BatchResultResidualCount;
+				}
+			}
+
+			V17ShadowProfile.ActionFlowCount += HourlyActionFlowCount;
+			V17ShadowProfile.BatchClaimCount += Claims.Num();
+			V17ShadowProfile.RequestedParticipantCount += RequestedParticipants;
+			V17ShadowProfile.GrantedParticipantCount += GrantedParticipants;
+			V17ShadowProfile.RejectedParticipantCount += RejectedParticipants;
+			V17ShadowProfile.MaxActionFlowCount = FMath::Max(V17ShadowProfile.MaxActionFlowCount, HourlyActionFlowCount);
+			V17ShadowProfile.MaxBatchClaimCount = FMath::Max(V17ShadowProfile.MaxBatchClaimCount, Claims.Num());
 		}
 
 		bool FUnifiedRuntime::PlanDetailedResidents(const FSimulationTime Time, FString& OutError)

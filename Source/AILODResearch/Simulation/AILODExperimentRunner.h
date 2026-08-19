@@ -17,6 +17,7 @@ namespace AILOD
 		int32 PopulationPerKingdom = 100;
 		EUnifiedRunMode Mode = EUnifiedRunMode::Accuracy;
 		bool bEnableMacroProfiling = false;
+		bool bEnableV17ShadowCohort = false;
 		FString GitCommit;
 		FString UEVersion;
 		FString BuildType;
@@ -38,6 +39,7 @@ namespace AILOD
 		FUnifiedRunDiagnostics Diagnostics;
 		FUnifiedCostBreakdown CostBreakdown;
 		FUnifiedMacroProfile MacroProfile;
+		FUnifiedV17ShadowProfile V17ShadowProfile;
 	};
 
 	class FExperimentRunner
