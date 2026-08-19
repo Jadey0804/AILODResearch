@@ -1,7 +1,7 @@
 # AILOD MVP 当前有效规则索引
 
-**索引版本：3.0**<br>
-**日期：2026-08-18**<br>
+**索引版本：3.1**<br>
+**日期：2026-08-19**<br>
 **用途：说明当前规则的读取顺序、冲突优先级和各文档职责。**<br>
 **性质：本文件只做导航，不新增模型规则、不替代原规格，也不构成阶段验收。**
 
@@ -43,6 +43,7 @@
 | Phase 6G-A Checkpoint | Proposed Macro 子阶段定向计时、计数、Digest 回归和瓶颈边界 | 是工程诊断记录，不新增模型规则，也不是正式性能实验或论文结论 |
 | Phase 6G-B0 Checkpoint | v1.7 规则冻结、旧规则冲突审计、B0—B5 实施门和未完成项 | 是规则阶段验收记录，不代表 Batch/Lift 代码已实现 |
 | Phase 6G-B1 Checkpoint | v1.7 Shadow Identity/Joint State/Action Flow/Claim 的三方对账、旧 Digest 回归和工程诊断成本 | 是只读旁路验收记录；v1.6 仍是权威，不能把 B1 当作已获得 Batch 性能或正式实验资格 |
+| Phase 6G-B2A Checkpoint | Wait/Routine 用一条事件代表整批人数、到期归还、错误拒绝和重复运行证据 | 是隔离原型验收记录；未接入完整 Proposed，不代表 Work/Ledger、资源竞争、Dynamic LOD 或规模性能已经完成 |
 
 ## 3. 当前最容易误读的有效规则
 
@@ -86,7 +87,7 @@ Phase 6A—6F 已经实现以下内容：
 
 以上 Phase 6A—6F 历史边界以 v1.6 §8 和 Phase 5.1 Checkpoint §8 为准；6G-B 的新 Proposed 规则以 v1.7 为准。
 
-当前位于 `phase-6g-b-cohort-batch`。Phase 6A—6F 已分别以本地提交 `71e3565`、`c0e84d2`、`eb44bf3`、`93282ed`、`6ee6873`、`c629bb6` 封板；6G-A 已以本地提交 `41d3bae` 封板；6G-B0 已以本地提交 `8a1ac11` 封板。项目作者已于 2026-08-18 批准 6G-B 采用 v1.7 Cohort 批量提交与动态解聚方向，并于 2026-08-19 确认 B1 Shadow Cohort 的 Development Editor 与 NullRHI `27/27` 检查结果。B1 随独立本地提交封板，B2A 已获授权开始；B2B—B5、Phase 7 和 Phase 8 均未开始。所有既有提交均未推送。
+当前位于 `phase-6g-b-cohort-batch`。Phase 6A—6F 已分别以本地提交 `71e3565`、`c0e84d2`、`eb44bf3`、`93282ed`、`6ee6873`、`c629bb6` 封板；6G-A、6G-B0 和 6G-B1 已分别以本地提交 `41d3bae`、`8a1ac11`、`90020f2` 封板。B2A 已在隔离原型中实现 Wait/Routine 批量申请、批量事件和到期归还，Development Editor 编译与 NullRHI 全套 `28/28` 检查通过，当前尚未提交并等待项目作者确认。完整 Run 仍以 v1.6 Proposed 为唯一权威；B2B—B5、Phase 7 和 Phase 8 均未开始。所有既有提交均未推送。
 
 ## 5. 后续修改规则
 

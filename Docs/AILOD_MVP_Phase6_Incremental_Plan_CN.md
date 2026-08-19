@@ -1,7 +1,7 @@
 # AILOD MVP Phase 6 增量实施计划与检查点
 
-**计划版本：2.0**<br>
-**日期：2026-08-18**<br>
+**计划版本：2.1**<br>
+**日期：2026-08-19**<br>
 **分支：`phase-6g-b-cohort-batch`**<br>
 **Phase 5.1 基线提交：`7ea750d6617f6346de37e19e2d20c9c76f5b682f`**<br>
 **Step 0 计划提交：`a3a34969be04036fe919f9599ace609f0f508ceb`**<br>
@@ -13,7 +13,8 @@
 **Phase 6F 封板提交：`c629bb6`**<br>
 **Phase 6G-A 封板提交：`41d3bae`**<br>
 **Phase 6G-B0 封板提交：`8a1ac11`**<br>
-**当前状态：项目作者已于 2026-08-19 确认 6G-B1；B1 随独立本地提交封板，B2A 已获授权开始；B2B—B5 未开始；所有既有提交均未推送。**
+**Phase 6G-B1 封板提交：`90020f2`**<br>
+**当前状态：B2A 已实现并通过 Development Editor 与全套 `28/28` 自动测试，尚未提交，等待项目作者确认；B2B—B5 未开始；所有既有提交均未推送。**
 
 本文件把 Phase 6 和经证据触发的 6G-B 拆成可独立验收的实施步骤；模型事实只由版本化规格定义。本计划从 6G-B0 起按 `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.7.md` 导航，不自行新增或覆盖模型规则。规则冲突按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.7 顺序处理。
 
@@ -63,8 +64,8 @@ Phase 6 不负责：
 | Phase 6F | 分离测量成本并完成 Phase 6 集成验收 | 作者已确认，已封板 |
 | Phase 6G-A | 只测量 Proposed Macro 子阶段并归因瓶颈 | 作者已确认，`41d3bae` 封板 |
 | Phase 6G-B0 | 冻结 v1.7、权威索引和 B0—B5 检查点 | 作者已确认，提交 `8a1ac11` 封板 |
-| Phase 6G-B1 | 建立不修改权威结果的 Shadow Cohort | 作者已确认，本次独立提交封板 |
-| Phase 6G-B2A | 隔离 Wait/Routine Batch 切片 | 已授权开始 |
+| Phase 6G-B1 | 建立不修改权威结果的 Shadow Cohort | 作者已确认，提交 `90020f2` 封板 |
+| Phase 6G-B2A | 隔离 Wait/Routine Batch 切片 | 已实现并通过检查，等待作者确认 |
 | Phase 6G-B2B | 隔离 Work 与工资/国库 Batch 切片 | 未开始 |
 | Phase 6G-B3 | 全动作资源竞争批量化并一次性切换 Macro 权威 | 未开始 |
 | Phase 6G-B4 | Dynamic Lift/Restrict、Capsule 与 Batch Split/Merge | 未开始 |
@@ -368,6 +369,17 @@ B0 检查点：
 - 不按 ParticipantCount 创建个人 Event 或 fallback；
 - v1.6 Proposed 继续是完整 Run 的唯一权威，不与旧个人动态状态双写；
 - 行动人数、Batch Event、确定性与硬错误通过后停止。
+
+实施记录（2026-08-19，等待作者确认）：
+
+- 新增与完整 Proposed 隔离的 `FV17NoResourceBatchPrototype`，只接受 Wait/Routine，不读写个人 Money、Wood、HomeState 或 Ledger；
+- 一批 1000 人 Routine 与一批 600 人 Wait 只创建 2 条 Batch Claim、2 条 Batch Event 和 2 条 Scheduler 记录，没有按 1600 名参与者展开；
+- Batch Claim 保存时间、资源范围、行动、来源 Cell、RequestedCount、单位需求、政策来源和稳定顺序；Batch Event 保存来源/目标、ParticipantCount、开始/结束、剩余时间、Reservation/政策来源、继承顺序和状态；
+- Wait 使用共享 6 小时时长并于第 6 小时归还 600 人；Routine 使用共享 8 小时时长，第 6 小时记录剩余 2 小时并于第 8 小时归还 1000 人；全程人口保持 3000；
+- Work、超出来源可用人数和重复 Claim 均在写入前拒绝；前后完整 Digest 不变，不创建 fallback Event；
+- 两次相同运行在初始化、提交、第 6 小时和第 8 小时的 Digest 分别固定为 `0359B40D3F145C8E40D2DD6F44D8DA1F27AB1B5F`、`32477ACC7DB3B9984459EC2AE1E05C428E2398C0`、`23B042A5E11D6722B45FFA39A38CFF467B1505F9`、`1DDD347DFEC95E8AAA34789C40C9959D9C6DEC81`；
+- UE 5.4 Development Editor 编译成功；NullRHI 全套 `AILODResearch` 为 `28/28 Success`、`0 Failed`；独立证据见 `AILOD_MVP_Phase6G_B2A_Checkpoint_CN.md`；
+- 本步没有实现 Work/Ledger、资源竞争、完整 Proposed 切换或 Dynamic Lift/Restrict，不能作为规模性能或正式实验结论；当前尚未提交、未推送，等待项目作者确认后才允许封板并进入 B2B。
 
 ### 6G-B2B：Work / Ledger Batch 切片
 
