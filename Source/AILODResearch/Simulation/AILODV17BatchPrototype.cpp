@@ -17,17 +17,41 @@ namespace AILOD
 			&& EventParticipantResidualCount == 0
 			&& PendingEventResidualCount == 0
 			&& DuplicateCompletionCount == 0
-			&& CommitResidueCount == 0;
+			&& CommitResidueCount == 0
+			&& FMath::IsNearlyZero(CoinResidual, UE_DOUBLE_SMALL_NUMBER)
+			&& NegativeCoinStockCount == 0
+			&& DuplicateTransactionCount == 0
+			&& WorkLedgerResidualCount == 0
+			&& TreasuryResidualCount == 0;
 	}
 
-	FV17NoResourceBatchPrototype::FV17NoResourceBatchPrototype(const int32 InSeed)
+	FV17BatchSlicePrototype::FV17BatchSlicePrototype(const int32 InSeed)
 		: Seed(InSeed)
 	{
 	}
 
-	bool FV17NoResourceBatchPrototype::Initialize(
+	bool FV17BatchSlicePrototype::Initialize(
 		const TArray<FV17BatchPrototypeCell>& Cells,
 		const FSimulationTime StartTime,
+		FString& OutError)
+	{
+		return InitializeInternal(Cells, {}, StartTime, false, OutError);
+	}
+
+	bool FV17BatchSlicePrototype::InitializeWithWorkLedger(
+		const TArray<FV17BatchPrototypeCell>& Cells,
+		const TArray<FV17BatchPrototypeTreasury>& Treasuries,
+		const FSimulationTime StartTime,
+		FString& OutError)
+	{
+		return InitializeInternal(Cells, Treasuries, StartTime, true, OutError);
+	}
+
+	bool FV17BatchSlicePrototype::InitializeInternal(
+		const TArray<FV17BatchPrototypeCell>& Cells,
+		const TArray<FV17BatchPrototypeTreasury>& Treasuries,
+		const FSimulationTime StartTime,
+		const bool bEnableWorkLedger,
 		FString& OutError)
 	{
 		if (bInitialized || Cells.IsEmpty())
@@ -37,15 +61,18 @@ namespace AILOD
 		}
 
 		TMap<FV17JointCellID, int32> NewReadyCounts;
+		TMap<FV17JointCellID, FV17BatchPrototypeCell> NewCellDefinitions;
 		int32 NewPopulation = 0;
 		for (const FV17BatchPrototypeCell& Cell : Cells)
 		{
-			if (Cell.CellID == 0 || Cell.ReadyCount < 0 || NewReadyCounts.Contains(Cell.CellID))
+			if (Cell.CellID == 0 || Cell.ReadyCount < 0 || Cell.InitialCash < 0
+				|| NewReadyCounts.Contains(Cell.CellID))
 			{
-				OutError = TEXT("Batch prototype cells require unique non-zero IDs and non-negative counts.");
+				OutError = TEXT("Batch prototype cells require unique non-zero IDs and non-negative counts and cash.");
 				return false;
 			}
 			NewReadyCounts.Add(Cell.CellID, Cell.ReadyCount);
+			NewCellDefinitions.Add(Cell.CellID, Cell);
 			NewPopulation += Cell.ReadyCount;
 		}
 		if (NewPopulation <= 0)
@@ -54,15 +81,69 @@ namespace AILOD
 			return false;
 		}
 
+		TMap<EKingdom, int64> NewInitialTreasuries;
+		for (const FV17BatchPrototypeTreasury& Treasury : Treasuries)
+		{
+			if (Treasury.AvailableCoin < 0 || NewInitialTreasuries.Contains(Treasury.Kingdom))
+			{
+				OutError = TEXT("Work batch treasury entries must be unique and non-negative.");
+				return false;
+			}
+			NewInitialTreasuries.Add(Treasury.Kingdom, Treasury.AvailableCoin);
+		}
+
+		if (bEnableWorkLedger)
+		{
+			for (const TPair<FV17JointCellID, FV17BatchPrototypeCell>& Pair : NewCellDefinitions)
+			{
+				if (!Ledger.InitializeAccount(
+					ESimulationResource::Coin,
+					CellCashAccount(Pair.Key),
+					static_cast<double>(Pair.Value.InitialCash),
+					OutError))
+				{
+					Ledger = {};
+					return false;
+				}
+			}
+			for (const EKingdom Kingdom : { EKingdom::A, EKingdom::B })
+			{
+				const int64* InitialTreasury = NewInitialTreasuries.Find(Kingdom);
+				if (!Ledger.InitializeAccount(
+					ESimulationResource::Coin,
+					TreasuryAccount(Kingdom),
+					static_cast<double>(InitialTreasury != nullptr ? *InitialTreasury : 0),
+					OutError))
+				{
+					Ledger = {};
+					return false;
+				}
+			}
+			Ledger.SealInitialState();
+		}
+
 		ReadyCounts = MoveTemp(NewReadyCounts);
+		CellDefinitions = MoveTemp(NewCellDefinitions);
+		InitialTreasuries = MoveTemp(NewInitialTreasuries);
 		InitialPopulation = NewPopulation;
 		Clock = FSimulationClock(StartTime);
+		bWorkLedgerEnabled = bEnableWorkLedger;
 		bInitialized = true;
 		OutError.Reset();
 		return true;
 	}
 
-	FV17BatchClaimID FV17NoResourceBatchPrototype::BuildClaimID(
+	FString FV17BatchSlicePrototype::CellCashAccount(const FV17JointCellID CellID)
+	{
+		return FString::Printf(TEXT("V17.Cell.%llu.Cash"), CellID);
+	}
+
+	FString FV17BatchSlicePrototype::TreasuryAccount(const EKingdom Kingdom)
+	{
+		return MakeKingdomAccount(Kingdom, TEXT("TreasuryAvailable"));
+	}
+
+	FV17BatchClaimID FV17BatchSlicePrototype::BuildClaimID(
 		const FV17JointCellID SourceCellID,
 		const EIndividualAction Action) const
 	{
@@ -74,7 +155,7 @@ namespace AILOD
 		return ClaimID == 0 ? 1 : ClaimID;
 	}
 
-	bool FV17NoResourceBatchPrototype::SubmitBatch(
+	bool FV17BatchSlicePrototype::SubmitBatch(
 		const FV17JointCellID SourceCellID,
 		const EIndividualAction Action,
 		const int32 ParticipantCount,
@@ -88,9 +169,12 @@ namespace AILOD
 			OutError = TEXT("The source cell does not exist in the initialized batch prototype.");
 			return false;
 		}
-		if (Action != EIndividualAction::Routine && Action != EIndividualAction::Wait)
+		const bool bNoResourceAction = Action == EIndividualAction::Routine || Action == EIndividualAction::Wait;
+		if (!bNoResourceAction && !(Action == EIndividualAction::Work && bWorkLedgerEnabled))
 		{
-			OutError = TEXT("Phase 6G-B2A only accepts Routine and Wait batches.");
+			OutError = bWorkLedgerEnabled
+				? TEXT("Phase 6G-B2 only accepts Routine, Wait and Work batches.")
+				: TEXT("Phase 6G-B2A only accepts Routine and Wait batches.");
 			return false;
 		}
 		if (ParticipantCount <= 0 || ParticipantCount > *ReadyCount)
@@ -115,7 +199,13 @@ namespace AILOD
 		const FSimulationScheduler SchedulerBefore = Scheduler;
 		const FSimulationEventStore EventStoreBefore = EventStore;
 		FSimulationEventRequest Request;
-		Request.Type = Action == EIndividualAction::Routine ? TEXT("BatchRoutine") : TEXT("BatchWait");
+		switch (Action)
+		{
+		case EIndividualAction::Routine: Request.Type = TEXT("BatchRoutine"); break;
+		case EIndividualAction::Wait: Request.Type = TEXT("BatchWait"); break;
+		case EIndividualAction::Work: Request.Type = TEXT("BatchWork"); break;
+		default: break;
+		}
 		Request.Owner = FString::Printf(TEXT("BatchCell:%llu"), SourceCellID);
 		Request.ActionCode = static_cast<int32>(Action);
 		Request.StartTime = Clock.Now();
@@ -138,10 +228,13 @@ namespace AILOD
 		FV17BatchPrototypeClaim BatchClaim;
 		BatchClaim.BatchClaimID = ClaimID;
 		BatchClaim.GameTime = Clock.Now();
-		BatchClaim.ResourceScope = TEXT("None");
+		BatchClaim.ResourceScope = Action == EIndividualAction::Work ? TEXT("BoundaryIncome") : TEXT("None");
 		BatchClaim.Action = Action;
 		BatchClaim.SourceCellID = SourceCellID;
 		BatchClaim.RequestedCount = ParticipantCount;
+		BatchClaim.PerParticipantDemand = Action == EIndividualAction::Work
+			? FIndividualDomain::GetWorkIncome(CellDefinitions.FindChecked(SourceCellID).IncomeBand)
+			: 0;
 		BatchClaim.StableOrderKey = Mix64(ClaimID ^ 0xB2A00003ull);
 		if (BatchClaim.StableOrderKey == 0) BatchClaim.StableOrderKey = 1;
 		BatchClaims.Add(ClaimID, BatchClaim);
@@ -164,7 +257,10 @@ namespace AILOD
 		return true;
 	}
 
-	bool FV17NoResourceBatchPrototype::AdvanceTo(const FSimulationTime TargetTime, FString& OutError)
+	bool FV17BatchSlicePrototype::AdvanceTo(
+		const FSimulationTime TargetTime,
+		FString& OutError,
+		const EV17BatchPrototypeFailurePoint FailurePoint)
 	{
 		if (!bInitialized || TargetTime < Clock.Now())
 		{
@@ -175,8 +271,18 @@ namespace AILOD
 		const FSimulationClock ClockBefore = Clock;
 		const FSimulationScheduler SchedulerBefore = Scheduler;
 		const FSimulationEventStore EventStoreBefore = EventStore;
+		const FResourceLedger LedgerBefore = Ledger;
 		const TMap<FV17JointCellID, int32> ReadyCountsBefore = ReadyCounts;
 		const TMap<FEventID, FV17BatchPrototypeEvent> BatchEventsBefore = BatchEvents;
+		auto Restore = [&]()
+		{
+			Clock = ClockBefore;
+			Scheduler = SchedulerBefore;
+			EventStore = EventStoreBefore;
+			Ledger = LedgerBefore;
+			ReadyCounts = ReadyCountsBefore;
+			BatchEvents = BatchEventsBefore;
+		};
 		TArray<FScheduledEvent> DueEvents;
 		Scheduler.PopDueThrough(TargetTime, DueEvents);
 		for (const FScheduledEvent& Due : DueEvents)
@@ -185,14 +291,57 @@ namespace AILOD
 			const FSimulationEventRecord* StoredEvent = EventStore.Find(Due.EventID);
 			if (BatchEvent == nullptr || BatchEvent->Status != ESimulationEventState::Pending
 				|| StoredEvent == nullptr || StoredEvent->State != ESimulationEventState::Pending
-				|| StoredEvent->Event.ParticipantCount != BatchEvent->GrantedCount
-				|| !EventStore.CompleteEvent(Due.EventID, OutError))
+				|| StoredEvent->Event.ParticipantCount != BatchEvent->GrantedCount)
 			{
-				Clock = ClockBefore;
-				Scheduler = SchedulerBefore;
-				EventStore = EventStoreBefore;
-				ReadyCounts = ReadyCountsBefore;
-				BatchEvents = BatchEventsBefore;
+				OutError = TEXT("A due batch event does not match its stored event or participant count.");
+				Restore();
+				return false;
+			}
+
+			if (BatchEvent->Action == EIndividualAction::Work)
+			{
+				const FV17BatchPrototypeClaim* Claim = BatchClaims.Find(BatchEvent->BatchClaimID);
+				if (!bWorkLedgerEnabled || Claim == nullptr
+					|| Claim->Action != EIndividualAction::Work
+					|| Claim->ResourceScope != TEXT("BoundaryIncome")
+					|| Claim->PerParticipantDemand <= 0)
+				{
+					OutError = TEXT("A due Work batch is missing its frozen aggregate wage claim.");
+					Restore();
+					return false;
+				}
+
+				FLedgerTransferRequest WageTransfer;
+				WageTransfer.IdempotencyKey = FString::Printf(
+					TEXT("V17-WORK-INCOME-%llu-0"),
+					BatchEvent->BatchClaimID);
+				WageTransfer.GameTime = Due.ExecuteAt;
+				WageTransfer.Resource = ESimulationResource::Coin;
+				WageTransfer.Source = ExternalBoundaryAccount;
+				WageTransfer.Destination = CellCashAccount(BatchEvent->SourceCellID);
+				WageTransfer.Quantity = static_cast<double>(
+					static_cast<int64>(BatchEvent->ParticipantCount) * Claim->PerParticipantDemand);
+				WageTransfer.bBoundaryFlow = true;
+				WageTransfer.EventID = BatchEvent->BatchEventID;
+				WageTransfer.ArriveID = StoredEvent->Event.ArriveID;
+				WageTransfer.PolicyID = BatchEvent->CausalPolicyID;
+				FTransactionID TransactionID = 0;
+				if (!Ledger.SubmitTransfer(WageTransfer, TransactionID, OutError))
+				{
+					Restore();
+					return false;
+				}
+				if (FailurePoint == EV17BatchPrototypeFailurePoint::AfterFirstWorkLedgerTransfer)
+				{
+					OutError = TEXT("Injected B2B failure after the first aggregate Work wage transfer.");
+					Restore();
+					return false;
+				}
+			}
+
+			if (!EventStore.CompleteEvent(Due.EventID, OutError))
+			{
+				Restore();
 				return false;
 			}
 			ReadyCounts.FindChecked(BatchEvent->SourceCellID) += BatchEvent->GrantedCount;
@@ -210,24 +359,30 @@ namespace AILOD
 
 		if (!Clock.AdvanceTo(TargetTime, OutError))
 		{
-			Clock = ClockBefore;
-			Scheduler = SchedulerBefore;
-			EventStore = EventStoreBefore;
-			ReadyCounts = ReadyCountsBefore;
-			BatchEvents = BatchEventsBefore;
+			Restore();
 			return false;
 		}
 		OutError.Reset();
 		return true;
 	}
 
-	int32 FV17NoResourceBatchPrototype::GetReadyCount(const FV17JointCellID CellID) const
+	int32 FV17BatchSlicePrototype::GetReadyCount(const FV17JointCellID CellID) const
 	{
 		const int32* Count = ReadyCounts.Find(CellID);
 		return Count != nullptr ? *Count : 0;
 	}
 
-	int32 FV17NoResourceBatchPrototype::GetPendingParticipantCount() const
+	int64 FV17BatchSlicePrototype::GetAggregateCash(const FV17JointCellID CellID) const
+	{
+		return FMath::RoundToInt64(Ledger.GetBalance(ESimulationResource::Coin, CellCashAccount(CellID)));
+	}
+
+	int64 FV17BatchSlicePrototype::GetTreasuryAvailable(const EKingdom Kingdom) const
+	{
+		return FMath::RoundToInt64(Ledger.GetBalance(ESimulationResource::Coin, TreasuryAccount(Kingdom)));
+	}
+
+	int32 FV17BatchSlicePrototype::GetPendingParticipantCount() const
 	{
 		int32 Count = 0;
 		for (const TPair<FEventID, FV17BatchPrototypeEvent>& Pair : BatchEvents)
@@ -237,12 +392,12 @@ namespace AILOD
 		return Count;
 	}
 
-	int32 FV17NoResourceBatchPrototype::GetPendingEventCount() const
+	int32 FV17BatchSlicePrototype::GetPendingEventCount() const
 	{
 		return Scheduler.NumPending();
 	}
 
-	int32 FV17NoResourceBatchPrototype::GetCompletedEventCount() const
+	int32 FV17BatchSlicePrototype::GetCompletedEventCount() const
 	{
 		int32 Count = 0;
 		for (const TPair<FEventID, FV17BatchPrototypeEvent>& Pair : BatchEvents)
@@ -252,7 +407,7 @@ namespace AILOD
 		return Count;
 	}
 
-	int64 FV17NoResourceBatchPrototype::GetParticipantWeightedActionCount(const EIndividualAction Action) const
+	int64 FV17BatchSlicePrototype::GetParticipantWeightedActionCount(const EIndividualAction Action) const
 	{
 		int64 Count = 0;
 		for (const TPair<FEventID, FV17BatchPrototypeEvent>& Pair : BatchEvents)
@@ -262,7 +417,7 @@ namespace AILOD
 		return Count;
 	}
 
-	FV17BatchPrototypeAudit FV17NoResourceBatchPrototype::BuildAudit() const
+	FV17BatchPrototypeAudit FV17BatchSlicePrototype::BuildAudit() const
 	{
 		FV17BatchPrototypeAudit Audit;
 		int64 AccountedPopulation = GetPendingParticipantCount();
@@ -288,10 +443,67 @@ namespace AILOD
 		Audit.PendingEventResidualCount = FMath::Abs(PendingBatchEvents - Scheduler.NumPending());
 		Audit.DuplicateCompletionCount = EventStore.GetDuplicateCompletionCount();
 		Audit.CommitResidueCount = CommitResidueCount;
+		if (bWorkLedgerEnabled)
+		{
+			Audit.CoinResidual = Ledger.ComputeResidual(ESimulationResource::Coin);
+			Audit.NegativeCoinStockCount = Ledger.CountNegativeStocks();
+			Audit.DuplicateTransactionCount = Ledger.GetDuplicateTransactionCount();
+			for (const EKingdom Kingdom : { EKingdom::A, EKingdom::B })
+			{
+				const int64* InitialTreasury = InitialTreasuries.Find(Kingdom);
+				Audit.TreasuryResidualCount += GetTreasuryAvailable(Kingdom)
+					== (InitialTreasury != nullptr ? *InitialTreasury : 0) ? 0 : 1;
+			}
+
+			for (const TPair<FEventID, FV17BatchPrototypeEvent>& Pair : BatchEvents)
+			{
+				const FV17BatchPrototypeEvent& BatchEvent = Pair.Value;
+				int32 MatchingTransactionCount = 0;
+				const FLedgerTransaction* MatchingTransaction = nullptr;
+				for (const FLedgerTransaction& Transaction : Ledger.GetTransactions())
+				{
+					if (Transaction.Transfer.EventID == BatchEvent.BatchEventID)
+					{
+						++MatchingTransactionCount;
+						MatchingTransaction = &Transaction;
+					}
+				}
+
+				if (BatchEvent.Action != EIndividualAction::Work)
+				{
+					Audit.WorkLedgerResidualCount += MatchingTransactionCount;
+					continue;
+				}
+
+				const int32 ExpectedTransactionCount = BatchEvent.Status == ESimulationEventState::Completed ? 1 : 0;
+				if (MatchingTransactionCount != ExpectedTransactionCount)
+				{
+					++Audit.WorkLedgerResidualCount;
+					continue;
+				}
+				if (ExpectedTransactionCount == 1)
+				{
+					const FV17BatchPrototypeClaim* Claim = BatchClaims.Find(BatchEvent.BatchClaimID);
+					const int64 ExpectedIncome = Claim != nullptr
+						? static_cast<int64>(BatchEvent.ParticipantCount) * Claim->PerParticipantDemand
+						: 0;
+					const FLedgerTransferRequest& Transfer = MatchingTransaction->Transfer;
+					if (Claim == nullptr
+						|| Transfer.IdempotencyKey != FString::Printf(TEXT("V17-WORK-INCOME-%llu-0"), BatchEvent.BatchClaimID)
+						|| Transfer.Source != ExternalBoundaryAccount
+						|| Transfer.Destination != CellCashAccount(BatchEvent.SourceCellID)
+						|| FMath::RoundToInt64(Transfer.Quantity) != ExpectedIncome
+						|| !Transfer.bBoundaryFlow)
+					{
+						++Audit.WorkLedgerResidualCount;
+					}
+				}
+			}
+		}
 		return Audit;
 	}
 
-	FString FV17NoResourceBatchPrototype::BuildDeterministicDigest() const
+	FString FV17BatchSlicePrototype::BuildDeterministicDigest() const
 	{
 		FString Canonical = FString::Printf(
 			TEXT("Seed=%d|Time=%lld|Population=%d|NextArrive=%lld|CommitResidue=%d|"),
@@ -306,6 +518,57 @@ namespace AILOD
 		for (const FV17JointCellID CellID : CellIDs)
 		{
 			Canonical += FString::Printf(TEXT("C=%llu,%d|"), CellID, ReadyCounts.FindChecked(CellID));
+		}
+		if (bWorkLedgerEnabled)
+		{
+			Canonical += TEXT("WorkLedger=1|");
+			for (const FV17JointCellID CellID : CellIDs)
+			{
+				const FV17BatchPrototypeCell& Cell = CellDefinitions.FindChecked(CellID);
+				Canonical += FString::Printf(
+					TEXT("CM=%llu,%d,%d,%lld|"),
+					CellID,
+					static_cast<int32>(Cell.Kingdom),
+					static_cast<int32>(Cell.IncomeBand),
+					Cell.InitialCash);
+			}
+
+			TArray<FResourceAccountKey> BalanceKeys;
+			Ledger.GetBalances().GetKeys(BalanceKeys);
+			BalanceKeys.Sort([](const FResourceAccountKey& Left, const FResourceAccountKey& Right)
+			{
+				if (Left.Resource != Right.Resource)
+				{
+					return static_cast<uint8>(Left.Resource) < static_cast<uint8>(Right.Resource);
+				}
+				return Left.Account.Compare(Right.Account, ESearchCase::CaseSensitive) < 0;
+			});
+			for (const FResourceAccountKey& Key : BalanceKeys)
+			{
+				Canonical += FString::Printf(
+					TEXT("L=%d,%s,%lld|"),
+					static_cast<int32>(Key.Resource),
+					*Key.Account,
+					FMath::RoundToInt64(Ledger.GetBalances().FindChecked(Key)));
+			}
+			for (const FLedgerTransaction& Transaction : Ledger.GetTransactions())
+			{
+				const FLedgerTransferRequest& Transfer = Transaction.Transfer;
+				Canonical += FString::Printf(
+					TEXT("T=%lld,%s,%lld,%d,%s,%s,%lld,%d,%lld,%lld,%lld|"),
+					Transaction.TransactionID,
+					*Transfer.IdempotencyKey,
+					Transfer.GameTime.Minutes,
+					static_cast<int32>(Transfer.Resource),
+					*Transfer.Source,
+					*Transfer.Destination,
+					FMath::RoundToInt64(Transfer.Quantity),
+					Transfer.bBoundaryFlow ? 1 : 0,
+					Transfer.EventID,
+					Transfer.ArriveID,
+					Transfer.PolicyID);
+			}
+			Canonical += FString::Printf(TEXT("LedgerDup=%d|"), Ledger.GetDuplicateTransactionCount());
 		}
 
 		TArray<FV17BatchClaimID> ClaimIDs;

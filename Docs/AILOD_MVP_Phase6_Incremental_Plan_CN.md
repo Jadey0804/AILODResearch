@@ -1,6 +1,6 @@
 # AILOD MVP Phase 6 增量实施计划与检查点
 
-**计划版本：2.1**<br>
+**计划版本：2.2**<br>
 **日期：2026-08-19**<br>
 **分支：`phase-6g-b-cohort-batch`**<br>
 **Phase 5.1 基线提交：`7ea750d6617f6346de37e19e2d20c9c76f5b682f`**<br>
@@ -14,7 +14,8 @@
 **Phase 6G-A 封板提交：`41d3bae`**<br>
 **Phase 6G-B0 封板提交：`8a1ac11`**<br>
 **Phase 6G-B1 封板提交：`90020f2`**<br>
-**当前状态：B2A 已实现并通过 Development Editor 与全套 `28/28` 自动测试，尚未提交，等待项目作者确认；B2B—B5 未开始；所有既有提交均未推送。**
+**Phase 6G-B2A 封板提交：`af3b253`**<br>
+**当前状态：项目作者已于 2026-08-19 确认 B2B；B2B 随独立本地提交封板后开始 B3；B4—B5 未开始；所有既有提交均未推送。**
 
 本文件把 Phase 6 和经证据触发的 6G-B 拆成可独立验收的实施步骤；模型事实只由版本化规格定义。本计划从 6G-B0 起按 `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.7.md` 导航，不自行新增或覆盖模型规则。规则冲突按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.7 顺序处理。
 
@@ -65,9 +66,9 @@ Phase 6 不负责：
 | Phase 6G-A | 只测量 Proposed Macro 子阶段并归因瓶颈 | 作者已确认，`41d3bae` 封板 |
 | Phase 6G-B0 | 冻结 v1.7、权威索引和 B0—B5 检查点 | 作者已确认，提交 `8a1ac11` 封板 |
 | Phase 6G-B1 | 建立不修改权威结果的 Shadow Cohort | 作者已确认，提交 `90020f2` 封板 |
-| Phase 6G-B2A | 隔离 Wait/Routine Batch 切片 | 已实现并通过检查，等待作者确认 |
-| Phase 6G-B2B | 隔离 Work 与工资/国库 Batch 切片 | 未开始 |
-| Phase 6G-B3 | 全动作资源竞争批量化并一次性切换 Macro 权威 | 未开始 |
+| Phase 6G-B2A | 隔离 Wait/Routine Batch 切片 | 作者已确认，提交 `af3b253` 封板 |
+| Phase 6G-B2B | 隔离 Work 与工资/国库 Batch 切片 | 作者已确认，本次独立提交封板 |
+| Phase 6G-B3 | 全动作资源竞争批量化并一次性切换 Macro 权威 | 已获授权开始 |
 | Phase 6G-B4 | Dynamic Lift/Restrict、Capsule 与 Batch Split/Merge | 未开始 |
 | Phase 6G-B5 | 200 准确性、2k—20k 回归/性能和 50k/100k 压力总验收 | 未开始 |
 
@@ -379,13 +380,25 @@ B0 检查点：
 - Work、超出来源可用人数和重复 Claim 均在写入前拒绝；前后完整 Digest 不变，不创建 fallback Event；
 - 两次相同运行在初始化、提交、第 6 小时和第 8 小时的 Digest 分别固定为 `0359B40D3F145C8E40D2DD6F44D8DA1F27AB1B5F`、`32477ACC7DB3B9984459EC2AE1E05C428E2398C0`、`23B042A5E11D6722B45FFA39A38CFF467B1505F9`、`1DDD347DFEC95E8AAA34789C40C9959D9C6DEC81`；
 - UE 5.4 Development Editor 编译成功；NullRHI 全套 `AILODResearch` 为 `28/28 Success`、`0 Failed`；独立证据见 `AILOD_MVP_Phase6G_B2A_Checkpoint_CN.md`；
-- 本步没有实现 Work/Ledger、资源竞争、完整 Proposed 切换或 Dynamic Lift/Restrict，不能作为规模性能或正式实验结论；当前尚未提交、未推送，等待项目作者确认后才允许封板并进入 B2B。
+- 本步没有实现 Work/Ledger、资源竞争、完整 Proposed 切换或 Dynamic Lift/Restrict，不能作为规模性能或正式实验结论；项目作者已于 2026-08-19 确认 B2A，本步以本地提交 `af3b253` 封板且未推送，并获授权进入 B2B。
 
 ### 6G-B2B：Work / Ledger Batch 切片
 
 - 在隔离夹具增加 Work 工资、国库和到期 Flow；
 - 聚合 Ledger 事务必须整数、幂等、可故障回滚并守恒；
 - 当前完整 Run 仍使用 v1.6 权威；未经确认不进入 B3 稀缺资源动作。
+
+实施记录（2026-08-19，等待作者确认）：
+
+- 在同一隔离原型增加 Work，群体 Cell 保存 Kingdom、IncomeBand 和聚合现金账户，两国 TreasuryAvailable 一并初始化和审计；
+- Work 继续继承冻结 Domain：Low 每人 1 Coin、NonLow 每人 2 Coin、持续 24 小时，工资为 `ExternalBoundary → CellCash`；Treasury 不作为工资来源且必须保持初值；
+- 一批 1000 人 Low Work 和一批 600 人 NonLow Work 只创建 2 条 Claim、2 条 Event、2 条 Scheduler 记录和到期后的 2 笔 Ledger 事务；总工资 2200 Coin，没有按 1600 人展开；
+- Work 提交时不提前发工资；第 24 小时 Low 聚合现金从 100 增至 1100，NonLow 从 200 增至 1400，A/B 国库分别保持 5000/7000；
+- 每笔工资使用 `Hash(BatchClaimID, Work, EffectIndex)` 语义的稳定 IdempotencyKey；重复推进和重复提交均不能二次支付；
+- 在第一笔工资已经提交后故意失败，Ledger、Count、Event、Scheduler 和幂等状态全部恢复；重试结果与无故障重放相同；
+- 初始化、提交和完成 Digest 分别固定为 `BB99B3AA6FB8B38634C287C7BD8515486065B284`、`F291A9A526A0DB8C9AF2F7041CD53B3AFE9E30C0`、`7F2B78F035390E7DA8CC8046AFC1142174235FDE`；B2A 四个旧 Digest 不变；
+- UE 5.4 Development Editor 编译成功；NullRHI 全套 `AILODResearch` 为 `29/29 Success`、`0 Failed`；独立证据见 `AILOD_MVP_Phase6G_B2B_Checkpoint_CN.md`；
+- 本步没有实现 BuyWood/ChopWood/Repair/Reservation 竞争、完整 Proposed 切换或 Dynamic Lift/Restrict，不能作为规模性能或正式实验结论；项目作者已于 2026-08-19 确认 B2B，并授权本步随独立本地提交封板后进入 B3；不推送。
 
 ### 6G-B3：资源竞争批量化
 

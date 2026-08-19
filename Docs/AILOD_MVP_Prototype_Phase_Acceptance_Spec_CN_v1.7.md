@@ -3,10 +3,10 @@
 **版本：v1.7**<br>
 **日期：2026-08-18**<br>
 **验收文档可读性规则增补：2026-08-19**<br>
-**状态：研究方向与 6G-B0 规则已由项目作者于 2026-08-18 确认；B0 已随独立本地提交封板；B1 已由项目作者于 2026-08-19 确认并以 `90020f2` 封板；B2A 已实现并通过检查，等待项目作者确认；B2B—B5 尚未实现**<br>
+**状态：研究方向与 6G-B0 规则已由项目作者于 2026-08-18 确认；B0 已随独立本地提交封板；B1、B2A 已分别以 `90020f2`、`af3b253` 封板；项目作者已于 2026-08-19 确认 B2B 并授权封板后开始 B3；B4—B5 尚未实现**<br>
 **基准文档：`AILOD_MVP_Prototype_Implementation_Spec_CN.md` v1.1**<br>
 **前序修订：v1.2、v1.3、v1.4、v1.5、v1.6**<br>
-**工程证据：`AILOD_MVP_Phase6G_A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B1_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2A_Checkpoint_CN.md`**<br>
+**工程证据：`AILOD_MVP_Phase6G_A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B1_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2B_Checkpoint_CN.md`**<br>
 **用途：用结构化 Cohort 权威状态、批量 Claim/Event 和按需 Lift/Restrict 替代 Proposed 的每小时全员候选与个人提交；历史文档保留不改。**
 
 ## 1. 文档优先级、实施生效点与不变项
