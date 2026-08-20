@@ -1,6 +1,6 @@
 # AILOD MVP 当前有效规则索引
 
-**索引版本：3.7**<br>
+**索引版本：3.9**<br>
 **日期：2026-08-20**<br>
 **用途：说明当前规则的读取顺序、冲突优先级和各文档职责。**<br>
 **性质：本文件只做导航，不新增模型规则、不替代原规格，也不构成阶段验收。**
@@ -50,6 +50,7 @@
 | Phase 6G-B5A Checkpoint | 新旧 Proposed 明确选择、v1.7 完整时钟工程冒烟、Schema 1.2 清单和清单重放 | 只证明新运行器接线正确；目前只开放无政策 Performance 工程冒烟，不代表政策行为、200 Oracle 准确性或 2k—100k 性能已经通过 |
 | Phase 6G-B5B Checkpoint | 完整共享行为、地震、三种固定政策、Schema 1.2 明细日志和 200 人 Oracle 工程对照 | 证明完整准确性数据链已接通并能报告近似误差；只是单 Seed 工程检查，不代表 2k—100k 规模、3 倍目标或正式统计已经通过 |
 | Phase 6G-B5C Checkpoint | 2k、10k、20k 的确定性重放、硬错误、批量增长、生产总成本和离线重建 | 证明中等规模工程链路与整场成本口径已接通；单轮 20k 速度不能替代 B5E 的重复和顺序控制，也不代表 50k/100k 已通过 |
+| Phase 6G-B5D-Lite Checkpoint | Proposed-only 的 50k/100k 压力运行、100k 重放和 20k→100k 后台增长检查 | 证明当前工程环境能推进 100k，且后台对象未随人口增长；不提供 50k/100k Per-Agent 速度比，也不替代 B5E |
 
 ## 3. 当前最容易误读的有效规则
 
@@ -93,7 +94,7 @@ Phase 6A—6F 已经实现以下内容：
 
 以上 Phase 6A—6F 历史边界以 v1.6 §8 和 Phase 5.1 Checkpoint §8 为准；6G-B 的新 Proposed 规则以 v1.7 为准。
 
-当前位于 `phase-6g-b-cohort-batch`。Phase 6A—6F 已分别以本地提交 `71e3565`、`c0e84d2`、`eb44bf3`、`93282ed`、`6ee6873`、`c629bb6` 封板；6G-A、6G-B0、6G-B1、6G-B2A、6G-B2B、6G-B3、B4、B5A 和 B5B 已分别以本地提交 `41d3bae`、`8a1ac11`、`90020f2`、`af3b253`、`37120c4`、`0ed8c16`、`97e5843`、`8f7adbb`、`e17d0dc` 封板。B5C 已完成固定 Seed 的 2k、10k、20k Proposed/Per-Agent 定向运行、三档 Proposed 重放、硬错误、离线重建和 `36/36` 完整回归；后台状态格、Batch 对象与 ResidentTouches 没有随人口近似增长，并修正了整场性能速度比口径。B5C 等待作者确认，尚未提交；B5D—B5E 的 50k/100k 与最终 3 倍目标复验仍未完成。Phase 7 和 Phase 8 尚未开始，所有既有提交均未推送。
+当前位于 `phase-6g-b-cohort-batch`。Phase 6A—6F 已分别以本地提交 `71e3565`、`c0e84d2`、`eb44bf3`、`93282ed`、`6ee6873`、`c629bb6` 封板；6G-A、6G-B0、6G-B1、6G-B2A、6G-B2B、6G-B3、B4、B5A、B5B 和 B5C 已分别以本地提交 `41d3bae`、`8a1ac11`、`90020f2`、`af3b253`、`37120c4`、`0ed8c16`、`97e5843`、`8f7adbb`、`e17d0dc`、`b0d75e0` 封板。B5D-Lite 已完成 Proposed-only 的 50k/100k 压力运行、100k 重放和 37 项完整回归；两档硬错误为 0，后台状态格、Batch 对象和 ResidentTouches 与 20k 相同。项目作者已确认 B5D-Lite，正在独立本地提交封板；B5E 的 20k 重复、顺序控制和 3 倍目标决定将在提交后开始。Phase 7 和 Phase 8 尚未开始，所有既有提交均未推送。
 
 ## 5. 后续修改规则
 

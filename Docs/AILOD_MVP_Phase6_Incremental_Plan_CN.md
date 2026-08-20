@@ -1,6 +1,6 @@
 # AILOD MVP Phase 6 增量实施计划与检查点
 
-**计划版本：2.5**<br>
+**计划版本：2.7**<br>
 **日期：2026-08-20**<br>
 **分支：`phase-6g-b-cohort-batch`**<br>
 **Phase 5.1 基线提交：`7ea750d6617f6346de37e19e2d20c9c76f5b682f`**<br>
@@ -20,7 +20,8 @@
 **Phase 6G-B4 封板提交：`97e5843`**<br>
 **Phase 6G-B5A 封板提交：`8f7adbb`**<br>
 **Phase 6G-B5B 封板提交：`e17d0dc`**<br>
-**当前状态：B5C 的 2k、10k、20k 规模、重放、硬错误、离线重建、生产成本和 `36/36` 完整回归已通过，等待项目作者确认；B5D—B5E 尚未开始；所有既有提交均未推送。**
+**Phase 6G-B5C 封板提交：`b0d75e0`**<br>
+**当前状态：项目作者已确认 B5D-Lite 的 50k、100k Proposed 压力测试、100k 重放和 37 项完整回归；B5D-Lite 正在独立本地提交封板，随后开始 B5E，所有既有提交均未推送。**
 
 本文件把 Phase 6 和经证据触发的 6G-B 拆成可独立验收的实施步骤；模型事实只由版本化规格定义。本计划从 6G-B0 起按 `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.7.md` 导航，不自行新增或覆盖模型规则。规则冲突按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.7 顺序处理。
 
@@ -75,7 +76,7 @@ Phase 6 不负责：
 | Phase 6G-B2B | 隔离 Work 与工资/国库 Batch 切片 | 作者已确认，提交 `37120c4` 封板 |
 | Phase 6G-B3 | 全动作资源竞争批量化并一次性切换 Macro 权威 | 作者已确认，提交 `0ed8c16` 封板 |
 | Phase 6G-B4 | Dynamic Lift/Restrict、Capsule 与 Batch Split/Merge | 作者已确认，提交 `97e5843` 封板 |
-| Phase 6G-B5 | 200 准确性、2k—20k 回归/性能和 50k/100k 压力总验收 | 进行中：B5A、B5B 已提交封板；B5C 完成检查，等待作者确认 |
+| Phase 6G-B5 | 200 准确性、2k—20k 回归/性能和 50k/100k 压力总验收 | 进行中：B5A—B5C 已提交封板；B5D-Lite 已获作者确认，正在封板 |
 
 ## 4. Phase 6A：可逐小时推进的生产会话
 
@@ -488,7 +489,20 @@ B0 检查点：
 - 修正性能解释口径：旧 Mean/P95 是约一真实秒桶的形状，不能代表整场速度；离线汇总新增 `AICpuMs.Total` 和 `SpeedupVsPerAgent.TotalAI`，删除汇总后可从原始文件逐字节重建；
 - 一次独立工程运行的 Proposed/Per-Agent 整场生产时间分别为 2k `3678.064 / 703.375 ms`、10k `3782.201 / 6262.379 ms`、20k `3580.731 / 19097.790 ms`；总成本比为 `0.191 / 1.656 / 5.333`。这是单轮工程信号，不提前通过 B5E 的 3 倍目标；
 - Development Editor 编译成功；NullRHI 全套为 `36/36 Success`、失败 0、自动化错误 0、退出码 0；完整回归中的第二次 20k 总成本比约为 `5.010`，但方法顺序相同，仍不能替代 B5E；
-- `valid_for_formal_experiment=false` 继续保持；B5D 的 50k/100k 和 B5E 的重复、顺序控制及正式资格决定尚未开始；独立证据见 `AILOD_MVP_Phase6G_B5C_Checkpoint_CN.md`。
+- `valid_for_formal_experiment=false` 继续保持；在 B5C 封板时，B5D 的 50k/100k 和 B5E 的重复、顺序控制及正式资格决定尚未开始；独立证据见 `AILOD_MVP_Phase6G_B5C_Checkpoint_CN.md`。
+
+#### B5D-Lite：只让 Proposed 做 50k、100k 压力测试
+
+实施记录（2026-08-20，完整检查通过，项目作者已确认）：
+
+- 项目作者批准 50k/100k 只运行 Proposed v1.7，不运行 Oracle 或 Per-Agent；100k 额外从清单重放一次，Per-Agent 公平速度比较保留到 B5E 的 20k；
+- 运行前把 20k→100k 增长失败线固定为：ResidentTouches、非空状态格、Batch Claim、Batch Event 任一超过 20k 基线 2 倍即失败；
+- 修正旧 Phase 0 只允许最高 20k 总人口的入口白名单，新增每王国 25k、50k 两个 v1.7 已批准压力档位，不改变原档位或生成规则；
+- 50k/100k 固定 Digest 为 `EE29C67F7A0C98A5C1138143CE09B3D064492599`、`C6231059510F7A6E89ABE529BDE80836CFBECC78`；两档均跑到 D60、硬错误为 0，100k 重放相同；
+- 20k、50k、100k 的 Identity Scan/小时均为 0，ResidentTouches 均为 120，非空状态格均为 9，Batch Claim/Event 均为 `2827 / 2905`，人口增长 5 倍时后台对象没有增长；
+- 第二次独立定向运行的 50k/100k 初始化为 `27.127 / 55.998 ms`，整场 Production 为 `4409.361 / 6705.896 ms`；100k 相比 B5C 20k 的单轮生产时间约为 `1.87` 倍，不是完全不变，但远低于 5 倍人口增长；
+- Development Editor 编译成功；NullRHI 完整回归实际发现 37 项，`37/37 Success`、失败 0、自动化错误 0、退出码 0；B5C 与 B5D-Lite 的固定结果指纹全部保持不变；
+- `valid_for_formal_experiment=false` 继续保持；B5E 尚未完成；独立证据见 `AILOD_MVP_Phase6G_B5D_Lite_Checkpoint_CN.md`。
 
 ## 12. Step 0 确认门
 

@@ -3,17 +3,17 @@
 **版本：v1.7**<br>
 **日期：2026-08-18**<br>
 **验收文档可读性规则增补：2026-08-19**<br>
-**状态：研究方向与 6G-B0 规则已由项目作者于 2026-08-18 确认；B0—B4 已分别封板，B1、B2A、B2B、B3、B4 提交为 `90020f2`、`af3b253`、`37120c4`、`0ed8c16`、`97e5843`；B5A、B5B 已由项目作者确认并以 `8f7adbb`、`e17d0dc` 封板；B5C 已完成检查、等待项目作者确认，B5 总验收尚未完成**<br>
+**状态：研究方向与 6G-B0 规则已由项目作者于 2026-08-18 确认；B0—B4 已分别封板，B1、B2A、B2B、B3、B4 提交为 `90020f2`、`af3b253`、`37120c4`、`0ed8c16`、`97e5843`；B5A—B5C 已由项目作者确认并以 `8f7adbb`、`e17d0dc`、`b0d75e0` 封板；B5D-Lite 完整检查已通过并获项目作者确认，正在独立本地提交封板，B5 总验收尚未完成**<br>
 **基准文档：`AILOD_MVP_Prototype_Implementation_Spec_CN.md` v1.1**<br>
 **前序修订：v1.2、v1.3、v1.4、v1.5、v1.6**<br>
-**工程证据：`AILOD_MVP_Phase6G_A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B1_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2B_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B3_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B4_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5B_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5C_Checkpoint_CN.md`**<br>
+**工程证据：`AILOD_MVP_Phase6G_A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B1_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2B_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B3_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B4_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5B_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5C_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5D_Lite_Checkpoint_CN.md`**<br>
 **用途：用结构化 Cohort 权威状态、批量 Claim/Event 和按需 Lift/Restrict 替代 Proposed 的每小时全员候选与个人提交；历史文档保留不改。**
 
 ## 1. 文档优先级、实施生效点与不变项
 
 实现依次读取 v1.1、v1.2、v1.3、v1.4、v1.5、v1.6 和本文件。本文件只覆盖第 2 节明确列出的冲突；未覆盖内容继续有效。
 
-v1.7 的模型规则已经冻结。B4 已在隔离的 v1.7 权威会话中接入动态居民恢复和退出；B5A 已让 Experiment Runner 显式选择 v1.7；B5B 已接入完整行为、地震、政策和 200 人 Accuracy 数据链；B5C 已完成 2k、10k、20k 定向规模链路，但 50k/100k 与最终速度复验仍未完成，并继续标记为不能用于正式实验。B5 总验收完成前，默认完整 Proposed 仍不得被当作正式 v1.7 结果。实施期间必须区分：
+v1.7 的模型规则已经冻结。B4 已在隔离的 v1.7 权威会话中接入动态居民恢复和退出；B5A 已让 Experiment Runner 显式选择 v1.7；B5B 已接入完整行为、地震、政策和 200 人 Accuracy 数据链；B5C 已完成 2k、10k、20k 定向规模链路；B5D-Lite 已完成 Proposed-only 的 50k/100k 定向压力链路，但 B5E 最终速度复验仍未完成，并继续标记为不能用于正式实验。B5 总验收完成前，默认完整 Proposed 仍不得被当作正式 v1.7 结果。实施期间必须区分：
 
 - **v1.6 Current Proposed：** 当前个人 CoreState、个人候选和独立提交实现；
 - **v1.7 Shadow Proposed：** 6G-B1 只在旁路计算，不修改权威结果或旧 Digest；
@@ -463,7 +463,7 @@ B5B 实施记录（2026-08-20，项目作者已确认并以 `e17d0dc` 封板）�
 - UE 5.4 Development Editor 编译成功，NullRHI 全套 `35/35 Success`、失败 0、自动化错误 0、退出码 0；B3/B4 冻结 Digest 不变；
 - B5B 封板时 B5C—B5E 尚未完成，`valid_for_formal_experiment=false` 继续保持；详细证据见 `AILOD_MVP_Phase6G_B5B_Checkpoint_CN.md`。
 
-B5C 实施记录（2026-08-20，完成检查，等待项目作者确认）：
+B5C 实施记录（2026-08-20，项目作者已确认，提交 `b0d75e0`）：
 
 - 2k、10k、20k 的 Proposed v1.7 与 Per-Agent Performance Run 已完成；三档 Proposed 清单重放得到相同固定 Digest，所有硬错误为 0；
 - 三档 Identity Scan/小时均为 0，ResidentTouches 均为 120，非空状态格均为 9，Batch Claim/Event 基本不随人口增长；
@@ -471,7 +471,16 @@ B5C 实施记录（2026-08-20，完成检查，等待项目作者确认）：
 - 离线汇总新增整场 `AICpuMs.Total` 和 `SpeedupVsPerAgent.TotalAI`，修正旧一秒桶均值不能表示整场速度的问题；
 - 单轮 20k 工程数据的总成本比为 `5.333`，但重复与顺序控制仍属于 B5E，不能提前判定 3 倍目标通过；
 - UE 5.4 Development Editor 编译成功，NullRHI 全套 `36/36 Success`、失败 0、自动化错误 0、退出码 0；完整回归再次得到约 `5.010` 的 20k 总成本比，但仍是相同方法顺序；
-- B5D—B5E 尚未完成，`valid_for_formal_experiment=false` 继续保持；详细证据见 `AILOD_MVP_Phase6G_B5C_Checkpoint_CN.md`。
+- 在 B5C 封板时，B5D—B5E 尚未完成，`valid_for_formal_experiment=false` 继续保持；详细证据见 `AILOD_MVP_Phase6G_B5C_Checkpoint_CN.md`。
+
+B5D-Lite 实施记录（2026-08-20，完整检查通过，项目作者已确认）：
+
+- 项目作者批准 50k/100k 只运行 Proposed v1.7；不运行 Oracle/Per-Agent，100k 额外执行清单重放，Per-Agent 速度比较留给 B5E 的 20k；
+- 运行前固定更严格增长门：100k 的 ResidentTouches、非空状态格、Batch Claim/Event 均不得超过 B5C 20k 基线 2 倍；
+- 50k/100k 均完成 D60 且硬错误为 0，100k 重放相同；两档后台计数与 20k 相同，未随人口增加 5 倍；
+- 100k 单轮 Production 相比 B5C 20k 约为 `1.87` 倍；它证明没有接近 5 倍增长，但不是正式计时结论；
+- Development Editor 编译成功；NullRHI 完整回归为 `37/37 Success`、失败 0、自动化错误 0、退出码 0，B5C 与 B5D-Lite 的固定结果指纹均未变化；
+- B5E 尚未完成，`valid_for_formal_experiment=false` 继续保持；详细证据见 `AILOD_MVP_Phase6G_B5D_Lite_Checkpoint_CN.md`。
 
 每个步骤必须使用同一 `phase-6g-b-cohort-batch` 分支上的独立本地提交，完成 Development Editor 编译、全部既有测试和本步新增测试，更新检查点后停止等待作者确认；未经明确要求不推送。B0 是纯文档例外，只要求文档/版本/Git 一致性检查，不重复运行未受影响的 UE 二进制测试。
 

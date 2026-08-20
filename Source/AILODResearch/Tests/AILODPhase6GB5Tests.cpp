@@ -416,4 +416,181 @@ bool FAILODPhase6GB5CScaleRegressionTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAILODPhase6GB5DStressLiteTest,
+	"AILODResearch.Phase6G.V17StressLite",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAILODPhase6GB5DStressLiteTest::RunTest(const FString& Parameters)
+{
+	using namespace AILOD;
+	using namespace AILOD::LogSchema;
+
+	constexpr int64 Baseline20KResidentTouches = 120;
+	constexpr int32 Baseline20KNonEmptyCells = 9;
+	constexpr int64 Baseline20KBatchClaims = 2827;
+	constexpr int64 Baseline20KBatchEvents = 2905;
+	const FString TestRoot = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AILOD/Phase6GB5DCheckpoint"));
+	IFileManager::Get().DeleteDirectory(*TestRoot, false, true);
+	FExperimentRunRecord Proposed100K;
+	FString Proposed100KManifestPath;
+
+	for (const int32 TotalPopulation : { 50000, 100000 })
+	{
+		const FString ScaleRoot = FPaths::Combine(TestRoot, FString::Printf(TEXT("Population-%d"), TotalPopulation));
+		FExperimentMatrixRequest Request;
+		Request.OutputRoot = ScaleRoot;
+		Request.ExperimentID = FString::Printf(TEXT("PHASE6GB5D-LITE-ENGINEERING-%d"), TotalPopulation);
+		Request.Methods = { EUnifiedSimulationMethod::Proposed };
+		Request.Scenarios = { EStage2Scenario::StateImport };
+		Request.Seeds = { 20260810 };
+		Request.PopulationPerKingdom = TotalPopulation / 2;
+		Request.Mode = EUnifiedRunMode::Performance;
+		Request.ProposedModelVersion = EProposedModelVersion::V17Authoritative;
+		Request.GitCommit = TEXT("phase-6g-b5d-lite-local");
+		Request.UEVersion = TEXT("5.4");
+		Request.BuildType = TEXT("Development Editor");
+		Request.Hardware = TEXT("automation-test-host");
+		Request.LogMode = TEXT("B5DLiteEngineeringStress");
+		Request.StartTime = TEXT("2026-08-20T00:00:00Z");
+		Request.EndTime = TEXT("2026-08-20T00:04:00Z");
+
+		TArray<FExperimentRunRecord> Runs;
+		FString Error;
+		if (!FExperimentRunner::RunMatrix(Request, Runs, Error))
+		{
+			AddError(FString::Printf(TEXT("The B5D-Lite %d-person Proposed run failed: %s"), TotalPopulation, *Error));
+			return false;
+		}
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d runs Proposed only"), TotalPopulation), Runs.Num(), 1);
+		if (Runs.Num() != 1) return false;
+		const FExperimentRunRecord& Run = Runs[0];
+		const FString ExpectedDigest = TotalPopulation == 50000
+			? TEXT("EE29C67F7A0C98A5C1138143CE09B3D064492599")
+			: TEXT("C6231059510F7A6E89ABE529BDE80836CFBECC78");
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d freezes the v1.7 deterministic Digest"), TotalPopulation),
+			Run.DeterministicDigest, ExpectedDigest);
+		TestTrue(*FString::Printf(TEXT("B5D-Lite %d has no hard error"), TotalPopulation), Run.bHardErrorFree);
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d initializes every identity"), TotalPopulation),
+			Run.Diagnostics.V17IdentityCount, static_cast<int64>(TotalPopulation));
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d never scans all identities during an hour"), TotalPopulation),
+			Run.Diagnostics.V17IdentityScanCountPerHour, int64(0));
+		TestTrue(*FString::Printf(TEXT("B5D-Lite %d keeps Active residents within 50"), TotalPopulation),
+			Run.Diagnostics.MaxActiveMicro <= 50);
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d performs two full audits"), TotalPopulation),
+			Run.Diagnostics.FullAuditCount, int64(2));
+		TestTrue(*FString::Printf(TEXT("B5D-Lite %d records initialization cost"), TotalPopulation),
+			Run.CostBreakdown.InitializeCpuMs > 0.0);
+		TestTrue(*FString::Printf(TEXT("B5D-Lite %d records production cost"), TotalPopulation),
+			Run.CostBreakdown.ProductionCpuMs > 0.0);
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d excludes validation cost"), TotalPopulation),
+			Run.CostBreakdown.ValidationCpuMs, 0.0);
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d excludes snapshot cost"), TotalPopulation),
+			Run.CostBreakdown.SnapshotCpuMs, 0.0);
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d excludes observer cost"), TotalPopulation),
+			Run.CostBreakdown.ObserverCpuMs, 0.0);
+		TestTrue(*FString::Printf(TEXT("B5D-Lite %d writes performance samples"), TotalPopulation),
+			Run.PerformanceSampleCount > 0);
+
+		TestTrue(*FString::Printf(TEXT("B5D-Lite %d resident touches stay below twice the 20k baseline"), TotalPopulation),
+			Run.Diagnostics.V17ResidentTouches <= Baseline20KResidentTouches * 2);
+		TestTrue(*FString::Printf(TEXT("B5D-Lite %d non-empty cells stay below twice the 20k baseline"), TotalPopulation),
+			Run.Diagnostics.V17NonEmptyJointCellCount <= Baseline20KNonEmptyCells * 2);
+		TestTrue(*FString::Printf(TEXT("B5D-Lite %d batch claims stay below twice the 20k baseline"), TotalPopulation),
+			Run.Diagnostics.V17BatchClaimCount <= Baseline20KBatchClaims * 2);
+		TestTrue(*FString::Printf(TEXT("B5D-Lite %d batch events stay below twice the 20k baseline"), TotalPopulation),
+			Run.Diagnostics.V17BatchEventCount <= Baseline20KBatchEvents * 2);
+
+		const FString ManifestPath = FPaths::Combine(Run.RunDirectory, RunManifestFile);
+		FString ManifestText;
+		TSharedPtr<FJsonObject> Manifest;
+		if (!FFileHelper::LoadFileToString(ManifestText, *ManifestPath)
+			|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(ManifestText), Manifest)
+			|| !Manifest.IsValid())
+		{
+			AddError(FString::Printf(TEXT("B5D-Lite %d could not read its run manifest."), TotalPopulation));
+			return false;
+		}
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d writes Schema 1.2"), TotalPopulation),
+			Manifest->GetStringField(TEXT("schema_version")), FString(TEXT("1.2")));
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d writes Spec 1.7"), TotalPopulation),
+			Manifest->GetStringField(TEXT("spec_version")), FString(TEXT("1.7")));
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d records the v1.7 authority"), TotalPopulation),
+			Manifest->GetStringField(TEXT("authority_mode")), FString(TEXT("v1.7_authoritative")));
+		TestFalse(*FString::Printf(TEXT("B5D-Lite %d keeps formal validity closed"), TotalPopulation),
+			Manifest->GetBoolField(TEXT("valid_for_formal_experiment")));
+		const TSharedPtr<FJsonObject>* HardErrors = nullptr;
+		if (!Manifest->TryGetObjectField(TEXT("hard_errors"), HardErrors) || HardErrors == nullptr)
+		{
+			AddError(FString::Printf(TEXT("B5D-Lite %d manifest is missing hard-error results."), TotalPopulation));
+			return false;
+		}
+		for (const TPair<FString, TSharedPtr<FJsonValue>>& Field : (*HardErrors)->Values)
+		{
+			TestEqual(*FString::Printf(TEXT("B5D-Lite %d hard error %s is zero"), TotalPopulation, *Field.Key),
+				Field.Value->AsNumber(), 0.0);
+		}
+
+		TArray<FString> ActualFiles;
+		IFileManager::Get().FindFiles(ActualFiles, *FPaths::Combine(Run.RunDirectory, TEXT("*")), true, false);
+		ActualFiles.Sort();
+		TArray<FString> ExpectedFiles = { PerformanceFile, RunManifestFile };
+		ExpectedFiles.Sort();
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d writes only isolated performance artifacts"), TotalPopulation),
+			FString::Join(ActualFiles, TEXT("|")), FString::Join(ExpectedFiles, TEXT("|")));
+		FString PerformanceText;
+		TestTrue(*FString::Printf(TEXT("B5D-Lite %d performance samples load"), TotalPopulation),
+			FFileHelper::LoadFileToString(PerformanceText, *FPaths::Combine(Run.RunDirectory, PerformanceFile)));
+		TestTrue(*FString::Printf(TEXT("B5D-Lite %d performance rows use Schema 1.2"), TotalPopulation),
+			PerformanceText.Contains(TEXT("\n\"1.2\",")));
+
+		AddInfo(FString::Printf(
+			TEXT("B5D-Lite population=%d digest=%s initialize_ms=%.3f production_ms=%.3f audit_ms=%.3f identity_scans_per_hour=%lld resident_touches=%lld cells=%d claims=%lld events=%lld participants=%lld active=%d"),
+			TotalPopulation,
+			*Run.DeterministicDigest,
+			Run.CostBreakdown.InitializeCpuMs,
+			Run.CostBreakdown.ProductionCpuMs,
+			Run.CostBreakdown.AuditCpuMs,
+			Run.Diagnostics.V17IdentityScanCountPerHour,
+			Run.Diagnostics.V17ResidentTouches,
+			Run.Diagnostics.V17NonEmptyJointCellCount,
+			Run.Diagnostics.V17BatchClaimCount,
+			Run.Diagnostics.V17BatchEventCount,
+			Run.Diagnostics.V17ParticipantCount,
+			Run.Diagnostics.MaxActiveMicro));
+
+		if (TotalPopulation == 100000)
+		{
+			Proposed100K = Run;
+			Proposed100KManifestPath = ManifestPath;
+		}
+	}
+
+	if (Proposed100KManifestPath.IsEmpty())
+	{
+		AddError(TEXT("B5D-Lite did not retain the 100k Proposed run for replay."));
+		return false;
+	}
+	FExperimentRunRecord Replay;
+	FString ReplayError;
+	const FString ReplayRoot = FPaths::Combine(TestRoot, TEXT("Replay-100000-Proposed"));
+	if (!FExperimentRunner::ReplayFromManifest(Proposed100KManifestPath, ReplayRoot, Replay, ReplayError))
+	{
+		AddError(FString::Printf(TEXT("B5D-Lite 100k replay failed: %s"), *ReplayError));
+		return false;
+	}
+	TestEqual(TEXT("B5D-Lite 100k replay preserves the deterministic Digest"),
+		Replay.DeterministicDigest, Proposed100K.DeterministicDigest);
+	TestTrue(TEXT("B5D-Lite 100k replay remains hard-error free"), Replay.bHardErrorFree);
+	TestEqual(TEXT("B5D-Lite 100k replay keeps hourly identity scans at zero"),
+		Replay.Diagnostics.V17IdentityScanCountPerHour, int64(0));
+	TestEqual(TEXT("B5D-Lite 100k replay preserves resident touches"),
+		Replay.Diagnostics.V17ResidentTouches, Proposed100K.Diagnostics.V17ResidentTouches);
+	TestEqual(TEXT("B5D-Lite 100k replay preserves batch claims"),
+		Replay.Diagnostics.V17BatchClaimCount, Proposed100K.Diagnostics.V17BatchClaimCount);
+	TestEqual(TEXT("B5D-Lite 100k replay preserves batch events"),
+		Replay.Diagnostics.V17BatchEventCount, Proposed100K.Diagnostics.V17BatchEventCount);
+	return true;
+}
+
 #endif

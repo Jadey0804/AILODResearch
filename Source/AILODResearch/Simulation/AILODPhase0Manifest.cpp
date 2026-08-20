@@ -232,10 +232,12 @@ namespace AILOD
 		const bool bSupportedPopulation = Config.PopulationPerKingdom == 100
 			|| Config.PopulationPerKingdom == 1000
 			|| Config.PopulationPerKingdom == 5000
-			|| Config.PopulationPerKingdom == 10000;
+			|| Config.PopulationPerKingdom == 10000
+			|| Config.PopulationPerKingdom == 25000
+			|| Config.PopulationPerKingdom == 50000;
 		if (!bSupportedPopulation)
 		{
-			OutError = TEXT("PopulationPerKingdom must match a frozen scale: 100, 1000, 5000, or 10000.");
+			OutError = TEXT("PopulationPerKingdom must match a frozen scale: 100, 1000, 5000, 10000, 25000, or 50000.");
 			return false;
 		}
 
