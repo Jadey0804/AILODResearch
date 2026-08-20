@@ -446,6 +446,28 @@ namespace AILOD
 			Diagnostics->SetNumberField(TEXT("restrict_count"), Result.Diagnostics.V17RestrictCount);
 			Diagnostics->SetNumberField(TEXT("max_active"), Result.Diagnostics.MaxActiveMicro);
 			Measurements->SetObjectField(TEXT("v1_7_diagnostics"), Diagnostics);
+
+			const FV17TrackedAuthorityMemory& Memory = Result.V17TrackedMemory;
+			TSharedRef<FJsonObject> TrackedMemory = MakeShared<FJsonObject>();
+			TrackedMemory->SetStringField(
+				TEXT("scope"),
+				TEXT("authority_object_plus_container_allocations_and_nested_string_array_allocations; excludes_process_runtime_inputs_outputs_and_allocator_overhead"));
+			TrackedMemory->SetNumberField(TEXT("authority_fixed_bytes"), static_cast<double>(Memory.AuthorityFixedBytes));
+			TrackedMemory->SetNumberField(TEXT("identity_registry_bytes"), static_cast<double>(Memory.IdentityRegistryBytes));
+			TrackedMemory->SetNumberField(TEXT("joint_state_bytes"), static_cast<double>(Memory.JointStateBytes));
+			TrackedMemory->SetNumberField(TEXT("active_state_bytes"), static_cast<double>(Memory.ActiveStateBytes));
+			TrackedMemory->SetNumberField(TEXT("continuity_capsule_bytes"), static_cast<double>(Memory.CapsuleBytes));
+			TrackedMemory->SetNumberField(TEXT("participant_ref_bytes"), static_cast<double>(Memory.ParticipantRefBytes));
+			TrackedMemory->SetNumberField(TEXT("batch_claim_bytes"), static_cast<double>(Memory.BatchClaimBytes));
+			TrackedMemory->SetNumberField(TEXT("batch_event_bytes"), static_cast<double>(Memory.BatchEventBytes));
+			TrackedMemory->SetNumberField(TEXT("system_event_bytes"), static_cast<double>(Memory.SystemEventBytes));
+			TrackedMemory->SetNumberField(TEXT("ledger_bytes"), static_cast<double>(Memory.LedgerBytes));
+			TrackedMemory->SetNumberField(TEXT("reservation_bytes"), static_cast<double>(Memory.ReservationBytes));
+			TrackedMemory->SetNumberField(TEXT("event_store_bytes"), static_cast<double>(Memory.EventStoreBytes));
+			TrackedMemory->SetNumberField(TEXT("scheduler_bytes"), static_cast<double>(Memory.SchedulerBytes));
+			TrackedMemory->SetNumberField(TEXT("lod_transition_bytes"), static_cast<double>(Memory.LODTransitionBytes));
+			TrackedMemory->SetNumberField(TEXT("total_tracked_authority_bytes"), static_cast<double>(Memory.TotalBytes));
+			Measurements->SetObjectField(TEXT("tracked_authority_memory_bytes"), TrackedMemory);
 		}
 		if (Result.bEnableMacroProfiling)
 		{

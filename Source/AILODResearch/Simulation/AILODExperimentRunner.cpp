@@ -269,6 +269,32 @@ namespace AILOD
 			OutRun.Mode = Mode;
 			OutRun.PopulationPerKingdom = static_cast<int32>((*RunParameters)->GetNumberField(TEXT("population_per_kingdom")));
 			OutRun.bHardErrorFree = true;
+			const TSharedPtr<FJsonObject>* Measurements = nullptr;
+			const TSharedPtr<FJsonObject>* TrackedMemory = nullptr;
+			if (Manifest->TryGetObjectField(TEXT("measurement_summary"), Measurements) && Measurements != nullptr
+				&& (*Measurements)->TryGetObjectField(TEXT("tracked_authority_memory_bytes"), TrackedMemory)
+				&& TrackedMemory != nullptr)
+			{
+				auto Bytes = [TrackedMemory](const TCHAR* Field)
+				{
+					return static_cast<uint64>((*TrackedMemory)->GetNumberField(Field));
+				};
+				OutRun.V17TrackedMemory.AuthorityFixedBytes = Bytes(TEXT("authority_fixed_bytes"));
+				OutRun.V17TrackedMemory.IdentityRegistryBytes = Bytes(TEXT("identity_registry_bytes"));
+				OutRun.V17TrackedMemory.JointStateBytes = Bytes(TEXT("joint_state_bytes"));
+				OutRun.V17TrackedMemory.ActiveStateBytes = Bytes(TEXT("active_state_bytes"));
+				OutRun.V17TrackedMemory.CapsuleBytes = Bytes(TEXT("continuity_capsule_bytes"));
+				OutRun.V17TrackedMemory.ParticipantRefBytes = Bytes(TEXT("participant_ref_bytes"));
+				OutRun.V17TrackedMemory.BatchClaimBytes = Bytes(TEXT("batch_claim_bytes"));
+				OutRun.V17TrackedMemory.BatchEventBytes = Bytes(TEXT("batch_event_bytes"));
+				OutRun.V17TrackedMemory.SystemEventBytes = Bytes(TEXT("system_event_bytes"));
+				OutRun.V17TrackedMemory.LedgerBytes = Bytes(TEXT("ledger_bytes"));
+				OutRun.V17TrackedMemory.ReservationBytes = Bytes(TEXT("reservation_bytes"));
+				OutRun.V17TrackedMemory.EventStoreBytes = Bytes(TEXT("event_store_bytes"));
+				OutRun.V17TrackedMemory.SchedulerBytes = Bytes(TEXT("scheduler_bytes"));
+				OutRun.V17TrackedMemory.LODTransitionBytes = Bytes(TEXT("lod_transition_bytes"));
+				OutRun.V17TrackedMemory.TotalBytes = Bytes(TEXT("total_tracked_authority_bytes"));
+			}
 			OutRun.ScheduleIndex = Entry.ScheduleIndex;
 			OutRun.RepeatIndex = Entry.RepeatIndex;
 			OutRun.bSkippedExisting = true;
@@ -380,6 +406,7 @@ namespace AILOD
 			OutRun.CostBreakdown = Result.CostBreakdown;
 			OutRun.MacroProfile = Result.MacroProfile;
 			OutRun.V17ShadowProfile = Result.V17ShadowProfile;
+			OutRun.V17TrackedMemory = Result.V17TrackedMemory;
 			OutRun.ScheduleIndex = Metadata.ScheduleIndex;
 			OutRun.RepeatIndex = Metadata.RepeatIndex;
 			OutRun.bSkippedExisting = false;

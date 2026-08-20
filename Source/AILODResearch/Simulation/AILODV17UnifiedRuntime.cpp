@@ -1184,6 +1184,7 @@ namespace AILOD
 		OutResult.WarmupHourSteps = 7 * static_cast<int32>(HoursPerDay);
 		OutResult.FormalHourSteps = 60 * static_cast<int32>(HoursPerDay);
 		OutResult.V17Audit = Audit;
+		OutResult.V17TrackedMemory = Authority->BuildTrackedMemory();
 		OutResult.V17DeterministicDigest = Authority->BuildDeterministicDigest();
 		const FKingdomSnapshot KingdomA = BuildKingdomSnapshot(OutResult.FinalTime, EKingdom::A);
 		const FKingdomSnapshot KingdomB = BuildKingdomSnapshot(OutResult.FinalTime, EKingdom::B);

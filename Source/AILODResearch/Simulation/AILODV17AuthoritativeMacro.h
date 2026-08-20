@@ -244,6 +244,43 @@ namespace AILOD
 		bool IsHardErrorFree() const;
 	};
 
+	struct FV17TrackedAuthorityMemory
+	{
+		uint64 AuthorityFixedBytes = 0;
+		uint64 IdentityRegistryBytes = 0;
+		uint64 JointStateBytes = 0;
+		uint64 ActiveStateBytes = 0;
+		uint64 CapsuleBytes = 0;
+		uint64 ParticipantRefBytes = 0;
+		uint64 BatchClaimBytes = 0;
+		uint64 BatchEventBytes = 0;
+		uint64 SystemEventBytes = 0;
+		uint64 LedgerBytes = 0;
+		uint64 ReservationBytes = 0;
+		uint64 EventStoreBytes = 0;
+		uint64 SchedulerBytes = 0;
+		uint64 LODTransitionBytes = 0;
+		uint64 TotalBytes = 0;
+
+		uint64 SumComponents() const
+		{
+			return AuthorityFixedBytes
+				+ IdentityRegistryBytes
+				+ JointStateBytes
+				+ ActiveStateBytes
+				+ CapsuleBytes
+				+ ParticipantRefBytes
+				+ BatchClaimBytes
+				+ BatchEventBytes
+				+ SystemEventBytes
+				+ LedgerBytes
+				+ ReservationBytes
+				+ EventStoreBytes
+				+ SchedulerBytes
+				+ LODTransitionBytes;
+		}
+	};
+
 	class FV17AuthoritativeMacroSession
 	{
 	public:
@@ -392,6 +429,7 @@ namespace AILOD
 			OutResidentIDs.Sort();
 		}
 		FV17AuthoritativeAudit BuildAudit() const;
+		FV17TrackedAuthorityMemory BuildTrackedMemory() const;
 		FString BuildDeterministicDigest() const;
 
 	private:

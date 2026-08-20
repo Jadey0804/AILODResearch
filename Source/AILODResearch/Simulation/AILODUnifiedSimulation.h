@@ -318,6 +318,7 @@ namespace AILOD
 		FUnifiedMacroProfile MacroProfile;
 		FUnifiedV17ShadowProfile V17ShadowProfile;
 		FV17AuthoritativeAudit V17Audit;
+		FV17TrackedAuthorityMemory V17TrackedMemory;
 		FString V17DeterministicDigest;
 		TArray<FUnifiedPerformanceSample> PerformanceSamples;
 		TArray<FLedgerTransaction> Transactions;

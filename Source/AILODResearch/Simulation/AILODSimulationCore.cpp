@@ -123,6 +123,11 @@ namespace AILOD
 		PendingEvents.RemoveAt(0, DueCount, EAllowShrinking::No);
 	}
 
+	uint64 FSimulationScheduler::GetTrackedAllocatedSize() const
+	{
+		return PendingEvents.GetAllocatedSize();
+	}
+
 	int32 FResourceLedger::ResourceIndex(const ESimulationResource Resource)
 	{
 		return Resource == ESimulationResource::Wood ? 0 : 1;
@@ -308,6 +313,28 @@ namespace AILOD
 		return Count;
 	}
 
+	uint64 FResourceLedger::GetTrackedAllocatedSize() const
+	{
+		uint64 Bytes = Balances.GetAllocatedSize()
+			+ CommittedIdempotencyKeys.GetAllocatedSize()
+			+ Transactions.GetAllocatedSize();
+		for (const TPair<FResourceAccountKey, double>& Pair : Balances)
+		{
+			Bytes += Pair.Key.Account.GetAllocatedSize();
+		}
+		for (const FIdempotencyKey& Key : CommittedIdempotencyKeys)
+		{
+			Bytes += Key.GetAllocatedSize();
+		}
+		for (const FLedgerTransaction& Transaction : Transactions)
+		{
+			Bytes += Transaction.Transfer.IdempotencyKey.GetAllocatedSize();
+			Bytes += Transaction.Transfer.Source.GetAllocatedSize();
+			Bytes += Transaction.Transfer.Destination.GetAllocatedSize();
+		}
+		return Bytes;
+	}
+
 	bool FReservationStore::CreateReservation(
 		const FReservationRequest& Request,
 		FResourceLedger& Ledger,
@@ -476,6 +503,18 @@ namespace AILOD
 	const FReservationRecord* FReservationStore::Find(const FReservationID ReservationID) const
 	{
 		return Reservations.Find(ReservationID);
+	}
+
+	uint64 FReservationStore::GetTrackedAllocatedSize() const
+	{
+		uint64 Bytes = Reservations.GetAllocatedSize();
+		for (const TPair<FReservationID, FReservationRecord>& Pair : Reservations)
+		{
+			Bytes += Pair.Value.Request.IdempotencyKey.GetAllocatedSize();
+			Bytes += Pair.Value.Request.SourceAccount.GetAllocatedSize();
+			Bytes += Pair.Value.Request.ReservedAccount.GetAllocatedSize();
+		}
+		return Bytes;
 	}
 
 	bool FSimulationEventStore::CreateEvent(
@@ -657,6 +696,18 @@ namespace AILOD
 	const FSimulationEventRecord* FSimulationEventStore::Find(const FEventID EventID) const
 	{
 		return Events.Find(EventID);
+	}
+
+	uint64 FSimulationEventStore::GetTrackedAllocatedSize() const
+	{
+		uint64 Bytes = Events.GetAllocatedSize();
+		for (const TPair<FEventID, FSimulationEventRecord>& Pair : Events)
+		{
+			Bytes += Pair.Value.Event.Type.GetAllocatedSize();
+			Bytes += Pair.Value.Event.Owner.GetAllocatedSize();
+			Bytes += Pair.Value.Event.Cause.GetAllocatedSize();
+		}
+		return Bytes;
 	}
 
 	bool FConservationAudit::IsHardErrorFree() const

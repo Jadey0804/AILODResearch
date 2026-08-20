@@ -274,4 +274,100 @@ bool FAILODPhase6HH3ScheduleAndResumeTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAILODPhase6HH4TrackedAuthorityMemoryTest,
+	"AILODResearch.Phase6H.TrackedAuthorityMemory",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAILODPhase6HH4TrackedAuthorityMemoryTest::RunTest(const FString& Parameters)
+{
+	using namespace AILOD;
+
+	const FString TestRoot = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AILOD/Phase6HH4Checkpoint"));
+	IFileManager::Get().DeleteDirectory(*TestRoot, false, true);
+	FExperimentMatrixRequest Request;
+	Request.OutputRoot = TestRoot;
+	Request.ExperimentID = TEXT("PHASE6H-H4-ENGINEERING");
+	Request.Methods = { EUnifiedSimulationMethod::Proposed };
+	Request.Scenarios = { EStage2Scenario::None };
+	Request.Seeds = { 20260810 };
+	Request.PopulationPerKingdom = 1000;
+	Request.Mode = EUnifiedRunMode::Performance;
+	Request.ProposedModelVersion = EProposedModelVersion::V17Authoritative;
+	Request.GitCommit = TEXT("ab59954");
+	Request.UEVersion = TEXT("5.4");
+	Request.BuildType = TEXT("Development Editor");
+	Request.Hardware = TEXT("automation-test-host");
+	Request.LogMode = TEXT("H4EngineeringMemory");
+	Request.bRandomizeRunOrder = true;
+	Request.OrderSeed = 6108;
+
+	TArray<FExperimentRunRecord> Runs;
+	FString Error;
+	if (!FExperimentRunner::RunMatrix(Request, Runs, Error) || Runs.Num() != 1)
+	{
+		AddError(FString::Printf(TEXT("H4 memory run failed: %s"), *Error));
+		return false;
+	}
+	const FExperimentRunRecord& Run = Runs[0];
+	const FV17TrackedAuthorityMemory& Memory = Run.V17TrackedMemory;
+	TestTrue(TEXT("H4 tracks the static identity registry"), Memory.IdentityRegistryBytes > 0);
+	TestTrue(TEXT("H4 tracks joint state and its indexes"), Memory.JointStateBytes > 0);
+	TestTrue(TEXT("H4 tracks continuity capsules"), Memory.CapsuleBytes > 0);
+	TestTrue(TEXT("H4 tracks batch claims"), Memory.BatchClaimBytes > 0);
+	TestTrue(TEXT("H4 tracks batch events"), Memory.BatchEventBytes > 0);
+	TestTrue(TEXT("H4 tracks the aggregate ledger"), Memory.LedgerBytes > 0);
+	TestEqual(TEXT("H4 total is exactly the sum of the named components"), Memory.TotalBytes, Memory.SumComponents());
+
+	TSharedPtr<FJsonObject> Manifest;
+	if (!LoadManifest(Run.RunDirectory, Manifest))
+	{
+		AddError(TEXT("H4 could not read the Proposed manifest."));
+		return false;
+	}
+	const TSharedPtr<FJsonObject>* Measurements = nullptr;
+	const TSharedPtr<FJsonObject>* TrackedMemory = nullptr;
+	if (!Manifest->TryGetObjectField(TEXT("measurement_summary"), Measurements) || Measurements == nullptr
+		|| !(*Measurements)->TryGetObjectField(TEXT("tracked_authority_memory_bytes"), TrackedMemory)
+		|| TrackedMemory == nullptr)
+	{
+		AddError(TEXT("H4 manifest is missing the tracked authority memory breakdown."));
+		return false;
+	}
+	TestEqual(TEXT("H4 manifest preserves the tracked total"),
+		static_cast<uint64>((*TrackedMemory)->GetNumberField(TEXT("total_tracked_authority_bytes"))),
+		Memory.TotalBytes);
+	TestTrue(TEXT("H4 manifest clearly excludes whole-process memory"),
+		(*TrackedMemory)->GetStringField(TEXT("scope")).Contains(TEXT("excludes_process")));
+	AddInfo(FString::Printf(
+		TEXT("H4 total_population=2000 tracked_total=%llu identity=%llu joint=%llu active=%llu capsule=%llu participant_ref=%llu claims=%llu batch_events=%llu system_events=%llu ledger=%llu reservations=%llu event_store=%llu scheduler=%llu lod_transitions=%llu fixed=%llu"),
+		Memory.TotalBytes,
+		Memory.IdentityRegistryBytes,
+		Memory.JointStateBytes,
+		Memory.ActiveStateBytes,
+		Memory.CapsuleBytes,
+		Memory.ParticipantRefBytes,
+		Memory.BatchClaimBytes,
+		Memory.BatchEventBytes,
+		Memory.SystemEventBytes,
+		Memory.LedgerBytes,
+		Memory.ReservationBytes,
+		Memory.EventStoreBytes,
+		Memory.SchedulerBytes,
+		Memory.LODTransitionBytes,
+		Memory.AuthorityFixedBytes));
+
+	Request.bResumeCompletedRuns = true;
+	TArray<FExperimentRunRecord> ResumedRuns;
+	if (!FExperimentRunner::RunMatrix(Request, ResumedRuns, Error) || ResumedRuns.Num() != 1)
+	{
+		AddError(FString::Printf(TEXT("H4 memory resume failed: %s"), *Error));
+		return false;
+	}
+	TestTrue(TEXT("H4 resume skips the complete run"), ResumedRuns[0].bSkippedExisting);
+	TestEqual(TEXT("H4 resume reloads the tracked memory total"),
+		ResumedRuns[0].V17TrackedMemory.TotalBytes, Memory.TotalBytes);
+	return true;
+}
+
 #endif

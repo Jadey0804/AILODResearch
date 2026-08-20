@@ -2328,6 +2328,44 @@ namespace AILOD
 		return Audit;
 	}
 
+	FV17TrackedAuthorityMemory FV17AuthoritativeMacroSession::BuildTrackedMemory() const
+	{
+		FV17TrackedAuthorityMemory Memory;
+		Memory.AuthorityFixedBytes = sizeof(*this);
+		Memory.IdentityRegistryBytes = IdentityRegistry.GetAllocatedSize();
+		Memory.JointStateBytes = Cells.GetAllocatedSize()
+			+ CellIDsByKey.GetAllocatedSize()
+			+ KingdomConfigs.GetAllocatedSize()
+			+ RepairCapacityRemaining.GetAllocatedSize()
+			+ HarvestRemaining.GetAllocatedSize();
+		Memory.ActiveStateBytes = ActiveStates.GetAllocatedSize();
+		Memory.CapsuleBytes = Capsules.GetAllocatedSize();
+		for (const TPair<FResidentID, FV17ContinuityCapsule>& Pair : Capsules)
+		{
+			Memory.CapsuleBytes += Pair.Value.KnownCompletedActions.GetAllocatedSize();
+			Memory.CapsuleBytes += Pair.Value.CommittedEventLineage.GetAllocatedSize();
+		}
+		Memory.ParticipantRefBytes = ParticipantRefs.GetAllocatedSize();
+		Memory.BatchClaimBytes = Claims.GetAllocatedSize() + QueuedClaimIDs.GetAllocatedSize();
+		for (const TPair<FV17AuthoritativeClaimID, FV17AuthoritativeClaim>& Pair : Claims)
+		{
+			Memory.BatchClaimBytes += Pair.Value.ResourceScope.GetAllocatedSize();
+		}
+		Memory.BatchEventBytes = BatchEvents.GetAllocatedSize();
+		for (const TPair<FEventID, FV17AuthoritativeBatchEvent>& Pair : BatchEvents)
+		{
+			Memory.BatchEventBytes += Pair.Value.TargetFlows.GetAllocatedSize();
+		}
+		Memory.SystemEventBytes = SystemImportEvents.GetAllocatedSize();
+		Memory.LedgerBytes = Ledger.GetTrackedAllocatedSize();
+		Memory.ReservationBytes = Reservations.GetTrackedAllocatedSize();
+		Memory.EventStoreBytes = EventStore.GetTrackedAllocatedSize();
+		Memory.SchedulerBytes = Scheduler.GetTrackedAllocatedSize();
+		Memory.LODTransitionBytes = LODTransitions.GetAllocatedSize();
+		Memory.TotalBytes = Memory.SumComponents();
+		return Memory;
+	}
+
 	FString FV17AuthoritativeMacroSession::BuildDeterministicDigest() const
 	{
 		FString Canonical = FString::Printf(

@@ -57,6 +57,7 @@ namespace AILOD
 		FUnifiedCostBreakdown CostBreakdown;
 		FUnifiedMacroProfile MacroProfile;
 		FUnifiedV17ShadowProfile V17ShadowProfile;
+		FV17TrackedAuthorityMemory V17TrackedMemory;
 		int32 ScheduleIndex = 1;
 		int32 RepeatIndex = 1;
 		bool bSkippedExisting = false;

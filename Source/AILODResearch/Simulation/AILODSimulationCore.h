@@ -55,6 +55,7 @@ namespace AILOD
 		int32 NumPending() const { return PendingEvents.Num(); }
 		FArriveID GetNextArriveID() const { return NextArriveID; }
 		const TArray<FScheduledEvent>& GetPendingEvents() const { return PendingEvents; }
+		uint64 GetTrackedAllocatedSize() const;
 
 	private:
 		FArriveID NextArriveID = 1;
@@ -117,6 +118,7 @@ namespace AILOD
 		int32 GetDuplicateTransactionCount() const { return DuplicateTransactionCount; }
 		const TArray<FLedgerTransaction>& GetTransactions() const { return Transactions; }
 		const TMap<FResourceAccountKey, double>& GetBalances() const { return Balances; }
+		uint64 GetTrackedAllocatedSize() const;
 
 	private:
 		static int32 ResourceIndex(ESimulationResource Resource);
@@ -171,6 +173,7 @@ namespace AILOD
 		bool MergeReservations(FReservationID TargetReservationID, FReservationID SourceReservationID, FString& OutError);
 		const FReservationRecord* Find(FReservationID ReservationID) const;
 		const TMap<FReservationID, FReservationRecord>& GetReservations() const { return Reservations; }
+		uint64 GetTrackedAllocatedSize() const;
 
 	private:
 		FReservationID NextReservationID = 1;
@@ -223,6 +226,7 @@ namespace AILOD
 		const TMap<FEventID, FSimulationEventRecord>& GetEvents() const { return Events; }
 		int32 GetOwnerConflictCount() const { return OwnerConflictCount; }
 		int32 GetDuplicateCompletionCount() const { return DuplicateCompletionCount; }
+		uint64 GetTrackedAllocatedSize() const;
 
 	private:
 		FEventID NextEventID = 1;

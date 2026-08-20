@@ -442,6 +442,8 @@ bool FAILODPhase6GB5DStressLiteTest::RunTest(const FString& Parameters)
 	IFileManager::Get().DeleteDirectory(*TestRoot, false, true);
 	FExperimentRunRecord Proposed100K;
 	FString Proposed100KManifestPath;
+	FV17TrackedAuthorityMemory Memory50K;
+	FV17TrackedAuthorityMemory Memory100K;
 
 	for (const int32 TotalPopulation : { 50000, 100000 })
 	{
@@ -499,6 +501,12 @@ bool FAILODPhase6GB5DStressLiteTest::RunTest(const FString& Parameters)
 			Run.CostBreakdown.ObserverCpuMs, 0.0);
 		TestTrue(*FString::Printf(TEXT("B5D-Lite %d writes performance samples"), TotalPopulation),
 			Run.PerformanceSampleCount > 0);
+		TestEqual(*FString::Printf(TEXT("H4 %d tracked memory total is internally consistent"), TotalPopulation),
+			Run.V17TrackedMemory.TotalBytes, Run.V17TrackedMemory.SumComponents());
+		TestTrue(*FString::Printf(TEXT("H4 %d tracks identity memory"), TotalPopulation),
+			Run.V17TrackedMemory.IdentityRegistryBytes > 0);
+		TestTrue(*FString::Printf(TEXT("H4 %d tracks ledger memory"), TotalPopulation),
+			Run.V17TrackedMemory.LedgerBytes > 0);
 
 		TestTrue(*FString::Printf(TEXT("B5D-Lite %d resident touches stay below twice the 20k baseline"), TotalPopulation),
 			Run.Diagnostics.V17ResidentTouches <= Baseline20KResidentTouches * 2);
@@ -538,6 +546,18 @@ bool FAILODPhase6GB5DStressLiteTest::RunTest(const FString& Parameters)
 			TestEqual(*FString::Printf(TEXT("B5D-Lite %d hard error %s is zero"), TotalPopulation, *Field.Key),
 				Field.Value->AsNumber(), 0.0);
 		}
+		const TSharedPtr<FJsonObject>* Measurements = nullptr;
+		const TSharedPtr<FJsonObject>* TrackedMemory = nullptr;
+		if (!Manifest->TryGetObjectField(TEXT("measurement_summary"), Measurements) || Measurements == nullptr
+			|| !(*Measurements)->TryGetObjectField(TEXT("tracked_authority_memory_bytes"), TrackedMemory)
+			|| TrackedMemory == nullptr)
+		{
+			AddError(FString::Printf(TEXT("H4 %d manifest is missing tracked authority memory."), TotalPopulation));
+			return false;
+		}
+		TestEqual(*FString::Printf(TEXT("H4 %d manifest preserves tracked total"), TotalPopulation),
+			static_cast<uint64>((*TrackedMemory)->GetNumberField(TEXT("total_tracked_authority_bytes"))),
+			Run.V17TrackedMemory.TotalBytes);
 
 		TArray<FString> ActualFiles;
 		IFileManager::Get().FindFiles(ActualFiles, *FPaths::Combine(Run.RunDirectory, TEXT("*")), true, false);
@@ -553,7 +573,7 @@ bool FAILODPhase6GB5DStressLiteTest::RunTest(const FString& Parameters)
 			PerformanceText.Contains(TEXT("\n\"1.2\",")));
 
 		AddInfo(FString::Printf(
-			TEXT("B5D-Lite population=%d digest=%s initialize_ms=%.3f production_ms=%.3f audit_ms=%.3f identity_scans_per_hour=%lld resident_touches=%lld cells=%d claims=%lld events=%lld participants=%lld active=%d"),
+			TEXT("B5D-Lite population=%d digest=%s initialize_ms=%.3f production_ms=%.3f audit_ms=%.3f identity_scans_per_hour=%lld resident_touches=%lld cells=%d claims=%lld events=%lld participants=%lld active=%d tracked_total_bytes=%llu identity_bytes=%llu joint_bytes=%llu ledger_bytes=%llu claims_bytes=%llu events_bytes=%llu"),
 			TotalPopulation,
 			*Run.DeterministicDigest,
 			Run.CostBreakdown.InitializeCpuMs,
@@ -565,7 +585,16 @@ bool FAILODPhase6GB5DStressLiteTest::RunTest(const FString& Parameters)
 			Run.Diagnostics.V17BatchClaimCount,
 			Run.Diagnostics.V17BatchEventCount,
 			Run.Diagnostics.V17ParticipantCount,
-			Run.Diagnostics.MaxActiveMicro));
+			Run.Diagnostics.MaxActiveMicro,
+			Run.V17TrackedMemory.TotalBytes,
+			Run.V17TrackedMemory.IdentityRegistryBytes,
+			Run.V17TrackedMemory.JointStateBytes,
+			Run.V17TrackedMemory.LedgerBytes,
+			Run.V17TrackedMemory.BatchClaimBytes,
+			Run.V17TrackedMemory.BatchEventBytes));
+
+		if (TotalPopulation == 50000) Memory50K = Run.V17TrackedMemory;
+		else Memory100K = Run.V17TrackedMemory;
 
 		if (TotalPopulation == 100000)
 		{
@@ -573,6 +602,10 @@ bool FAILODPhase6GB5DStressLiteTest::RunTest(const FString& Parameters)
 			Proposed100KManifestPath = ManifestPath;
 		}
 	}
+	TestTrue(TEXT("H4 doubling population roughly doubles the static identity allocation"),
+		Memory100K.IdentityRegistryBytes >= Memory50K.IdentityRegistryBytes * 18 / 10);
+	TestTrue(TEXT("H4 doubling population does not double the total tracked authority memory"),
+		Memory100K.TotalBytes < Memory50K.TotalBytes * 2);
 
 	if (Proposed100KManifestPath.IsEmpty())
 	{
