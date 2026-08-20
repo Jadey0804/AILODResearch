@@ -426,6 +426,18 @@ B0 检查点：
 - 覆盖固定 Trace、样本外 ResidentID、零时间往返、维修中途切换和 Active≤50；
 - 资源、人口、事件、Reservation 和谱系残差全部为 0。
 
+实施记录（2026-08-19 完成，作者于 2026-08-20 确认并授权进入 B5）：
+
+- v1.7 隔离权威会话现在能按 ResidentID 直接查永久身份；只为玩家见过或明确参与连续性检查的人创建小型 Capsule；
+- Lift 从合法 Joint Cell 减少 1 人并确定性提取整数资源；Restrict 把资源和人数写回目标 Cell，并删除归零的临时个人账户；
+- 固定 Day 7/14/30/45 轨迹在相同 Seed 下重放一致，共 60 次 Lift，最高 Active=20；样本外居民也可恢复；
+- 同时 Active 50 人成功，第 51 人稳定拒绝；零时间往返前后人口、Coin、Credit、Wood、房屋状态人数和 Pending Participant 总量不变；
+- 6 人维修在第 24、30 小时拆出/合回同一居民，剩余 24、18 小时且总木材始终 24；第 48 小时按原时间完成；
+- 4 人买木的 16 Wood Reservation 可拆为 12+4 并重新合为 16，未重复扣款、预约或交付；
+- 四类中途故障都能完整恢复；新增身份、Capsule、拆分/合并、退出残留和任务重置检查，结果全部为 0；
+- 四个 B4 Digest 已冻结，B3 四个旧 Digest 不变；Development Editor 编译成功，全套 `33/33 Success`、`0 Failed`、自动化错误 `0`、退出码 `0`；
+- 本步仍是隔离权威会话，完整 Runner 继续使用 v1.6 Proposed；B5 前 `valid_for_formal_experiment=false`；独立检查点见 `AILOD_MVP_Phase6G_B4_Checkpoint_CN.md`；项目作者已确认 B4，并授权独立本地提交后进入 B5；不推送。
+
 ### 6G-B5：新 Proposed 总验收
 
 - 200 人对 Oracle 报告既有准确性、TVD、政策效应、FirstAction 和连续性；

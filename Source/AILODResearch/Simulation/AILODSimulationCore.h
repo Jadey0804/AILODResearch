@@ -50,6 +50,7 @@ namespace AILOD
 	public:
 		FArriveID IssueArriveID();
 		bool Schedule(const FScheduledEvent& Event, FSimulationTime CurrentTime, FString& OutError);
+		bool RemovePending(FEventID EventID, FScheduledEvent& OutRemoved, FString& OutError);
 		void PopDueThrough(FSimulationTime Time, TArray<FScheduledEvent>& OutEvents);
 		int32 NumPending() const { return PendingEvents.Num(); }
 		FArriveID GetNextArriveID() const { return NextArriveID; }
@@ -108,6 +109,7 @@ namespace AILOD
 		bool InitializeAccount(ESimulationResource Resource, const FString& Account, double Quantity, FString& OutError);
 		void SealInitialState();
 		bool SubmitTransfer(const FLedgerTransferRequest& Request, FTransactionID& OutTransactionID, FString& OutError);
+		bool RemoveZeroBalanceAccount(ESimulationResource Resource, const FString& Account, FString& OutError);
 
 		double GetBalance(ESimulationResource Resource, const FString& Account) const;
 		double ComputeResidual(ESimulationResource Resource) const;
@@ -135,7 +137,8 @@ namespace AILOD
 	{
 		Active,
 		Committed,
-		Released
+		Released,
+		Merged
 	};
 
 	struct FReservationRequest
@@ -164,6 +167,8 @@ namespace AILOD
 		bool CreateReservation(const FReservationRequest& Request, FResourceLedger& Ledger, FReservationID& OutReservationID, FString& OutError);
 		bool CommitReservation(FReservationID ReservationID, const FString& DestinationAccount, const FIdempotencyKey& IdempotencyKey, FSimulationTime GameTime, FResourceLedger& Ledger, FString& OutError);
 		bool ReleaseReservation(FReservationID ReservationID, const FIdempotencyKey& IdempotencyKey, FSimulationTime GameTime, FResourceLedger& Ledger, FString& OutError);
+		bool SplitReservation(FReservationID ParentReservationID, FEventID ChildEventID, FArriveID ChildArriveID, double Quantity, FReservationID& OutChildReservationID, FString& OutError);
+		bool MergeReservations(FReservationID TargetReservationID, FReservationID SourceReservationID, FString& OutError);
 		const FReservationRecord* Find(FReservationID ReservationID) const;
 		const TMap<FReservationID, FReservationRecord>& GetReservations() const { return Reservations; }
 
@@ -208,9 +213,12 @@ namespace AILOD
 		bool CreateEvent(const FSimulationEventRequest& Request, FEventID& OutEventID, FString& OutError);
 		bool TransferOwner(FEventID EventID, const FString& ExpectedOwner, const FString& NewOwner, FString& OutError);
 		bool ConvertPendingEventToAggregate(FEventID EventID, const FString& ExpectedOwner, const FString& NewOwner, FString& OutError);
+		bool ConvertPendingEventToIndividual(FEventID EventID, const FString& ExpectedOwner, const FString& NewOwner, FResidentID ResidentID, FString& OutError);
+		bool SetPendingParticipantCount(FEventID EventID, int32 ParticipantCount, FString& OutError);
 		bool SetReservationID(FEventID EventID, FReservationID ReservationID, FString& OutError);
 		bool CompleteEvent(FEventID EventID, FString& OutError);
 		bool RemoveCompletedEvent(FEventID EventID, FString& OutError);
+		bool RemovePendingEvent(FEventID EventID, FString& OutError);
 		const FSimulationEventRecord* Find(FEventID EventID) const;
 		const TMap<FEventID, FSimulationEventRecord>& GetEvents() const { return Events; }
 		int32 GetOwnerConflictCount() const { return OwnerConflictCount; }

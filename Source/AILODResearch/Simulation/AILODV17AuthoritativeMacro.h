@@ -66,6 +66,66 @@ namespace AILOD
 		int32 Wood = 0;
 	};
 
+	struct FV17IdentityRecord
+	{
+		FResidentID ResidentID = 0;
+		FPersistentID PersistentID = 0;
+		uint32 NameSeed = 0;
+		uint32 AppearanceSeed = 0;
+		FHomeID HomeID = 0;
+		EKingdom InitialKingdom = EKingdom::A;
+		EProfession Profession = EProfession::Worker;
+		EIncomeBand IncomeBand = EIncomeBand::Low;
+		uint32 IdentityVersion = 1;
+	};
+
+	struct FV17ContinuityCapsule
+	{
+		FResidentID ResidentID = 0;
+		FSimulationTime LastObservedTime;
+		FIndividualActionState LastObservedState;
+		FV17AuthoritativeCellID LastKnownCellID = 0;
+		TArray<EIndividualAction> KnownCompletedActions;
+		TArray<FEventID> CommittedEventLineage;
+		FEventID BatchCursor = 0;
+		uint32 CapsuleVersion = 1;
+	};
+
+	struct FV17ParticipantRef
+	{
+		uint64 ParticipantRefID = 0;
+		FResidentID ResidentID = 0;
+		FEventID BatchEventID = 0;
+		FEventID ParentBatchEventID = 0;
+		FReservationID ReservationID = 0;
+		uint64 InheritedOrderKey = 0;
+	};
+
+	enum class EV17LODTransitionResult : uint8
+	{
+		Committed,
+		ResidentNotFound,
+		AlreadyActive,
+		AlreadyRestricted,
+		ActiveCapReached,
+		NoEligibleJointCell,
+		StateExtractionFailed,
+		EventSplitFailed,
+		EventMergeFailed
+	};
+
+	struct FV17LODTransitionRecord
+	{
+		FResidentID ResidentID = 0;
+		FSimulationTime GameTime;
+		bool bLift = true;
+		FV17AuthoritativeCellID SelectedCellID = 0;
+		FEventID BatchEventID = 0;
+		FEventID ParentBatchEventID = 0;
+		bool bUsedFallback = false;
+		EV17LODTransitionResult Result = EV17LODTransitionResult::ResidentNotFound;
+	};
+
 	struct FV17AuthoritativeKingdomConfig
 	{
 		EKingdom Kingdom = EKingdom::A;
@@ -123,6 +183,16 @@ namespace AILOD
 		AfterFirstCompletionResourceWrite
 	};
 
+	enum class EV17LODTransitionFailurePoint : uint8
+	{
+		None,
+		LiftAfterCellCount,
+		LiftAfterLedgerTransfer,
+		LiftAfterEventSplit,
+		RestrictAfterLedgerTransfer,
+		RestrictAfterEventMerge
+	};
+
 	struct FV17AuthoritativeAudit
 	{
 		int64 PopulationResidual = 0;
@@ -140,6 +210,11 @@ namespace AILOD
 		int32 ActiveCapViolationCount = 0;
 		int32 DuplicateTransactionCount = 0;
 		int32 DuplicateCompletionCount = 0;
+		int32 IdentityMismatchCount = 0;
+		int32 CapsuleIdentityMismatchCount = 0;
+		int32 BatchSplitMergeResidualCount = 0;
+		int32 LiftRestrictResidueCount = 0;
+		int32 TaskResetCount = 0;
 
 		bool IsHardErrorFree() const;
 	};
@@ -155,6 +230,23 @@ namespace AILOD
 			const TArray<FV17AuthoritativeKingdomConfig>& Kingdoms,
 			FSimulationTime StartTime,
 			FString& OutError);
+		bool InitializeWithIdentity(
+			const TArray<FV17AuthoritativeCellConfig>& Cells,
+			const TArray<FV17IdentityRecord>& Identities,
+			const TArray<FV17AuthoritativeKingdomConfig>& Kingdoms,
+			FSimulationTime StartTime,
+			FString& OutError);
+
+		bool LiftResident(
+			FResidentID ResidentID,
+			FSimulationTime Time,
+			FString& OutError,
+			EV17LODTransitionFailurePoint FailurePoint = EV17LODTransitionFailurePoint::None);
+		bool RestrictResident(
+			FResidentID ResidentID,
+			FSimulationTime Time,
+			FString& OutError,
+			EV17LODTransitionFailurePoint FailurePoint = EV17LODTransitionFailurePoint::None);
 
 		bool QueueMacroAction(
 			FV17AuthoritativeCellID SourceCellID,
@@ -192,6 +284,17 @@ namespace AILOD
 		int64 GetCellRepairCredit(FV17AuthoritativeCellID CellID) const;
 		int64 GetCellWood(FV17AuthoritativeCellID CellID) const;
 		int64 GetKingdomBalance(EKingdom Kingdom, ESimulationResource Resource, const TCHAR* Stock) const;
+		int32 GetActiveMicroCount() const { return ActiveStates.Num(); }
+		int32 GetLiftReconstructionFallbackCount() const { return LiftReconstructionFallbackCount; }
+		int64 GetRemainingWorkMinutes(FResidentID ResidentID) const;
+		bool GetActiveSnapshot(
+			FResidentID ResidentID,
+			FIndividualActionState& OutState,
+			EIndividualAction& OutAction,
+			FEventID& OutEventID) const;
+		const FV17IdentityRecord* FindIdentity(FResidentID ResidentID) const;
+		const FV17ContinuityCapsule* FindCapsule(FResidentID ResidentID) const;
+		const FV17ParticipantRef* FindParticipantRef(FResidentID ResidentID) const;
 
 		const TMap<FV17AuthoritativeClaimID, FV17AuthoritativeClaim>& GetClaims() const { return Claims; }
 		const TMap<FEventID, FV17AuthoritativeBatchEvent>& GetBatchEvents() const { return BatchEvents; }
@@ -199,6 +302,10 @@ namespace AILOD
 		const FReservationStore& GetReservations() const { return Reservations; }
 		const FSimulationEventStore& GetEventStore() const { return EventStore; }
 		const FSimulationScheduler& GetScheduler() const { return Scheduler; }
+		const TMap<FResidentID, FV17IdentityRecord>& GetIdentityRegistry() const { return IdentityRegistry; }
+		const TMap<FResidentID, FV17ContinuityCapsule>& GetCapsules() const { return Capsules; }
+		const TMap<FResidentID, FV17ParticipantRef>& GetParticipantRefs() const { return ParticipantRefs; }
+		const TArray<FV17LODTransitionRecord>& GetLODTransitions() const { return LODTransitions; }
 		FV17AuthoritativeAudit BuildAudit() const;
 		FString BuildDeterministicDigest() const;
 
@@ -207,7 +314,64 @@ namespace AILOD
 		{
 			FV17AuthoritativeActiveConfig Definition;
 			bool bReady = true;
+			EIndividualAction CurrentAction = EIndividualAction::None;
+			FEventID ActiveEventID = 0;
+			FEventID ParentEventID = 0;
+			FArriveID ActiveArriveID = 0;
+			FReservationID ActiveReservationID = 0;
+			uint64 InheritedOrderKey = 0;
+			FSimulationTime ActionStartTime;
+			FSimulationTime ActionEndTime;
 		};
+
+		bool SelectLiftCell(
+			const FV17IdentityRecord& Identity,
+			const FV17ContinuityCapsule* Capsule,
+			FV17AuthoritativeCellID& OutCellID,
+			bool& bOutUsedFallback,
+			FString& OutError) const;
+		bool ExtractStateFromCell(
+			FV17AuthoritativeCellID CellID,
+			FResidentID ResidentID,
+			FIndividualActionState& OutState,
+			FString& OutError) const;
+		bool LiftFromJointCell(
+			const FV17IdentityRecord& Identity,
+			FV17AuthoritativeCellID CellID,
+			FIndividualActionState State,
+			EV17LODTransitionFailurePoint FailurePoint,
+			FString& OutError);
+		bool LiftFromPendingEvent(
+			const FV17IdentityRecord& Identity,
+			FV17ParticipantRef& ParticipantRef,
+			EV17LODTransitionFailurePoint FailurePoint,
+			FString& OutError);
+		bool RestrictIdleResident(
+			FResidentID ResidentID,
+			FActiveState& Active,
+			EV17LODTransitionFailurePoint FailurePoint,
+			FV17AuthoritativeCellID& OutTargetCellID,
+			FString& OutError);
+		bool RestrictPendingResident(
+			FResidentID ResidentID,
+			FActiveState& Active,
+			EV17LODTransitionFailurePoint FailurePoint,
+			FEventID& OutBatchEventID,
+			FEventID& OutParentEventID,
+			FString& OutError);
+		FEventID FindCompatibleMergeTarget(const FV17AuthoritativeBatchEvent& ActiveEvent) const;
+		bool MoveEventAccountBalances(FEventID SourceEventID, FEventID TargetEventID, FPolicyID PolicyID, FString& OutError);
+		FIndividualActionState ReadPendingEventState(const FV17AuthoritativeBatchEvent& Event) const;
+		void UpdateCapsule(
+			FResidentID ResidentID,
+			FSimulationTime Time,
+			const FIndividualActionState& State,
+			FV17AuthoritativeCellID CellID,
+			FEventID BatchCursor,
+			FEventID LineageEventID,
+			EIndividualAction CompletedAction = EIndividualAction::None);
+		uint64 BuildParticipantRefID(FResidentID ResidentID, FEventID EventID) const;
+		static bool SameFrozenState(const FIndividualActionState& Left, const FIndividualActionState& Right);
 
 		bool QueueAction(
 			FV17AuthoritativeCellID SourceCellID,
@@ -274,6 +438,7 @@ namespace AILOD
 
 		int32 Seed = 0;
 		bool bInitialized = false;
+		bool bDynamicLODEnabled = false;
 		bool bClaimsCommittedAtCurrentTime = false;
 		int32 InitialPopulation = 0;
 		int32 BatchCapacityOverflowCount = 0;
@@ -287,6 +452,10 @@ namespace AILOD
 		TMap<FV17AuthoritativeCellID, FV17AuthoritativeCellConfig> Cells;
 		TMap<FV17AuthoritativeJointKey, FV17AuthoritativeCellID> CellIDsByKey;
 		TMap<FResidentID, FActiveState> ActiveStates;
+		TMap<FResidentID, FV17IdentityRecord> IdentityRegistry;
+		TMap<FResidentID, FV17ContinuityCapsule> Capsules;
+		TMap<FResidentID, FV17ParticipantRef> ParticipantRefs;
+		TArray<FV17LODTransitionRecord> LODTransitions;
 		TMap<EKingdom, FV17AuthoritativeKingdomConfig> KingdomConfigs;
 		TMap<EKingdom, int32> RepairCapacityRemaining;
 		TMap<EKingdom, int64> HarvestRemaining;
@@ -294,5 +463,9 @@ namespace AILOD
 		TMap<FV17AuthoritativeClaimID, FV17AuthoritativeClaim> Claims;
 		TArray<FV17AuthoritativeClaimID> QueuedClaimIDs;
 		TMap<FEventID, FV17AuthoritativeBatchEvent> BatchEvents;
+		int32 LiftReconstructionFallbackCount = 0;
+		int32 LiftRestrictResidueCount = 0;
+		int32 BatchSplitMergeResidualCount = 0;
+		int32 TaskResetCount = 0;
 	};
 }

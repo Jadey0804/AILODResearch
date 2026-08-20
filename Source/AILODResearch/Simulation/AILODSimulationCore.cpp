@@ -79,6 +79,26 @@ namespace AILOD
 		return true;
 	}
 
+	bool FSimulationScheduler::RemovePending(
+		const FEventID EventID,
+		FScheduledEvent& OutRemoved,
+		FString& OutError)
+	{
+		const int32 Index = PendingEvents.IndexOfByPredicate([EventID](const FScheduledEvent& Event)
+		{
+			return Event.EventID == EventID;
+		});
+		if (Index == INDEX_NONE)
+		{
+			OutError = TEXT("Pending scheduler event does not exist.");
+			return false;
+		}
+		OutRemoved = PendingEvents[Index];
+		PendingEvents.RemoveAt(Index, 1, EAllowShrinking::No);
+		OutError.Reset();
+		return true;
+	}
+
 	void FSimulationScheduler::PopDueThrough(const FSimulationTime Time, TArray<FScheduledEvent>& OutEvents)
 	{
 		PendingEvents.Sort([](const FScheduledEvent& Left, const FScheduledEvent& Right)
@@ -225,6 +245,28 @@ namespace AILOD
 		return true;
 	}
 
+	bool FResourceLedger::RemoveZeroBalanceAccount(
+		const ESimulationResource Resource,
+		const FString& Account,
+		FString& OutError)
+	{
+		const FResourceAccountKey Key{ Resource, Account };
+		const double* Balance = Balances.Find(Key);
+		if (Balance == nullptr)
+		{
+			OutError.Reset();
+			return true;
+		}
+		if (!FMath::IsNearlyZero(*Balance, UE_DOUBLE_SMALL_NUMBER))
+		{
+			OutError = TEXT("Only an empty runtime Ledger account can be removed.");
+			return false;
+		}
+		Balances.Remove(Key);
+		OutError.Reset();
+		return true;
+	}
+
 	double FResourceLedger::GetBalance(const ESimulationResource Resource, const FString& Account) const
 	{
 		if (const double* Balance = Balances.Find({ Resource, Account }))
@@ -365,6 +407,72 @@ namespace AILOD
 		return true;
 	}
 
+	bool FReservationStore::SplitReservation(
+		const FReservationID ParentReservationID,
+		const FEventID ChildEventID,
+		const FArriveID ChildArriveID,
+		const double Quantity,
+		FReservationID& OutChildReservationID,
+		FString& OutError)
+	{
+		OutChildReservationID = 0;
+		FReservationRecord* Parent = Reservations.Find(ParentReservationID);
+		if (Parent == nullptr
+			|| Parent->State != EReservationState::Active
+			|| ChildEventID <= 0
+			|| ChildArriveID <= 0
+			|| !FMath::IsFinite(Quantity)
+			|| Quantity <= 0.0
+			|| Parent->Request.Quantity <= Quantity)
+		{
+			OutError = TEXT("An active reservation can only split a positive proper subset into a valid child event.");
+			return false;
+		}
+
+		FReservationRequest ChildRequest = Parent->Request;
+		ChildRequest.IdempotencyKey = FString::Printf(
+			TEXT("%s-SPLIT-%lld"),
+			*Parent->Request.IdempotencyKey,
+			ChildEventID);
+		ChildRequest.Quantity = Quantity;
+		ChildRequest.EventID = ChildEventID;
+		ChildRequest.ArriveID = ChildArriveID;
+		Parent->Request.Quantity -= Quantity;
+		OutChildReservationID = NextReservationID++;
+		Reservations.Add(
+			OutChildReservationID,
+			{ OutChildReservationID, MoveTemp(ChildRequest), EReservationState::Active });
+		OutError.Reset();
+		return true;
+	}
+
+	bool FReservationStore::MergeReservations(
+		const FReservationID TargetReservationID,
+		const FReservationID SourceReservationID,
+		FString& OutError)
+	{
+		FReservationRecord* Target = Reservations.Find(TargetReservationID);
+		FReservationRecord* Source = Reservations.Find(SourceReservationID);
+		if (Target == nullptr
+			|| Source == nullptr
+			|| TargetReservationID == SourceReservationID
+			|| Target->State != EReservationState::Active
+			|| Source->State != EReservationState::Active
+			|| Target->Request.Resource != Source->Request.Resource
+			|| Target->Request.SourceAccount != Source->Request.SourceAccount
+			|| Target->Request.ReservedAccount != Source->Request.ReservedAccount
+			|| Target->Request.PolicyID != Source->Request.PolicyID)
+		{
+			OutError = TEXT("Only compatible active reservations can merge.");
+			return false;
+		}
+
+		Target->Request.Quantity += Source->Request.Quantity;
+		Source->State = EReservationState::Merged;
+		OutError.Reset();
+		return true;
+	}
+
 	const FReservationRecord* FReservationStore::Find(const FReservationID ReservationID) const
 	{
 		return Reservations.Find(ReservationID);
@@ -437,6 +545,53 @@ namespace AILOD
 		return true;
 	}
 
+	bool FSimulationEventStore::ConvertPendingEventToIndividual(
+		const FEventID EventID,
+		const FString& ExpectedOwner,
+		const FString& NewOwner,
+		const FResidentID ResidentID,
+		FString& OutError)
+	{
+		FSimulationEventRecord* Record = Events.Find(EventID);
+		if (Record == nullptr
+			|| Record->State != ESimulationEventState::Pending
+			|| NewOwner.IsEmpty()
+			|| ResidentID <= 0)
+		{
+			OutError = TEXT("Pending aggregate event or individual owner is invalid.");
+			return false;
+		}
+		if (Record->Event.Owner != ExpectedOwner)
+		{
+			++OwnerConflictCount;
+			OutError = TEXT("Pending event owner does not match the expected aggregate owner.");
+			return false;
+		}
+
+		Record->Event.Owner = NewOwner;
+		Record->Event.ResidentID = ResidentID;
+		OutError.Reset();
+		return true;
+	}
+
+	bool FSimulationEventStore::SetPendingParticipantCount(
+		const FEventID EventID,
+		const int32 ParticipantCount,
+		FString& OutError)
+	{
+		FSimulationEventRecord* Record = Events.Find(EventID);
+		if (Record == nullptr
+			|| Record->State != ESimulationEventState::Pending
+			|| ParticipantCount <= 0)
+		{
+			OutError = TEXT("Only a pending event can receive a positive participant count.");
+			return false;
+		}
+		Record->Event.ParticipantCount = ParticipantCount;
+		OutError.Reset();
+		return true;
+	}
+
 	bool FSimulationEventStore::CompleteEvent(const FEventID EventID, FString& OutError)
 	{
 		FSimulationEventRecord* Record = Events.Find(EventID);
@@ -479,6 +634,19 @@ namespace AILOD
 		if (Record == nullptr || Record->State != ESimulationEventState::Completed)
 		{
 			OutError = TEXT("Only a completed event can be removed from retained event state.");
+			return false;
+		}
+		Events.Remove(EventID);
+		OutError.Reset();
+		return true;
+	}
+
+	bool FSimulationEventStore::RemovePendingEvent(const FEventID EventID, FString& OutError)
+	{
+		const FSimulationEventRecord* Record = Events.Find(EventID);
+		if (Record == nullptr || Record->State != ESimulationEventState::Pending)
+		{
+			OutError = TEXT("Only a pending event can be removed from retained event state.");
 			return false;
 		}
 		Events.Remove(EventID);

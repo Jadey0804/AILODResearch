@@ -44,7 +44,12 @@ namespace AILOD
 			&& OwnerConflictCount == 0
 			&& ActiveCapViolationCount == 0
 			&& DuplicateTransactionCount == 0
-			&& DuplicateCompletionCount == 0;
+			&& DuplicateCompletionCount == 0
+			&& IdentityMismatchCount == 0
+			&& CapsuleIdentityMismatchCount == 0
+			&& BatchSplitMergeResidualCount == 0
+			&& LiftRestrictResidueCount == 0
+			&& TaskResetCount == 0;
 	}
 
 	FV17AuthoritativeMacroSession::FV17AuthoritativeMacroSession(const int32 InSeed)
@@ -909,6 +914,28 @@ namespace AILOD
 		BatchEvent.ActiveResidentID = Claim.ActiveResidentID;
 		BatchEvent.FrozenState = Claim.FrozenState;
 		BatchEvents.Add(EventID, BatchEvent);
+		if (bDynamicLODEnabled && Claim.ActiveResidentID > 0)
+		{
+			FActiveState& Active = ActiveStates.FindChecked(Claim.ActiveResidentID);
+			const FIndividualActionState CurrentState = ReadPendingEventState(BatchEvent);
+			Active.Definition.Cash = CurrentState.Cash;
+			Active.Definition.RepairCredit = CurrentState.RepairCredit;
+			Active.Definition.Wood = CurrentState.Wood;
+			Active.Definition.Key.HomeState = CurrentState.HomeState;
+			Active.Definition.Key.Intent = ToMacroIntent(StoredAction);
+			Active.Definition.Key.PurchasingPowerBand = PurchasingPowerBand(
+				CurrentState.Cash + CurrentState.RepairCredit);
+			Active.Definition.Key.WoodBand = WoodBand(CurrentState.Wood);
+			Active.bReady = false;
+			Active.CurrentAction = StoredAction;
+			Active.ActiveEventID = EventID;
+			Active.ParentEventID = 0;
+			Active.ActiveArriveID = Request.ArriveID;
+			Active.ActiveReservationID = ReservationID;
+			Active.InheritedOrderKey = Claim.StableOrderKey;
+			Active.ActionStartTime = Request.StartTime;
+			Active.ActionEndTime = Request.EndTime;
+		}
 		return true;
 	}
 
@@ -1153,11 +1180,55 @@ namespace AILOD
 			Active.Definition.Key.PurchasingPowerBand = PurchasingPowerBand(FinalState.Cash + FinalState.RepairCredit);
 			Active.Definition.Key.WoodBand = WoodBand(FinalState.Wood);
 			Active.bReady = true;
+			if (bDynamicLODEnabled)
+			{
+				Active.CurrentAction = EIndividualAction::None;
+				Active.ActiveEventID = 0;
+				Active.ParentEventID = 0;
+				Active.ActiveArriveID = 0;
+				Active.ActiveReservationID = 0;
+				Active.InheritedOrderKey = 0;
+				Active.ActionStartTime = Due.ExecuteAt;
+				Active.ActionEndTime = Due.ExecuteAt;
+				UpdateCapsule(
+					Event.ActiveResidentID,
+					Due.ExecuteAt,
+					FinalState,
+					Event.SourceCellID,
+					0,
+					Event.BatchEventID,
+					Event.Action);
+				ParticipantRefs.Remove(Event.ActiveResidentID);
+			}
 		}
 		else
 		{
 			TargetCellID = FindOrCreateTargetCell(SourceKey, FinalState);
 			Cells.FindChecked(TargetCellID).Count += Event.ParticipantCount;
+			if (bDynamicLODEnabled)
+			{
+				TArray<FResidentID> CompletedResidents;
+				for (const TPair<FResidentID, FV17ParticipantRef>& Pair : ParticipantRefs)
+				{
+					if (Pair.Value.BatchEventID == Event.BatchEventID)
+					{
+						CompletedResidents.Add(Pair.Key);
+					}
+				}
+				CompletedResidents.Sort();
+				for (const FResidentID ResidentID : CompletedResidents)
+				{
+					UpdateCapsule(
+						ResidentID,
+						Due.ExecuteAt,
+						FinalState,
+						TargetCellID,
+						0,
+						Event.BatchEventID,
+						Event.Action);
+					ParticipantRefs.Remove(ResidentID);
+				}
+			}
 		}
 		if (!TransferEventStateToDestination(Event, TargetCellID, OutError)
 			|| !EventStore.CompleteEvent(Event.BatchEventID, OutError))
@@ -1392,6 +1463,164 @@ namespace AILOD
 		Audit.ActiveCapViolationCount = ActiveStates.Num() > ActiveMicroCap ? 1 : 0;
 		Audit.DuplicateTransactionCount = Ledger.GetDuplicateTransactionCount();
 		Audit.DuplicateCompletionCount = EventStore.GetDuplicateCompletionCount();
+		if (bDynamicLODEnabled)
+		{
+			auto BuildOuterKey = [](const EKingdom Kingdom, const EProfession Profession, const EIncomeBand IncomeBand)
+			{
+				return FString::Printf(
+					TEXT("%d,%d,%d"),
+					static_cast<int32>(Kingdom),
+					static_cast<int32>(Profession),
+					static_cast<int32>(IncomeBand));
+			};
+			TMap<FString, int32> IdentityOuterCounts;
+			TMap<FString, int32> StateOuterCounts;
+			TSet<FString> LiveActiveAccounts;
+			Audit.IdentityMismatchCount += IdentityRegistry.Num() == InitialPopulation ? 0 : 1;
+			for (const TPair<FResidentID, FV17IdentityRecord>& Pair : IdentityRegistry)
+			{
+				const FV17IdentityRecord& Identity = Pair.Value;
+				Audit.IdentityMismatchCount += Pair.Key == Identity.ResidentID ? 0 : 1;
+				IdentityOuterCounts.FindOrAdd(BuildOuterKey(
+					Identity.InitialKingdom, Identity.Profession, Identity.IncomeBand)) += 1;
+			}
+			for (const TPair<FV17AuthoritativeCellID, FV17AuthoritativeCellConfig>& Pair : Cells)
+			{
+				const FV17AuthoritativeJointKey& Key = Pair.Value.Key;
+				StateOuterCounts.FindOrAdd(BuildOuterKey(Key.Kingdom, Key.Profession, Key.IncomeBand)) += Pair.Value.Count;
+			}
+
+			TMap<FEventID, int32> RefCounts;
+			for (const TPair<FResidentID, FV17ParticipantRef>& Pair : ParticipantRefs)
+			{
+				const FV17ParticipantRef& Ref = Pair.Value;
+				const FV17AuthoritativeBatchEvent* Event = BatchEvents.Find(Ref.BatchEventID);
+				const FV17ContinuityCapsule* Capsule = Capsules.Find(Pair.Key);
+				if (Pair.Key != Ref.ResidentID
+					|| !IdentityRegistry.Contains(Pair.Key)
+					|| Capsule == nullptr
+					|| Event == nullptr
+					|| Event->Status != ESimulationEventState::Pending)
+				{
+					++Audit.BatchSplitMergeResidualCount;
+					continue;
+				}
+				++RefCounts.FindOrAdd(Ref.BatchEventID);
+				const FActiveState* Active = ActiveStates.Find(Pair.Key);
+				if ((Active != nullptr && (Active->ActiveEventID != Ref.BatchEventID
+						|| Event->ActiveResidentID != Pair.Key))
+					|| (Active == nullptr && Event->ActiveResidentID != 0)
+					|| Capsule->BatchCursor != Ref.BatchEventID)
+				{
+					++Audit.BatchSplitMergeResidualCount;
+				}
+			}
+
+			for (const TPair<FResidentID, FActiveState>& Pair : ActiveStates)
+			{
+				const FV17IdentityRecord* Identity = IdentityRegistry.Find(Pair.Key);
+				const FActiveState& Active = Pair.Value;
+				if (Identity == nullptr
+					|| Pair.Key != Active.Definition.ResidentID
+					|| Active.Definition.Key.Kingdom != Identity->InitialKingdom
+					|| Active.Definition.Key.Profession != Identity->Profession
+					|| Active.Definition.Key.IncomeBand != Identity->IncomeBand)
+				{
+					++Audit.IdentityMismatchCount;
+				}
+				StateOuterCounts.FindOrAdd(BuildOuterKey(
+					Active.Definition.Key.Kingdom,
+					Active.Definition.Key.Profession,
+					Active.Definition.Key.IncomeBand)) += 1;
+				LiveActiveAccounts.Add(ActiveAccount(Pair.Key, TEXT("Cash")));
+				LiveActiveAccounts.Add(ActiveAccount(Pair.Key, TEXT("RepairCredit")));
+				LiveActiveAccounts.Add(ActiveAccount(Pair.Key, TEXT("Wood")));
+
+				const FIndividualActionState DefinitionState = {
+					Active.Definition.Cash,
+					Active.Definition.RepairCredit,
+					Active.Definition.Wood,
+					Active.Definition.Key.HomeState
+				};
+				if (Active.ActiveEventID == 0)
+				{
+					const bool bAccountMatches =
+						FMath::RoundToInt64(Ledger.GetBalance(
+							ESimulationResource::Coin, ActiveAccount(Pair.Key, TEXT("Cash")))) == DefinitionState.Cash
+						&& FMath::RoundToInt64(Ledger.GetBalance(
+							ESimulationResource::Coin, ActiveAccount(Pair.Key, TEXT("RepairCredit")))) == DefinitionState.RepairCredit
+						&& FMath::RoundToInt64(Ledger.GetBalance(
+							ESimulationResource::Wood, ActiveAccount(Pair.Key, TEXT("Wood")))) == DefinitionState.Wood;
+					Audit.LiftRestrictResidueCount += Active.bReady
+						&& Active.CurrentAction == EIndividualAction::None
+						&& bAccountMatches ? 0 : 1;
+				}
+				else
+				{
+					const FV17AuthoritativeBatchEvent* Event = BatchEvents.Find(Active.ActiveEventID);
+					const bool bEventMatches = Event != nullptr
+						&& Event->Status == ESimulationEventState::Pending
+						&& Event->ParticipantCount == 1
+						&& Event->ActiveResidentID == Pair.Key
+						&& Event->Action == Active.CurrentAction
+						&& SameFrozenState(ReadPendingEventState(*Event), DefinitionState);
+					Audit.LiftRestrictResidueCount += !Active.bReady && bEventMatches ? 0 : 1;
+				}
+			}
+
+			for (const TPair<FEventID, FV17AuthoritativeBatchEvent>& Pair : BatchEvents)
+			{
+				const FV17AuthoritativeBatchEvent& Event = Pair.Value;
+				if (Event.Status != ESimulationEventState::Pending) continue;
+				const FSimulationEventRecord* Stored = EventStore.Find(Event.BatchEventID);
+				const int32 RefCount = RefCounts.FindRef(Event.BatchEventID);
+				if (Event.ActiveResidentID == 0)
+				{
+					const FV17AuthoritativeCellConfig* Source = Cells.Find(Event.SourceCellID);
+					if (Source != nullptr)
+					{
+						const FV17AuthoritativeJointKey& Key = Source->Key;
+						StateOuterCounts.FindOrAdd(BuildOuterKey(
+							Key.Kingdom, Key.Profession, Key.IncomeBand)) += Event.ParticipantCount;
+					}
+					if (Source == nullptr
+						|| RefCount > Event.ParticipantCount
+						|| Stored == nullptr
+						|| Stored->Event.ResidentID != 0)
+					{
+						++Audit.BatchSplitMergeResidualCount;
+					}
+				}
+				else if (Event.ParticipantCount != 1
+					|| RefCount > 1
+					|| Stored == nullptr
+					|| Stored->Event.ResidentID != Event.ActiveResidentID)
+				{
+					++Audit.BatchSplitMergeResidualCount;
+				}
+			}
+
+			for (const TPair<FResidentID, FV17ContinuityCapsule>& Pair : Capsules)
+			{
+				const FV17ContinuityCapsule& Capsule = Pair.Value;
+				Audit.CapsuleIdentityMismatchCount += Pair.Key == Capsule.ResidentID
+					&& IdentityRegistry.Contains(Pair.Key)
+					&& Capsule.CapsuleVersion > 0
+					&& Capsule.LastObservedTime <= Clock.Now() ? 0 : 1;
+			}
+			for (const TPair<FResourceAccountKey, double>& Pair : Ledger.GetBalances())
+			{
+				if (Pair.Key.Account.StartsWith(TEXT("V17.Active."))
+					&& !LiveActiveAccounts.Contains(Pair.Key.Account))
+				{
+					++Audit.LiftRestrictResidueCount;
+				}
+			}
+			Audit.IdentityMismatchCount += IdentityOuterCounts.OrderIndependentCompareEqual(StateOuterCounts) ? 0 : 1;
+			Audit.BatchSplitMergeResidualCount += BatchSplitMergeResidualCount;
+			Audit.LiftRestrictResidueCount += LiftRestrictResidueCount;
+			Audit.TaskResetCount = TaskResetCount;
+		}
 		return Audit;
 	}
 
@@ -1638,6 +1867,116 @@ namespace AILOD
 			Audit.ActiveCapViolationCount,
 			Audit.DuplicateTransactionCount,
 			Audit.DuplicateCompletionCount);
+		if (bDynamicLODEnabled)
+		{
+			Canonical += TEXT("DynamicLOD=1|");
+			TArray<FResidentID> IdentityIDs;
+			IdentityRegistry.GetKeys(IdentityIDs);
+			IdentityIDs.Sort();
+			for (const FResidentID ResidentID : IdentityIDs)
+			{
+				const FV17IdentityRecord& Identity = IdentityRegistry.FindChecked(ResidentID);
+				Canonical += FString::Printf(
+					TEXT("I=%lld,%lld,%u,%u,%lld,%d,%d,%d,%u|"),
+					Identity.ResidentID,
+					Identity.PersistentID,
+					Identity.NameSeed,
+					Identity.AppearanceSeed,
+					Identity.HomeID,
+					static_cast<int32>(Identity.InitialKingdom),
+					static_cast<int32>(Identity.Profession),
+					static_cast<int32>(Identity.IncomeBand),
+					Identity.IdentityVersion);
+			}
+
+			TArray<FResidentID> CapsuleIDs;
+			Capsules.GetKeys(CapsuleIDs);
+			CapsuleIDs.Sort();
+			for (const FResidentID ResidentID : CapsuleIDs)
+			{
+				const FV17ContinuityCapsule& Capsule = Capsules.FindChecked(ResidentID);
+				Canonical += FString::Printf(
+					TEXT("U=%lld,%lld,%d,%d,%d,%d,%llu,%lld,%u|"),
+					Capsule.ResidentID,
+					Capsule.LastObservedTime.Minutes,
+					Capsule.LastObservedState.Cash,
+					Capsule.LastObservedState.RepairCredit,
+					Capsule.LastObservedState.Wood,
+					static_cast<int32>(Capsule.LastObservedState.HomeState),
+					Capsule.LastKnownCellID,
+					Capsule.BatchCursor,
+					Capsule.CapsuleVersion);
+				TArray<EIndividualAction> Completed = Capsule.KnownCompletedActions;
+				Completed.Sort([](const EIndividualAction Left, const EIndividualAction Right)
+				{
+					return static_cast<uint8>(Left) < static_cast<uint8>(Right);
+				});
+				for (const EIndividualAction Action : Completed)
+				{
+					Canonical += FString::Printf(TEXT("UA=%lld,%d|"), ResidentID, static_cast<int32>(Action));
+				}
+				TArray<FEventID> Lineage = Capsule.CommittedEventLineage;
+				Lineage.Sort();
+				for (const FEventID EventID : Lineage)
+				{
+					Canonical += FString::Printf(TEXT("UE=%lld,%lld|"), ResidentID, EventID);
+				}
+			}
+
+			TArray<FResidentID> RefResidentIDs;
+			ParticipantRefs.GetKeys(RefResidentIDs);
+			RefResidentIDs.Sort();
+			for (const FResidentID ResidentID : RefResidentIDs)
+			{
+				const FV17ParticipantRef& Ref = ParticipantRefs.FindChecked(ResidentID);
+				Canonical += FString::Printf(
+					TEXT("F=%llu,%lld,%lld,%lld,%lld,%llu|"),
+					Ref.ParticipantRefID,
+					Ref.ResidentID,
+					Ref.BatchEventID,
+					Ref.ParentBatchEventID,
+					Ref.ReservationID,
+					Ref.InheritedOrderKey);
+			}
+
+			for (const FResidentID ResidentID : ResidentIDs)
+			{
+				const FActiveState& Active = ActiveStates.FindChecked(ResidentID);
+				Canonical += FString::Printf(
+					TEXT("DA=%lld,%d,%lld,%lld,%lld,%lld,%llu,%lld,%lld|"),
+					ResidentID,
+					static_cast<int32>(Active.CurrentAction),
+					Active.ActiveEventID,
+					Active.ParentEventID,
+					Active.ActiveArriveID,
+					Active.ActiveReservationID,
+					Active.InheritedOrderKey,
+					Active.ActionStartTime.Minutes,
+					Active.ActionEndTime.Minutes);
+			}
+
+			for (const FV17LODTransitionRecord& Transition : LODTransitions)
+			{
+				Canonical += FString::Printf(
+					TEXT("D=%lld,%lld,%d,%llu,%lld,%lld,%d,%d|"),
+					Transition.ResidentID,
+					Transition.GameTime.Minutes,
+					Transition.bLift ? 1 : 0,
+					Transition.SelectedCellID,
+					Transition.BatchEventID,
+					Transition.ParentBatchEventID,
+					Transition.bUsedFallback ? 1 : 0,
+					static_cast<int32>(Transition.Result));
+			}
+			Canonical += FString::Printf(
+				TEXT("DX=%d,%d,%d,%d,%d,%d|"),
+				LiftReconstructionFallbackCount,
+				Audit.IdentityMismatchCount,
+				Audit.CapsuleIdentityMismatchCount,
+				Audit.BatchSplitMergeResidualCount,
+				Audit.LiftRestrictResidueCount,
+				Audit.TaskResetCount);
+		}
 		const FTCHARToUTF8 Utf8(*Canonical);
 		return FSHA1::HashBuffer(Utf8.Get(), static_cast<uint64>(Utf8.Length())).ToString();
 	}

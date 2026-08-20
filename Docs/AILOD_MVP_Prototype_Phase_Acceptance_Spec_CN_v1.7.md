@@ -3,22 +3,22 @@
 **版本：v1.7**<br>
 **日期：2026-08-18**<br>
 **验收文档可读性规则增补：2026-08-19**<br>
-**状态：研究方向与 6G-B0 规则已由项目作者于 2026-08-18 确认；B0、B1、B2A、B2B 已分别封板，其中 B1、B2A、B2B 提交为 `90020f2`、`af3b253`、`37120c4`；项目作者已于 2026-08-19 确认 B3 并授权封板后开始 B4；B4—B5 尚未完成**<br>
+**状态：研究方向与 6G-B0 规则已由项目作者于 2026-08-18 确认；B0—B3 已分别封板，B1、B2A、B2B、B3 提交为 `90020f2`、`af3b253`、`37120c4`、`0ed8c16`；项目作者已于 2026-08-20 确认 B4 并授权独立提交后开始 B5；B5 尚未完成**<br>
 **基准文档：`AILOD_MVP_Prototype_Implementation_Spec_CN.md` v1.1**<br>
 **前序修订：v1.2、v1.3、v1.4、v1.5、v1.6**<br>
-**工程证据：`AILOD_MVP_Phase6G_A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B1_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2B_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B3_Checkpoint_CN.md`**<br>
+**工程证据：`AILOD_MVP_Phase6G_A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B1_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2B_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B3_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B4_Checkpoint_CN.md`**<br>
 **用途：用结构化 Cohort 权威状态、批量 Claim/Event 和按需 Lift/Restrict 替代 Proposed 的每小时全员候选与个人提交；历史文档保留不改。**
 
 ## 1. 文档优先级、实施生效点与不变项
 
 实现依次读取 v1.1、v1.2、v1.3、v1.4、v1.5、v1.6 和本文件。本文件只覆盖第 2 节明确列出的冲突；未覆盖内容继续有效。
 
-v1.7 的模型规则已经冻结。B3 目前已经建立无动态玩家轨迹的 v1.7 权威宏观测试会话；正式 Experiment Runner 的完整 Proposed 仍执行 v1.6，直到 B4 接入动态切换并由 B5 完成总验收。实施期间必须区分：
+v1.7 的模型规则已经冻结。B4 已在隔离的 v1.7 权威会话中接入动态居民恢复和退出；正式 Experiment Runner 的完整 Proposed 仍执行 v1.6，直到 B5 接入并完成总验收。实施期间必须区分：
 
 - **v1.6 Current Proposed：** 当前个人 CoreState、个人候选和独立提交实现；
 - **v1.7 Shadow Proposed：** 6G-B1 只在旁路计算，不修改权威结果或旧 Digest；
 - **v1.7 Batch Slice Prototype：** 6G-B2A/B2B 在隔离的新后端测试夹具中验证 Batch Event/Ledger 语义，不与 v1.6 个人状态形成混合权威；
-- **v1.7 Authoritative Proposed：** 6G-B3 已在隔离且无动态 Trace 的测试会话中，让 Cohort Joint State、聚合 Ledger 和 Batch Event 一次性负责全部离屏动作；6G-B4 接入完整 Lift/Restrict，到 6G-B5 总验收通过后才成为正式 Proposed。
+- **v1.7 Authoritative Proposed：** 6G-B3 已让 Cohort Joint State、聚合 Ledger 和 Batch Event 在隔离会话中负责全部离屏动作；6G-B4 已接入完整 Lift/Restrict、固定 Trace 和 Active=50；只有 6G-B5 接入完整 Runner 并总验收通过后，才成为正式 Proposed。
 
 以下冻结项不变：
 
@@ -427,6 +427,19 @@ B1—B4 的 Manifest 必须标记 `valid_for_formal_experiment=false` 和当前 
 - 实现 Identity 直接查询、Capsule、Joint Cell 提取/写回和 Batch Event Split/Merge；
 - 覆盖固定 Trace、样本外动态居民、零时间往返、维修中途两次切换和 Active≤50；
 - Activation/Restrict 成本不得进入 Macro Batch 成本。
+
+实施记录（2026-08-19 完成，项目作者于 2026-08-20 确认并授权进入 B5）：
+
+- 全部 96 个测试身份只永久保存静态资料；玩家见过或上限测试涉及的居民按需创建 51 条小型 Capsule，没有恢复全人口动态 CoreState；
+- Day 7/8、14/15、30/31、45/46 的固定人数轨迹在两个相同 Seed 下得到同一结果；共 60 次 Lift，最高 Active=20，结束 Active=0；
+- 样本外 ResidentID 可直接恢复；零时间进入/退出前后人口、Coin、Credit、Wood、房屋状态人数和 Pending Participant 总量不变；
+- 同时 Lift 50 人成功，第 51 人被拒绝且不改变 Active 数；全部 Restrict 后 Active=0；
+- 6 人维修在第 24、30 小时两次拆出/合回同一居民，剩余时间保持 24、18 小时，24 Wood 不重复扣除，第 48 小时按原时间完成；
+- 4 人 BuyWood 的 16 Wood Reservation 在拆分后为 12+4，合并后仍为 16，完成后只交付 16；没有重复付款、重复预约或重新竞争；
+- Lift、Restrict、Event Split 和 Event Merge 四类故障注入均恢复完整操作前状态；Restrict 后删除归零个人账户；
+- B4 四个 Digest 固定为 `1582AA3FFA38AC25789456AA94765143BF09A321`、`30B7545FD96B5CC65D8DAD86A7863256E0563A4D`、`936C044128D58AE1E13574F08B97C469C016D504`、`E3081367E43FB7014B8FC149F2FD693ACDD2C93A`；B3 四个旧 Digest 不变；
+- UE 5.4 Development Editor 编译成功；NullRHI 全套为 `33/33 Success`、`0 Failed`、自动化错误 `0`、退出码 `0`；独立证据见 `AILOD_MVP_Phase6G_B4_Checkpoint_CN.md`；
+- 本步仍未接入完整 Experiment Runner，未执行 B5 的 200 人准确性或 2k—100k 可扩展性总验收，必须保持 `valid_for_formal_experiment=false`；项目作者已确认 B4，并授权独立本地提交后进入 B5；不推送。
 
 ### 6G-B5 — 新 Proposed 总验收
 

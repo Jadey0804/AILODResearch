@@ -1,6 +1,6 @@
 # AILOD MVP 当前有效规则索引
 
-**索引版本：3.3**<br>
+**索引版本：3.4**<br>
 **日期：2026-08-19**<br>
 **用途：说明当前规则的读取顺序、冲突优先级和各文档职责。**<br>
 **性质：本文件只做导航，不新增模型规则、不替代原规格，也不构成阶段验收。**
@@ -46,6 +46,7 @@
 | Phase 6G-B2A Checkpoint | Wait/Routine 用一条事件代表整批人数、到期归还、错误拒绝和重复运行证据 | 是隔离原型验收记录；未接入完整 Proposed，不代表 Work/Ledger、资源竞争、Dynamic LOD 或规模性能已经完成 |
 | Phase 6G-B2B Checkpoint | Work 整批工资、整数 Coin、到期结算、防重复付款、失败恢复和国库不变证据 | 是隔离原型验收记录；未接入完整 Proposed，不代表有限资源竞争、完整 Cohort 迁移或规模性能已经完成 |
 | Phase 6G-B3 Checkpoint | 六种共享离屏行动、Macro 与 Active 单人统一竞争、Market/Forest/Repair 批量预约和结算、失败恢复与权威 Macro 会话证据 | 是无动态玩家轨迹的 v1.7 权威 Macro 验收记录；尚未实现 B4 的任意居民 Lift/Restrict、Capsule、正式 Trace，也不代表 B5 性能和准确性已通过 |
+| Phase 6G-B4 Checkpoint | 任意居民按身份恢复、玩家记忆、进入/退出群体、进行中任务和木材预订拆分/合并、固定轨迹、Active=50 与失败恢复证据 | 是隔离 v1.7 权威会话的动态 LOD 验收记录；尚未接入完整 Experiment Runner，也不代表 B5 的准确性、性能、50k/100k 压力和正式实验资格已通过 |
 
 ## 3. 当前最容易误读的有效规则
 
@@ -89,7 +90,7 @@ Phase 6A—6F 已经实现以下内容：
 
 以上 Phase 6A—6F 历史边界以 v1.6 §8 和 Phase 5.1 Checkpoint §8 为准；6G-B 的新 Proposed 规则以 v1.7 为准。
 
-当前位于 `phase-6g-b-cohort-batch`。Phase 6A—6F 已分别以本地提交 `71e3565`、`c0e84d2`、`eb44bf3`、`93282ed`、`6ee6873`、`c629bb6` 封板；6G-A、6G-B0、6G-B1 和 6G-B2A 已分别以本地提交 `41d3bae`、`8a1ac11`、`90020f2`、`af3b253` 封板。项目作者已于 2026-08-19 确认 B2B 的 Work 整批工资、到期结算、防重复付款和失败恢复检查结果，并授权 B2B 随独立本地提交封板后开始 B3。完整 Run 当前仍以 v1.6 Proposed 为唯一权威；B4—B5、Phase 7 和 Phase 8 均未开始。所有既有提交均未推送。
+当前位于 `phase-6g-b-cohort-batch`。Phase 6A—6F 已分别以本地提交 `71e3565`、`c0e84d2`、`eb44bf3`、`93282ed`、`6ee6873`、`c629bb6` 封板；6G-A、6G-B0、6G-B1、6G-B2A、6G-B2B 和 6G-B3 已分别以本地提交 `41d3bae`、`8a1ac11`、`90020f2`、`af3b253`、`37120c4`、`0ed8c16` 封板。B4 已在隔离 v1.7 权威会话中完成任意居民恢复、稀疏玩家记忆、固定轨迹、Active=50 和进行中任务拆分/合并；项目作者已于 2026-08-20 确认 B4，并授权独立本地提交后开始 B5。完整 Experiment Runner 仍以 v1.6 Proposed 为唯一权威；B5 尚未完成，Phase 7 和 Phase 8 尚未开始。所有既有提交均未推送。
 
 ## 5. 后续修改规则
 
