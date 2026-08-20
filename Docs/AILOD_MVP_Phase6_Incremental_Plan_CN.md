@@ -1,7 +1,7 @@
 # AILOD MVP Phase 6 增量实施计划与检查点
 
-**计划版本：2.2**<br>
-**日期：2026-08-19**<br>
+**计划版本：2.3**<br>
+**日期：2026-08-20**<br>
 **分支：`phase-6g-b-cohort-batch`**<br>
 **Phase 5.1 基线提交：`7ea750d6617f6346de37e19e2d20c9c76f5b682f`**<br>
 **Step 0 计划提交：`a3a34969be04036fe919f9599ace609f0f508ceb`**<br>
@@ -15,7 +15,10 @@
 **Phase 6G-B0 封板提交：`8a1ac11`**<br>
 **Phase 6G-B1 封板提交：`90020f2`**<br>
 **Phase 6G-B2A 封板提交：`af3b253`**<br>
-**当前状态：项目作者已于 2026-08-19 确认 B2B；B2B 随独立本地提交封板后开始 B3；B4—B5 未开始；所有既有提交均未推送。**
+**Phase 6G-B2B 封板提交：`37120c4`**<br>
+**Phase 6G-B3 封板提交：`0ed8c16`**<br>
+**Phase 6G-B4 封板提交：`97e5843`**<br>
+**当前状态：项目作者已于 2026-08-20 确认 B5A，并授权独立本地提交后开始 B5B；B5C—B5E 尚未开始；所有既有提交均未推送。**
 
 本文件把 Phase 6 和经证据触发的 6G-B 拆成可独立验收的实施步骤；模型事实只由版本化规格定义。本计划从 6G-B0 起按 `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.7.md` 导航，不自行新增或覆盖模型规则。规则冲突按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.7 顺序处理。
 
@@ -67,10 +70,10 @@ Phase 6 不负责：
 | Phase 6G-B0 | 冻结 v1.7、权威索引和 B0—B5 检查点 | 作者已确认，提交 `8a1ac11` 封板 |
 | Phase 6G-B1 | 建立不修改权威结果的 Shadow Cohort | 作者已确认，提交 `90020f2` 封板 |
 | Phase 6G-B2A | 隔离 Wait/Routine Batch 切片 | 作者已确认，提交 `af3b253` 封板 |
-| Phase 6G-B2B | 隔离 Work 与工资/国库 Batch 切片 | 作者已确认，本次独立提交封板 |
-| Phase 6G-B3 | 全动作资源竞争批量化并一次性切换 Macro 权威 | 已获授权开始 |
-| Phase 6G-B4 | Dynamic Lift/Restrict、Capsule 与 Batch Split/Merge | 未开始 |
-| Phase 6G-B5 | 200 准确性、2k—20k 回归/性能和 50k/100k 压力总验收 | 未开始 |
+| Phase 6G-B2B | 隔离 Work 与工资/国库 Batch 切片 | 作者已确认，提交 `37120c4` 封板 |
+| Phase 6G-B3 | 全动作资源竞争批量化并一次性切换 Macro 权威 | 作者已确认，提交 `0ed8c16` 封板 |
+| Phase 6G-B4 | Dynamic Lift/Restrict、Capsule 与 Batch Split/Merge | 作者已确认，提交 `97e5843` 封板 |
+| Phase 6G-B5 | 200 准确性、2k—20k 回归/性能和 50k/100k 压力总验收 | 进行中：B5A 已获确认，B5B 已获授权开始 |
 
 ## 4. Phase 6A：可逐小时推进的生产会话
 
@@ -446,6 +449,18 @@ B0 检查点：
 - 工程目标为同环境 20k Proposed Production 至少比 Per-Agent 快 3 倍；未达到则停止复核，不把目标当正式统计结论；
 - 人口 20k→100k 时 Identity 可增长 5 倍，但每小时 Identity Scan 必须为 0，Batch 对象数、ResidentTouches 和后台动态工作不得近似增长 5 倍；
 - B5 通过前不进入 Pilot、正式 480/90 Runs 或 Phase 7 动态演示。
+
+#### B5A：先把新运行器接通
+
+实施记录（2026-08-20，项目作者已确认并授权进入 B5B）：
+
+- Experiment Runner 现在可以显式选择 v1.6 旧 Proposed 或 v1.7 新权威路径，两套动态状态不混用；
+- v1.7 工程运行从 D-7 推进到 D60，执行固定进入/退出轨迹，并写出 `Spec 1.7`、`Schema 1.2`、`authority_mode=v1.7_authoritative` 的清单；
+- B5 完成前继续写 `valid_for_formal_experiment=false`，并只开放无政策 Performance 工程冒烟，防止把尚未接完的行为用于准确性或政策实验；
+- 总人口 200、Seed `20260810` 的运行和清单重放得到相同 Digest `F976DB3886B140FA0A8517390B382D52B650E8B0`；每小时 Identity Scan 为 0，最高 Active=20；
+- 一次旧 B1 影子清单重放歧义已修正：只有 `authority_mode=v1.7_authoritative` 才选择新权威路径；
+- Development Editor 编译成功，全套 `34/34 Success`、`0 Failed`、自动化错误 `0`、退出码 `0`；
+- B5A 只证明运行器、版本清单和重放接通；共享动作、地震、政策、Schema 1.2 明细日志、200 Oracle 准确性和 2k—100k 规模验收仍未完成；独立证据见 `AILOD_MVP_Phase6G_B5A_Checkpoint_CN.md`。
 
 ## 12. Step 0 确认门
 

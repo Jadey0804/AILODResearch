@@ -91,7 +91,14 @@ namespace AILOD::LogSchema
 		{ TEXT("build_type"), TEXT("string") }, { TEXT("hardware"), TEXT("string") },
 		{ TEXT("log_mode"), TEXT("string") },
 		{ TEXT("start_time"), TEXT("string") }, { TEXT("end_time"), TEXT("string") },
-		{ TEXT("valid"), TEXT("bool") }
+		{ TEXT("valid"), TEXT("bool") },
+		{ TEXT("proposed_model_version"), TEXT("string") },
+		{ TEXT("authoritative_model_version"), TEXT("string") },
+		{ TEXT("authority_mode"), TEXT("string") },
+		{ TEXT("joint_state_version"), TEXT("string") },
+		{ TEXT("claim_allocation_version"), TEXT("string") },
+		{ TEXT("capsule_version"), TEXT("string") },
+		{ TEXT("valid_for_formal_experiment"), TEXT("bool") }
 	};
 
 	inline constexpr FFieldDefinition KingdomTimeseriesFields[] =

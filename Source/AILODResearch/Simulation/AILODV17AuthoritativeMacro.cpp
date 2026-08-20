@@ -127,6 +127,7 @@ namespace AILOD
 				|| Kingdom.EmbeddedRepairWood < 0
 				|| Kingdom.RepairedHomeWood < 0
 				|| Kingdom.RepairCapacity < 0
+				|| Kingdom.TreasuryCoin < 0
 				|| !FMath::IsFinite(Kingdom.WoodPrice)
 				|| Kingdom.WoodPrice <= 0.0)
 			{
@@ -148,7 +149,7 @@ namespace AILOD
 				{ ESimulationResource::Wood, TEXT("WoodEmbeddedInRepairs"), Kingdom.EmbeddedRepairWood },
 				{ ESimulationResource::Wood, TEXT("WoodInRepairedHomes"), Kingdom.RepairedHomeWood },
 				{ ESimulationResource::Coin, TEXT("MarketCoin"), Kingdom.MarketCoin },
-				{ ESimulationResource::Coin, TEXT("TreasuryAvailable"), 0 }
+				{ ESimulationResource::Coin, TEXT("TreasuryAvailable"), Kingdom.TreasuryCoin }
 			};
 			for (const auto& Account : Accounts)
 			{

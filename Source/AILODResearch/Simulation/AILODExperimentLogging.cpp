@@ -47,7 +47,7 @@ namespace AILOD
 		{
 			return
 			{
-				CsvString(SchemaVersion),
+				CsvString(Result.LogSchemaVersion),
 				CsvString(Metadata.ExperimentID),
 				CsvString(Metadata.RunID),
 				CsvString(ToString(Result.Method)),
@@ -152,7 +152,7 @@ namespace AILOD
 			const FSimulationTime GameTime)
 		{
 			TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
-			Object->SetStringField(TEXT("schema_version"), SchemaVersion);
+			Object->SetStringField(TEXT("schema_version"), Result.LogSchemaVersion);
 			Object->SetStringField(TEXT("experiment_id"), Metadata.ExperimentID);
 			Object->SetStringField(TEXT("run_id"), Metadata.RunID);
 			Object->SetStringField(TEXT("method"), ToString(Result.Method));
@@ -284,7 +284,7 @@ namespace AILOD
 		}
 
 		TSharedRef<FJsonObject> Manifest = MakeCommonJson(Result, Metadata, Result.FinalTime);
-		Manifest->SetStringField(TEXT("spec_version"), SpecVersion);
+		Manifest->SetStringField(TEXT("spec_version"), Result.ModelSpecVersion);
 		Manifest->SetStringField(TEXT("config_hash"), Result.ConfigHash);
 		Manifest->SetStringField(TEXT("population_manifest_sha256"), Metadata.PopulationManifestSHA256);
 		Manifest->SetStringField(TEXT("damage_list_sha256"), Metadata.DamageListSHA256);
@@ -298,21 +298,61 @@ namespace AILOD
 		Manifest->SetStringField(TEXT("end_time"), Metadata.EndTime);
 		Manifest->SetBoolField(TEXT("valid"), Result.IsHardErrorFree());
 		Manifest->SetStringField(TEXT("deterministic_digest"), FUnifiedSimulationRunner::BuildDeterministicDigest(Result));
-		if (Result.bEnableV17ShadowCohort)
+		if (Result.ProposedModelVersion == EProposedModelVersion::V17Authoritative)
+		{
+			Manifest->SetStringField(TEXT("proposed_model_version"), TEXT("1.7"));
+			Manifest->SetStringField(TEXT("authoritative_model_version"), TEXT("1.7"));
+			Manifest->SetStringField(TEXT("authority_mode"), Result.AuthorityMode);
+			Manifest->SetStringField(TEXT("joint_state_version"), Result.JointStateVersion);
+			Manifest->SetStringField(TEXT("claim_allocation_version"), Result.ClaimAllocationVersion);
+			Manifest->SetStringField(TEXT("capsule_version"), Result.CapsuleVersion);
+			Manifest->SetBoolField(TEXT("valid_for_formal_experiment"), Result.bValidForFormalExperiment);
+		}
+		else if (Result.bEnableV17ShadowCohort)
 		{
 			Manifest->SetStringField(TEXT("proposed_model_version"), TEXT("1.7"));
 			Manifest->SetStringField(TEXT("authoritative_model_version"), TEXT("1.6"));
 			Manifest->SetStringField(TEXT("authority_mode"), TEXT("v1.7_shadow"));
+			Manifest->SetStringField(TEXT("joint_state_version"), TEXT("1.7-shadow"));
+			Manifest->SetStringField(TEXT("claim_allocation_version"), TEXT("1.7-shadow"));
+			Manifest->SetStringField(TEXT("capsule_version"), TEXT("not_active"));
 			Manifest->SetBoolField(TEXT("valid_for_formal_experiment"), false);
 		}
+		else
+		{
+			Manifest->SetStringField(TEXT("proposed_model_version"),
+				Result.Method == EUnifiedSimulationMethod::Proposed ? TEXT("1.6") : TEXT("not_applicable"));
+			Manifest->SetStringField(TEXT("authoritative_model_version"), TEXT("1.6"));
+			Manifest->SetStringField(TEXT("authority_mode"),
+				Result.Method == EUnifiedSimulationMethod::Proposed ? TEXT("v1.6_current") : TEXT("method_native"));
+			Manifest->SetStringField(TEXT("joint_state_version"), TEXT("not_applicable"));
+			Manifest->SetStringField(TEXT("claim_allocation_version"), TEXT("not_applicable"));
+			Manifest->SetStringField(TEXT("capsule_version"), TEXT("not_applicable"));
+			Manifest->SetBoolField(TEXT("valid_for_formal_experiment"), Result.IsHardErrorFree());
+		}
 		TSharedRef<FJsonObject> HardErrors = MakeShared<FJsonObject>();
-		HardErrors->SetNumberField(TEXT("task_reset"), Result.TaskResetCount);
-		HardErrors->SetNumberField(TEXT("duplicate_completion"), Result.Audit.DuplicateCompletionCount);
-		HardErrors->SetNumberField(TEXT("event_owner_conflict"), Result.Audit.EventOwnerConflictCount);
-		HardErrors->SetNumberField(TEXT("duplicate_transaction"), Result.Audit.DuplicateTransactionCount);
-		HardErrors->SetNumberField(TEXT("negative_stock"), Result.Audit.NegativeStockCount);
-		HardErrors->SetNumberField(TEXT("population_residual"), Result.Audit.PopulationResidual);
-		HardErrors->SetNumberField(TEXT("wood_residual"), Result.Audit.WoodResidual);
+		if (Result.ProposedModelVersion == EProposedModelVersion::V17Authoritative)
+		{
+			HardErrors->SetNumberField(TEXT("task_reset"), Result.V17Audit.TaskResetCount);
+			HardErrors->SetNumberField(TEXT("duplicate_completion"), Result.V17Audit.DuplicateCompletionCount);
+			HardErrors->SetNumberField(TEXT("event_owner_conflict"), Result.V17Audit.OwnerConflictCount);
+			HardErrors->SetNumberField(TEXT("duplicate_transaction"), Result.V17Audit.DuplicateTransactionCount);
+			HardErrors->SetNumberField(TEXT("negative_stock"), Result.V17Audit.NegativeStockCount);
+			HardErrors->SetNumberField(TEXT("population_residual"), Result.V17Audit.PopulationResidual);
+			HardErrors->SetNumberField(TEXT("wood_residual"), Result.V17Audit.WoodResidual);
+			HardErrors->SetNumberField(TEXT("identity_mismatch"), Result.V17Audit.IdentityMismatchCount);
+			HardErrors->SetNumberField(TEXT("batch_split_merge_residual"), Result.V17Audit.BatchSplitMergeResidualCount);
+		}
+		else
+		{
+			HardErrors->SetNumberField(TEXT("task_reset"), Result.TaskResetCount);
+			HardErrors->SetNumberField(TEXT("duplicate_completion"), Result.Audit.DuplicateCompletionCount);
+			HardErrors->SetNumberField(TEXT("event_owner_conflict"), Result.Audit.EventOwnerConflictCount);
+			HardErrors->SetNumberField(TEXT("duplicate_transaction"), Result.Audit.DuplicateTransactionCount);
+			HardErrors->SetNumberField(TEXT("negative_stock"), Result.Audit.NegativeStockCount);
+			HardErrors->SetNumberField(TEXT("population_residual"), Result.Audit.PopulationResidual);
+			HardErrors->SetNumberField(TEXT("wood_residual"), Result.Audit.WoodResidual);
+		}
 		Manifest->SetObjectField(TEXT("hard_errors"), HardErrors);
 		TSharedRef<FJsonObject> Parameters = MakeShared<FJsonObject>();
 		Parameters->SetNumberField(TEXT("population_per_kingdom"), Result.PopulationPerKingdom);
@@ -322,6 +362,7 @@ namespace AILOD
 		Parameters->SetBoolField(TEXT("verify_cohort_approximation"), Result.bVerifyCohortApproximation);
 		Parameters->SetBoolField(TEXT("enable_macro_profiling"), Result.bEnableMacroProfiling);
 		Parameters->SetBoolField(TEXT("enable_v17_shadow_cohort"), Result.bEnableV17ShadowCohort);
+		Parameters->SetStringField(TEXT("proposed_model_version"), ToString(Result.ProposedModelVersion));
 		Parameters->SetStringField(TEXT("fault_injection"), FaultInjectionName(Result.FaultInjection));
 		Manifest->SetObjectField(TEXT("parameters"), Parameters);
 		TSharedRef<FJsonObject> Measurements = MakeShared<FJsonObject>();
@@ -338,6 +379,23 @@ namespace AILOD
 		Measurements->SetNumberField(TEXT("serialization_cpu_ms"), 0.0);
 		Measurements->SetNumberField(TEXT("file_write_cpu_ms"), 0.0);
 		Measurements->SetStringField(TEXT("ai_cpu_scope"), TEXT("production_only_excludes_validation_audit_snapshot_observer_and_logging"));
+		if (Result.ProposedModelVersion == EProposedModelVersion::V17Authoritative)
+		{
+			TSharedRef<FJsonObject> Diagnostics = MakeShared<FJsonObject>();
+			Diagnostics->SetNumberField(TEXT("identity_count"), Result.Diagnostics.V17IdentityCount);
+			Diagnostics->SetNumberField(TEXT("identity_scan_count_per_hour"), Result.Diagnostics.V17IdentityScanCountPerHour);
+			Diagnostics->SetNumberField(TEXT("resident_touches"), Result.Diagnostics.V17ResidentTouches);
+			Diagnostics->SetNumberField(TEXT("non_empty_joint_cell_count"), Result.Diagnostics.V17NonEmptyJointCellCount);
+			Diagnostics->SetNumberField(TEXT("batch_claim_count"), Result.Diagnostics.V17BatchClaimCount);
+			Diagnostics->SetNumberField(TEXT("batch_event_count"), Result.Diagnostics.V17BatchEventCount);
+			Diagnostics->SetNumberField(TEXT("participant_count"), Result.Diagnostics.V17ParticipantCount);
+			Diagnostics->SetNumberField(TEXT("capsule_count"), Result.Diagnostics.V17CapsuleCount);
+			Diagnostics->SetNumberField(TEXT("participant_ref_count"), Result.Diagnostics.V17ParticipantRefCount);
+			Diagnostics->SetNumberField(TEXT("lift_count"), Result.Diagnostics.V17LiftCount);
+			Diagnostics->SetNumberField(TEXT("restrict_count"), Result.Diagnostics.V17RestrictCount);
+			Diagnostics->SetNumberField(TEXT("max_active"), Result.Diagnostics.MaxActiveMicro);
+			Measurements->SetObjectField(TEXT("v1_7_diagnostics"), Diagnostics);
+		}
 		if (Result.bEnableMacroProfiling)
 		{
 			TSharedRef<FJsonObject> MacroProfile = MakeShared<FJsonObject>();

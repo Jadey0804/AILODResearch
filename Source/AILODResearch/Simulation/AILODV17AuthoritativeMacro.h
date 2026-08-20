@@ -137,6 +137,7 @@ namespace AILOD
 		int64 RepairedHomeWood = 0;
 		int32 RepairCapacity = 0;
 		double WoodPrice = 1.0;
+		int64 TreasuryCoin = 0;
 	};
 
 	struct FV17AuthoritativeClaim
@@ -298,6 +299,7 @@ namespace AILOD
 
 		const TMap<FV17AuthoritativeClaimID, FV17AuthoritativeClaim>& GetClaims() const { return Claims; }
 		const TMap<FEventID, FV17AuthoritativeBatchEvent>& GetBatchEvents() const { return BatchEvents; }
+		const TMap<FV17AuthoritativeCellID, FV17AuthoritativeCellConfig>& GetCells() const { return Cells; }
 		const FResourceLedger& GetLedger() const { return Ledger; }
 		const FReservationStore& GetReservations() const { return Reservations; }
 		const FSimulationEventStore& GetEventStore() const { return EventStore; }
@@ -306,6 +308,12 @@ namespace AILOD
 		const TMap<FResidentID, FV17ContinuityCapsule>& GetCapsules() const { return Capsules; }
 		const TMap<FResidentID, FV17ParticipantRef>& GetParticipantRefs() const { return ParticipantRefs; }
 		const TArray<FV17LODTransitionRecord>& GetLODTransitions() const { return LODTransitions; }
+		FSimulationTime GetCurrentTime() const { return Clock.Now(); }
+		void GetActiveResidentIDs(TArray<FResidentID>& OutResidentIDs) const
+		{
+			ActiveStates.GetKeys(OutResidentIDs);
+			OutResidentIDs.Sort();
+		}
 		FV17AuthoritativeAudit BuildAudit() const;
 		FString BuildDeterministicDigest() const;
 

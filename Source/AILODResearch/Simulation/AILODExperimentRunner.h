@@ -18,6 +18,7 @@ namespace AILOD
 		EUnifiedRunMode Mode = EUnifiedRunMode::Accuracy;
 		bool bEnableMacroProfiling = false;
 		bool bEnableV17ShadowCohort = false;
+		EProposedModelVersion ProposedModelVersion = EProposedModelVersion::V16ExactCommit;
 		FString GitCommit;
 		FString UEVersion;
 		FString BuildType;

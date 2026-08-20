@@ -3,17 +3,17 @@
 **版本：v1.7**<br>
 **日期：2026-08-18**<br>
 **验收文档可读性规则增补：2026-08-19**<br>
-**状态：研究方向与 6G-B0 规则已由项目作者于 2026-08-18 确认；B0—B3 已分别封板，B1、B2A、B2B、B3 提交为 `90020f2`、`af3b253`、`37120c4`、`0ed8c16`；项目作者已于 2026-08-20 确认 B4 并授权独立提交后开始 B5；B5 尚未完成**<br>
+**状态：研究方向与 6G-B0 规则已由项目作者于 2026-08-18 确认；B0—B4 已分别封板，B1、B2A、B2B、B3、B4 提交为 `90020f2`、`af3b253`、`37120c4`、`0ed8c16`、`97e5843`；项目作者已于 2026-08-20 确认 B5A 并授权独立提交后开始 B5B，B5 总验收尚未完成**<br>
 **基准文档：`AILOD_MVP_Prototype_Implementation_Spec_CN.md` v1.1**<br>
 **前序修订：v1.2、v1.3、v1.4、v1.5、v1.6**<br>
-**工程证据：`AILOD_MVP_Phase6G_A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B1_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2B_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B3_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B4_Checkpoint_CN.md`**<br>
+**工程证据：`AILOD_MVP_Phase6G_A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B1_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2B_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B3_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B4_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5A_Checkpoint_CN.md`**<br>
 **用途：用结构化 Cohort 权威状态、批量 Claim/Event 和按需 Lift/Restrict 替代 Proposed 的每小时全员候选与个人提交；历史文档保留不改。**
 
 ## 1. 文档优先级、实施生效点与不变项
 
 实现依次读取 v1.1、v1.2、v1.3、v1.4、v1.5、v1.6 和本文件。本文件只覆盖第 2 节明确列出的冲突；未覆盖内容继续有效。
 
-v1.7 的模型规则已经冻结。B4 已在隔离的 v1.7 权威会话中接入动态居民恢复和退出；正式 Experiment Runner 的完整 Proposed 仍执行 v1.6，直到 B5 接入并完成总验收。实施期间必须区分：
+v1.7 的模型规则已经冻结。B4 已在隔离的 v1.7 权威会话中接入动态居民恢复和退出；B5A 已让 Experiment Runner 显式选择 v1.7，但目前只开放无政策 Performance 工程冒烟，并继续标记为不能用于正式实验。政策行为、准确性日志和规模总验收完成前，默认完整 Proposed 仍不得被当作正式 v1.7 结果。实施期间必须区分：
 
 - **v1.6 Current Proposed：** 当前个人 CoreState、个人候选和独立提交实现；
 - **v1.7 Shadow Proposed：** 6G-B1 只在旁路计算，不修改权威结果或旧 Digest；

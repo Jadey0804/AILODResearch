@@ -230,6 +230,13 @@ namespace AILOD
 			OutError = TEXT("Experiment matrix requires output, identity, at least one method/scenario/seed, and complete environment metadata.");
 			return false;
 		}
+		if (Request.ProposedModelVersion == EProposedModelVersion::V17Authoritative
+			&& Request.Methods.Contains(EUnifiedSimulationMethod::Proposed)
+			&& Request.Mode != EUnifiedRunMode::Performance)
+		{
+			OutError = TEXT("B5A only permits v1.7 authoritative engineering performance smoke runs; B5B must pass before accuracy logging is opened.");
+			return false;
+		}
 
 		FUnifiedRunOptions Options;
 		Options.Mode = Request.Mode;
@@ -238,6 +245,7 @@ namespace AILOD
 		Options.bVerifyCohortApproximation = Request.Mode == EUnifiedRunMode::Validation;
 		Options.bEnableMacroProfiling = Request.bEnableMacroProfiling;
 		Options.bEnableV17ShadowCohort = Request.bEnableV17ShadowCohort;
+		Options.ProposedModelVersion = Request.ProposedModelVersion;
 		for (const int32 Seed : Request.Seeds)
 		{
 			FPhase0Config Config;
@@ -343,6 +351,11 @@ namespace AILOD
 			&& (*Parameters)->GetBoolField(TEXT("enable_macro_profiling"));
 		Options.bEnableV17ShadowCohort = (*Parameters)->HasField(TEXT("enable_v17_shadow_cohort"))
 			&& (*Parameters)->GetBoolField(TEXT("enable_v17_shadow_cohort"));
+		if (Manifest->HasTypedField<EJson::String>(TEXT("authority_mode"))
+			&& Manifest->GetStringField(TEXT("authority_mode")) == TEXT("v1.7_authoritative"))
+		{
+			Options.ProposedModelVersion = EProposedModelVersion::V17Authoritative;
+		}
 
 		FUnifiedRunLogMetadata Metadata;
 		Metadata.OutputDirectory = OutputDirectory;

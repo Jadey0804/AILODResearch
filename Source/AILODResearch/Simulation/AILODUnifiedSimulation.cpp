@@ -2,6 +2,8 @@
 
 #include "AILODUnifiedSimulation.h"
 
+#include "AILODV17UnifiedRuntime.h"
+
 #include "AILODDomainRules.h"
 #include "AILODPhase0Manifest.h"
 #include "HAL/PlatformTime.h"
@@ -3816,8 +3818,16 @@ namespace AILOD
 			const EUnifiedSimulationMethod Method,
 			const EStage2Scenario Scenario,
 			const FUnifiedRunOptions& Options)
-			: Runtime(Config, Method, Scenario, Options)
 		{
+			if (Method == EUnifiedSimulationMethod::Proposed
+				&& Options.ProposedModelVersion == EProposedModelVersion::V17Authoritative)
+			{
+				V17Runtime = MakeUnique<FV17UnifiedRuntime>(Config, Scenario, Options);
+			}
+			else
+			{
+				V16Runtime = MakeUnique<FUnifiedRuntime>(Config, Method, Scenario, Options);
+			}
 		}
 
 		bool Initialize(FString& OutError)
@@ -3827,7 +3837,10 @@ namespace AILOD
 				OutError = TEXT("Unified simulation session can only initialize once.");
 				return false;
 			}
-			if (!Runtime.Initialize(OutError))
+			const bool bInitialized = V17Runtime
+				? V17Runtime->Initialize(OutError)
+				: V16Runtime->Initialize(OutError);
+			if (!bInitialized)
 			{
 				State = EState::Failed;
 				return false;
@@ -3844,13 +3857,16 @@ namespace AILOD
 				OutError = TEXT("Unified simulation session is not ready to step.");
 				return false;
 			}
-			if (!Runtime.StepHour(OutError))
+			const bool bStepped = V17Runtime
+				? V17Runtime->StepHour(OutError)
+				: V16Runtime->StepHour(OutError);
+			if (!bStepped)
 			{
 				State = EState::Failed;
 				return false;
 			}
 			++CompletedHourSteps;
-			if (Runtime.IsComplete())
+			if (V17Runtime ? V17Runtime->IsComplete() : V16Runtime->IsComplete())
 			{
 				State = EState::Complete;
 			}
@@ -3865,7 +3881,10 @@ namespace AILOD
 				OutError = TEXT("Unified simulation session can only finalize after reaching D60T00:00.");
 				return false;
 			}
-			if (!Runtime.Finalize(OutResult, OutError))
+			const bool bFinalized = V17Runtime
+				? V17Runtime->Finalize(OutResult, OutError)
+				: V16Runtime->Finalize(OutResult, OutError);
+			if (!bFinalized)
 			{
 				State = EState::Failed;
 				return false;
@@ -3882,7 +3901,7 @@ namespace AILOD
 
 		FSimulationTime GetCurrentTime() const
 		{
-			return Runtime.GetCurrentTime();
+			return V17Runtime ? V17Runtime->GetCurrentTime() : V16Runtime->GetCurrentTime();
 		}
 
 		int32 GetCompletedHourSteps() const
@@ -3892,7 +3911,7 @@ namespace AILOD
 
 		const FUnifiedStepMeasurement& GetLastStepMeasurement() const
 		{
-			return Runtime.GetLastStepMeasurement();
+			return V17Runtime ? V17Runtime->GetLastStepMeasurement() : V16Runtime->GetLastStepMeasurement();
 		}
 
 	private:
@@ -3905,7 +3924,8 @@ namespace AILOD
 			Failed
 		};
 
-		FUnifiedRuntime Runtime;
+		TUniquePtr<FUnifiedRuntime> V16Runtime;
+		TUniquePtr<FV17UnifiedRuntime> V17Runtime;
 		EState State = EState::Created;
 		int32 CompletedHourSteps = 0;
 	};
@@ -3968,8 +3988,26 @@ namespace AILOD
 		}
 	}
 
+	const TCHAR* ToString(const EProposedModelVersion Version)
+	{
+		switch (Version)
+		{
+		case EProposedModelVersion::V16ExactCommit: return TEXT("1.6");
+		case EProposedModelVersion::V17Authoritative: return TEXT("1.7");
+		default: return TEXT("Unknown");
+		}
+	}
+
 	bool FUnifiedRunResult::IsHardErrorFree() const
 	{
+		if (ProposedModelVersion == EProposedModelVersion::V17Authoritative)
+		{
+			return Method == EUnifiedSimulationMethod::Proposed
+				&& FinalTime == FSimulationTime::FromDays(60)
+				&& V17Audit.IsHardErrorFree()
+				&& Diagnostics.MaxActiveMicro <= 50
+				&& !V17DeterministicDigest.IsEmpty();
+		}
 		return Audit.IsHardErrorFree()
 			&& FMath::IsNearlyZero(CoinResidual, 1.e-6)
 			&& CoreLedgerMismatchCount == 0
@@ -4016,6 +4054,10 @@ namespace AILOD
 
 	FString FUnifiedSimulationRunner::BuildDeterministicDigest(const FUnifiedRunResult& Result)
 	{
+		if (Result.ProposedModelVersion == EProposedModelVersion::V17Authoritative)
+		{
+			return Result.V17DeterministicDigest;
+		}
 		FString Canonical = FString::Printf(
 			TEXT("Method=%s|Seed=%d|Config=%s|Scenario=%s|Final=%lld|A=%.9f,%.9f,%.9f,%d,%d,%d,%d|B=%.9f,%.9f,%.9f,%d,%d,%d,%d|"),
 			ToString(Result.Method),

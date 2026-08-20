@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "AILODStatePreservingLOD.h"
+#include "AILODV17AuthoritativeMacro.h"
 
 namespace AILOD
 {
@@ -16,6 +17,14 @@ namespace AILOD
 	};
 
 	const TCHAR* ToString(EUnifiedSimulationMethod Method);
+
+	enum class EProposedModelVersion : uint8
+	{
+		V16ExactCommit,
+		V17Authoritative
+	};
+
+	const TCHAR* ToString(EProposedModelVersion Version);
 
 	class IUnifiedSimulationObserver;
 	class IUnifiedSimulationEventSink;
@@ -73,6 +82,7 @@ namespace AILOD
 		bool bVerifyCohortApproximation = false;
 		bool bEnableMacroProfiling = false;
 		bool bEnableV17ShadowCohort = false;
+		EProposedModelVersion ProposedModelVersion = EProposedModelVersion::V16ExactCommit;
 		EUnifiedFaultInjectionPoint FaultInjection = EUnifiedFaultInjectionPoint::None;
 		IUnifiedSimulationObserver* Observer = nullptr;
 		IUnifiedSimulationEventSink* EventSink = nullptr;
@@ -105,6 +115,17 @@ namespace AILOD
 		int32 SimpleMicroReconstructionCount = 0;
 		int32 SimpleMicroWritebackCount = 0;
 		int32 FirstActionCount = 0;
+		int64 V17IdentityCount = 0;
+		int64 V17IdentityScanCountPerHour = 0;
+		int64 V17ResidentTouches = 0;
+		int64 V17BatchClaimCount = 0;
+		int64 V17BatchEventCount = 0;
+		int64 V17ParticipantCount = 0;
+		int32 V17NonEmptyJointCellCount = 0;
+		int32 V17CapsuleCount = 0;
+		int32 V17ParticipantRefCount = 0;
+		int32 V17LiftCount = 0;
+		int32 V17RestrictCount = 0;
 	};
 
 	struct FUnifiedStepMeasurement
@@ -260,6 +281,14 @@ namespace AILOD
 		bool bVerifyCohortApproximation = false;
 		bool bEnableMacroProfiling = false;
 		bool bEnableV17ShadowCohort = false;
+		EProposedModelVersion ProposedModelVersion = EProposedModelVersion::V16ExactCommit;
+		FString ModelSpecVersion = TEXT("1.6");
+		FString LogSchemaVersion = TEXT("1.1");
+		FString AuthorityMode = TEXT("v1.6_current");
+		FString JointStateVersion;
+		FString ClaimAllocationVersion;
+		FString CapsuleVersion;
+		bool bValidForFormalExperiment = true;
 		EUnifiedFaultInjectionPoint FaultInjection = EUnifiedFaultInjectionPoint::None;
 		FString ConfigHash;
 		FSimulationTime FinalTime;
@@ -283,6 +312,8 @@ namespace AILOD
 		FUnifiedCostBreakdown CostBreakdown;
 		FUnifiedMacroProfile MacroProfile;
 		FUnifiedV17ShadowProfile V17ShadowProfile;
+		FV17AuthoritativeAudit V17Audit;
+		FString V17DeterministicDigest;
 		TArray<FUnifiedPerformanceSample> PerformanceSamples;
 		TArray<FLedgerTransaction> Transactions;
 		TArray<FSimulationEventRecord> Events;
