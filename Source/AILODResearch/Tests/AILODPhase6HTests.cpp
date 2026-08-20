@@ -5,6 +5,7 @@
 #include "Misc/AutomationTest.h"
 
 #include "../Simulation/AILODExperimentLogging.h"
+#include "../Simulation/AILODExperimentRunner.h"
 #include "../Simulation/AILODLogSchema.h"
 #include "Dom/JsonObject.h"
 #include "HAL/FileManager.h"
@@ -139,6 +140,137 @@ bool FAILODPhase6HH1FormalProvenanceTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Administrative eligibility still does not change the domain digest"),
 		EligibleManifest->GetStringField(TEXT("deterministic_digest")),
 		EngineeringManifest->GetStringField(TEXT("deterministic_digest")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAILODPhase6HH3ScheduleAndResumeTest,
+	"AILODResearch.Phase6H.ScheduleAndResume",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAILODPhase6HH3ScheduleAndResumeTest::RunTest(const FString& Parameters)
+{
+	using namespace AILOD;
+	using namespace AILOD::LogSchema;
+
+	FExperimentMatrixRequest ScheduleRequest;
+	ScheduleRequest.Methods = { EUnifiedSimulationMethod::Oracle, EUnifiedSimulationMethod::Proposed };
+	ScheduleRequest.Scenarios = { EStage2Scenario::None, EStage2Scenario::StateImport };
+	ScheduleRequest.Seeds = { 20260810, 20260811 };
+	ScheduleRequest.RepeatCount = 2;
+	ScheduleRequest.bRandomizeRunOrder = true;
+	ScheduleRequest.OrderSeed = 6108;
+	TArray<FExperimentRunPlanEntry> ScheduleA;
+	TArray<FExperimentRunPlanEntry> ScheduleB;
+	FString Error;
+	TestTrue(TEXT("H3 builds the first deterministic randomized schedule"),
+		FExperimentRunner::BuildSchedule(ScheduleRequest, ScheduleA, Error));
+	TestTrue(TEXT("H3 rebuilds the same deterministic randomized schedule"),
+		FExperimentRunner::BuildSchedule(ScheduleRequest, ScheduleB, Error));
+	TestEqual(TEXT("H3 schedule contains methods x scenarios x seeds x repeats"), ScheduleA.Num(), 16);
+	TSet<FString> UniqueRunIDs;
+	FString OrderA;
+	FString OrderB;
+	for (int32 Index = 0; Index < ScheduleA.Num(); ++Index)
+	{
+		OrderA += ScheduleA[Index].RunID + TEXT("|");
+		OrderB += ScheduleB[Index].RunID + TEXT("|");
+		UniqueRunIDs.Add(ScheduleA[Index].RunID);
+		TestEqual(*FString::Printf(TEXT("H3 schedule index %d is explicit"), Index + 1),
+			ScheduleA[Index].ScheduleIndex, Index + 1);
+		TestTrue(*FString::Printf(TEXT("H3 repeated RunID %d names R01 or R02"), Index + 1),
+			ScheduleA[Index].RunID.Contains(TEXT("-R01")) || ScheduleA[Index].RunID.Contains(TEXT("-R02")));
+	}
+	TestEqual(TEXT("H3 same order seed produces byte-identical order"), OrderB, OrderA);
+	TestEqual(TEXT("H3 every repeated run has a unique RunID"), UniqueRunIDs.Num(), ScheduleA.Num());
+	ScheduleRequest.OrderSeed = 6109;
+	TArray<FExperimentRunPlanEntry> DifferentSchedule;
+	TestTrue(TEXT("H3 builds a schedule for a different order seed"),
+		FExperimentRunner::BuildSchedule(ScheduleRequest, DifferentSchedule, Error));
+	FString DifferentOrder;
+	for (const FExperimentRunPlanEntry& Entry : DifferentSchedule) DifferentOrder += Entry.RunID + TEXT("|");
+	TestTrue(TEXT("H3 a different order seed changes this frozen matrix order"), DifferentOrder != OrderA);
+
+	const FString TestRoot = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AILOD/Phase6HH3Checkpoint"));
+	IFileManager::Get().DeleteDirectory(*TestRoot, false, true);
+	FExperimentMatrixRequest RunRequest;
+	RunRequest.OutputRoot = TestRoot;
+	RunRequest.ExperimentID = TEXT("PHASE6H-H3-ENGINEERING");
+	RunRequest.Methods = { EUnifiedSimulationMethod::Oracle };
+	RunRequest.Scenarios = { EStage2Scenario::None };
+	RunRequest.Seeds = { 20260810 };
+	RunRequest.PopulationPerKingdom = 100;
+	RunRequest.Mode = EUnifiedRunMode::Performance;
+	RunRequest.GitCommit = TEXT("52795a0");
+	RunRequest.UEVersion = TEXT("5.4");
+	RunRequest.BuildType = TEXT("Development Editor");
+	RunRequest.Hardware = TEXT("automation-test-host");
+	RunRequest.LogMode = TEXT("H3EngineeringPerformance");
+	RunRequest.RepeatCount = 2;
+	RunRequest.bRandomizeRunOrder = true;
+	RunRequest.OrderSeed = 6108;
+	TArray<FExperimentRunRecord> FirstRuns;
+	if (!FExperimentRunner::RunMatrix(RunRequest, FirstRuns, Error))
+	{
+		AddError(FString::Printf(TEXT("H3 first matrix failed: %s"), *Error));
+		return false;
+	}
+	TestEqual(TEXT("H3 first matrix executes both repeats"), FirstRuns.Num(), 2);
+	TestTrue(TEXT("H3 writes run_schedule.csv"), FPaths::FileExists(FPaths::Combine(TestRoot, RunScheduleFile)));
+	for (const FExperimentRunRecord& Run : FirstRuns)
+	{
+		TestFalse(*FString::Printf(TEXT("H3 first %s is executed"), *Run.RunID), Run.bSkippedExisting);
+		TSharedPtr<FJsonObject> Manifest;
+		if (!LoadManifest(Run.RunDirectory, Manifest))
+		{
+			AddError(FString::Printf(TEXT("H3 could not load %s manifest."), *Run.RunID));
+			return false;
+		}
+		TestEqual(*FString::Printf(TEXT("H3 %s records protocol 1.0"), *Run.RunID),
+			Manifest->GetStringField(TEXT("experiment_protocol_version")), FString(TEXT("1.0")));
+		TestEqual(*FString::Printf(TEXT("H3 %s records its schedule index"), *Run.RunID),
+			static_cast<int32>(Manifest->GetNumberField(TEXT("schedule_index"))), Run.ScheduleIndex);
+		TestEqual(*FString::Printf(TEXT("H3 %s records its repeat index"), *Run.RunID),
+			static_cast<int32>(Manifest->GetNumberField(TEXT("repeat_index"))), Run.RepeatIndex);
+		TestEqual(*FString::Printf(TEXT("H3 %s records the order seed"), *Run.RunID),
+			static_cast<int32>(Manifest->GetNumberField(TEXT("order_seed"))), RunRequest.OrderSeed);
+		TestTrue(*FString::Printf(TEXT("H3 %s records randomized order"), *Run.RunID),
+			Manifest->GetBoolField(TEXT("run_order_randomized")));
+		TestFalse(*FString::Printf(TEXT("H3 %s auto-fills start time"), *Run.RunID),
+			Manifest->GetStringField(TEXT("start_time")).IsEmpty());
+		TestFalse(*FString::Printf(TEXT("H3 %s auto-fills end time"), *Run.RunID),
+			Manifest->GetStringField(TEXT("end_time")).IsEmpty());
+	}
+
+	RunRequest.bResumeCompletedRuns = true;
+	TArray<FExperimentRunRecord> ResumedRuns;
+	if (!FExperimentRunner::RunMatrix(RunRequest, ResumedRuns, Error))
+	{
+		AddError(FString::Printf(TEXT("H3 resume failed: %s"), *Error));
+		return false;
+	}
+	TestEqual(TEXT("H3 resume returns both planned records"), ResumedRuns.Num(), 2);
+	for (const FExperimentRunRecord& Run : ResumedRuns)
+	{
+		TestTrue(*FString::Printf(TEXT("H3 resume safely skips %s"), *Run.RunID), Run.bSkippedExisting);
+	}
+
+	RunRequest.GitCommit = TEXT("deadbee");
+	TArray<FExperimentRunRecord> MismatchedRuns;
+	TestFalse(TEXT("H3 resume refuses a completed run from different provenance"),
+		FExperimentRunner::RunMatrix(RunRequest, MismatchedRuns, Error));
+	TestTrue(TEXT("H3 resume mismatch explains the refusal"), Error.Contains(TEXT("mismatched")));
+	TestTrue(TEXT("H3 records the failed resume attempt"), FPaths::FileExists(FPaths::Combine(TestRoot, RunFailuresFile)));
+
+	FExperimentMatrixRequest InvalidFormal = RunRequest;
+	InvalidFormal.OutputRoot = FPaths::Combine(TestRoot, TEXT("InvalidFormal"));
+	InvalidFormal.bResumeCompletedRuns = false;
+	InvalidFormal.bFormalRunRequested = true;
+	InvalidFormal.bFormalEnvironmentEligible = false;
+	TArray<FExperimentRunRecord> FormalRuns;
+	TestFalse(TEXT("H3 Development environment cannot be mislabeled as formal"),
+		FExperimentRunner::RunMatrix(InvalidFormal, FormalRuns, Error));
+	TestTrue(TEXT("H3 formal rejection explains the required environment"), Error.Contains(TEXT("Shipping")));
 	return true;
 }
 

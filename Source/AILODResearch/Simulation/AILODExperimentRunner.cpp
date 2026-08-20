@@ -8,6 +8,7 @@
 #include "Dom/JsonObject.h"
 #include "HAL/PlatformMemory.h"
 #include "HAL/PlatformTime.h"
+#include "Misc/DateTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Serialization/JsonSerializer.h"
@@ -110,6 +111,171 @@ namespace AILOD
 			return true;
 		}
 
+		FString CsvString(const FString& Value)
+		{
+			return FString::Printf(TEXT("\"%s\""), *Value.Replace(TEXT("\""), TEXT("\"\"")));
+		}
+
+		bool IsGitCommit(const FString& Value)
+		{
+			if (Value.Len() < 7 || Value.Len() > 40) return false;
+			for (const TCHAR Character : Value)
+			{
+				if (!FChar::IsHexDigit(Character)) return false;
+			}
+			return true;
+		}
+
+		struct FInputHashes
+		{
+			FString Population;
+			FString Damage;
+			FString Pool;
+		};
+
+		bool WriteSchedule(
+			const FExperimentMatrixRequest& Request,
+			const TArray<FExperimentRunPlanEntry>& Schedule,
+			FString& OutError)
+		{
+			if (!IFileManager::Get().MakeDirectory(*Request.OutputRoot, true))
+			{
+				OutError = TEXT("Experiment runner could not create its output root.");
+				return false;
+			}
+			FString Csv = TEXT("experiment_protocol_version,experiment_id,schedule_index,run_id,method,scenario,seed,repeat_index,order_seed,randomized\n");
+			for (const FExperimentRunPlanEntry& Entry : Schedule)
+			{
+				Csv += FString::Printf(
+					TEXT("\"1.0\",%s,%d,%s,%s,%s,%d,%d,%d,%s\n"),
+					*CsvString(Request.ExperimentID),
+					Entry.ScheduleIndex,
+					*CsvString(Entry.RunID),
+					*CsvString(ToString(Entry.Method)),
+					*CsvString(ToString(Entry.Scenario)),
+					Entry.Seed,
+					Entry.RepeatIndex,
+					Request.OrderSeed,
+					Request.bRandomizeRunOrder ? TEXT("true") : TEXT("false"));
+			}
+			if (!FFileHelper::SaveStringToFile(
+				Csv,
+				*FPaths::Combine(Request.OutputRoot, LogSchema::RunScheduleFile),
+				FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+			{
+				OutError = TEXT("Experiment runner could not write run_schedule.csv.");
+				return false;
+			}
+			return true;
+		}
+
+		void AppendFailure(
+			const FExperimentMatrixRequest& Request,
+			const FExperimentRunPlanEntry& Entry,
+			const FString& Error)
+		{
+			const FString Path = FPaths::Combine(Request.OutputRoot, LogSchema::RunFailuresFile);
+			FString Csv;
+			if (!FPaths::FileExists(Path))
+			{
+				Csv = TEXT("experiment_protocol_version,experiment_id,schedule_index,run_id,repeat_index,error\n");
+			}
+			Csv += FString::Printf(
+				TEXT("\"1.0\",%s,%d,%s,%d,%s\n"),
+				*CsvString(Request.ExperimentID),
+				Entry.ScheduleIndex,
+				*CsvString(Entry.RunID),
+				Entry.RepeatIndex,
+				*CsvString(Error));
+			FFileHelper::SaveStringToFile(
+				Csv,
+				*Path,
+				FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM,
+				&IFileManager::Get(),
+				FILEWRITE_Append);
+		}
+
+		bool TryLoadCompletedRun(
+			const FExperimentMatrixRequest& Request,
+			const FExperimentRunPlanEntry& Entry,
+			const FInputHashes& Hashes,
+			FExperimentRunRecord& OutRun,
+			bool& bOutFound,
+			FString& OutError)
+		{
+			bOutFound = false;
+			const FString RunDirectory = FPaths::Combine(Request.OutputRoot, TEXT("Runs"), Entry.RunID);
+			const FString ManifestPath = FPaths::Combine(RunDirectory, LogSchema::RunManifestFile);
+			if (!FPaths::FileExists(ManifestPath))
+			{
+				if (IFileManager::Get().DirectoryExists(*RunDirectory))
+				{
+					OutError = FString::Printf(TEXT("Resume found an incomplete run directory without a manifest: %s"), *Entry.RunID);
+					return false;
+				}
+				return true;
+			}
+			FString Text;
+			TSharedPtr<FJsonObject> Manifest;
+			if (!FFileHelper::LoadFileToString(Text, *ManifestPath)
+				|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Manifest)
+				|| !Manifest.IsValid())
+			{
+				OutError = FString::Printf(TEXT("Resume could not parse the manifest for %s."), *Entry.RunID);
+				return false;
+			}
+			const bool bMatches = Manifest->HasTypedField<EJson::Boolean>(TEXT("valid"))
+				&& Manifest->GetBoolField(TEXT("valid"))
+				&& Manifest->GetStringField(TEXT("experiment_id")) == Request.ExperimentID
+				&& Manifest->GetStringField(TEXT("run_id")) == Entry.RunID
+				&& Manifest->GetStringField(TEXT("method")) == ToString(Entry.Method)
+				&& Manifest->GetStringField(TEXT("scenario")) == ToString(Entry.Scenario)
+				&& static_cast<int32>(Manifest->GetNumberField(TEXT("seed"))) == Entry.Seed
+				&& Manifest->GetStringField(TEXT("population_manifest_sha256")) == Hashes.Population
+				&& Manifest->GetStringField(TEXT("damage_list_sha256")) == Hashes.Damage
+				&& Manifest->GetStringField(TEXT("persistent_pool_sha256")) == Hashes.Pool
+				&& Manifest->GetStringField(TEXT("git_commit")) == Request.GitCommit
+				&& Manifest->GetStringField(TEXT("build_type")) == Request.BuildType
+				&& Manifest->GetStringField(TEXT("hardware")) == Request.Hardware
+				&& Manifest->HasTypedField<EJson::Number>(TEXT("schedule_index"))
+				&& static_cast<int32>(Manifest->GetNumberField(TEXT("schedule_index"))) == Entry.ScheduleIndex
+				&& Manifest->HasTypedField<EJson::Number>(TEXT("repeat_index"))
+				&& static_cast<int32>(Manifest->GetNumberField(TEXT("repeat_index"))) == Entry.RepeatIndex
+				&& Manifest->HasTypedField<EJson::Boolean>(TEXT("formal_run_requested"))
+				&& Manifest->GetBoolField(TEXT("formal_run_requested")) == Request.bFormalRunRequested
+				&& Manifest->HasTypedField<EJson::String>(TEXT("deterministic_digest"))
+				&& !Manifest->GetStringField(TEXT("deterministic_digest")).IsEmpty();
+			if (!bMatches)
+			{
+				OutError = FString::Printf(TEXT("Resume refused a mismatched or invalid completed run: %s"), *Entry.RunID);
+				return false;
+			}
+			const TSharedPtr<FJsonObject>* RunParameters = nullptr;
+			if (!Manifest->TryGetObjectField(TEXT("parameters"), RunParameters) || RunParameters == nullptr)
+			{
+				OutError = FString::Printf(TEXT("Resume manifest is missing parameters: %s"), *Entry.RunID);
+				return false;
+			}
+			EUnifiedRunMode Mode;
+			if (!ParseRunMode((*RunParameters)->GetStringField(TEXT("run_mode")), Mode))
+			{
+				OutError = FString::Printf(TEXT("Resume manifest has an invalid run mode: %s"), *Entry.RunID);
+				return false;
+			}
+			OutRun = {};
+			OutRun.RunID = Entry.RunID;
+			OutRun.RunDirectory = RunDirectory;
+			OutRun.DeterministicDigest = Manifest->GetStringField(TEXT("deterministic_digest"));
+			OutRun.Mode = Mode;
+			OutRun.PopulationPerKingdom = static_cast<int32>((*RunParameters)->GetNumberField(TEXT("population_per_kingdom")));
+			OutRun.bHardErrorFree = true;
+			OutRun.ScheduleIndex = Entry.ScheduleIndex;
+			OutRun.RepeatIndex = Entry.RepeatIndex;
+			OutRun.bSkippedExisting = true;
+			bOutFound = true;
+			return true;
+		}
+
 		bool GenerateInputs(
 			const FString& InputDirectory,
 			const FPhase0Config& Config,
@@ -137,10 +303,11 @@ namespace AILOD
 			const EUnifiedSimulationMethod Method,
 			const EStage2Scenario Scenario,
 			const FUnifiedRunOptions& BaseOptions,
-			const FUnifiedRunLogMetadata& Metadata,
+			FUnifiedRunLogMetadata Metadata,
 			FExperimentRunRecord& OutRun,
 			FString& OutError)
 		{
+			if (Metadata.StartTime.IsEmpty()) Metadata.StartTime = FDateTime::UtcNow().ToIso8601();
 			FUnifiedRunLogWriter Writer;
 			FUnifiedRunOptions Options = BaseOptions;
 			if (Options.Mode != EUnifiedRunMode::Performance)
@@ -197,6 +364,7 @@ namespace AILOD
 				return false;
 			}
 			Result.PerformanceSamples = MoveTemp(PerformanceSamples);
+			if (Metadata.EndTime.IsEmpty()) Metadata.EndTime = FDateTime::UtcNow().ToIso8601();
 			if (!Writer.WriteRun(Result, Metadata, OutError))
 			{
 				return false;
@@ -212,8 +380,69 @@ namespace AILOD
 			OutRun.CostBreakdown = Result.CostBreakdown;
 			OutRun.MacroProfile = Result.MacroProfile;
 			OutRun.V17ShadowProfile = Result.V17ShadowProfile;
+			OutRun.ScheduleIndex = Metadata.ScheduleIndex;
+			OutRun.RepeatIndex = Metadata.RepeatIndex;
+			OutRun.bSkippedExisting = false;
 			return true;
 		}
+	}
+
+	bool FExperimentRunner::BuildSchedule(
+		const FExperimentMatrixRequest& Request,
+		TArray<FExperimentRunPlanEntry>& OutSchedule,
+		FString& OutError)
+	{
+		OutSchedule.Reset();
+		if (Request.Methods.IsEmpty() || Request.Scenarios.IsEmpty() || Request.Seeds.IsEmpty()
+			|| Request.RepeatCount <= 0)
+		{
+			OutError = TEXT("Experiment schedule requires at least one method, scenario, seed, and repeat.");
+			return false;
+		}
+		for (int32 RepeatIndex = 1; RepeatIndex <= Request.RepeatCount; ++RepeatIndex)
+		{
+			for (const int32 Seed : Request.Seeds)
+			{
+				for (const EUnifiedSimulationMethod Method : Request.Methods)
+				{
+					for (const EStage2Scenario Scenario : Request.Scenarios)
+					{
+						FExperimentRunPlanEntry& Entry = OutSchedule.AddDefaulted_GetRef();
+						Entry.Method = Method;
+						Entry.Scenario = Scenario;
+						Entry.Seed = Seed;
+						Entry.RepeatIndex = RepeatIndex;
+						const FString BaseID = FString::Printf(TEXT("%s-%s-%d"), ToString(Method), ToString(Scenario), Seed);
+						Entry.RunID = Request.RepeatCount > 1
+							? FString::Printf(TEXT("%s-R%02d"), *BaseID, RepeatIndex)
+							: BaseID;
+					}
+				}
+			}
+		}
+		if (Request.bRandomizeRunOrder)
+		{
+			FRandomStream OrderStream(Request.OrderSeed);
+			for (int32 Index = OutSchedule.Num() - 1; Index > 0; --Index)
+			{
+				OutSchedule.Swap(Index, OrderStream.RandRange(0, Index));
+			}
+		}
+		TSet<FString> RunIDs;
+		for (int32 Index = 0; Index < OutSchedule.Num(); ++Index)
+		{
+			FExperimentRunPlanEntry& Entry = OutSchedule[Index];
+			Entry.ScheduleIndex = Index + 1;
+			if (RunIDs.Contains(Entry.RunID))
+			{
+				OutError = FString::Printf(TEXT("Experiment schedule produced a duplicate RunID: %s"), *Entry.RunID);
+				OutSchedule.Reset();
+				return false;
+			}
+			RunIDs.Add(Entry.RunID);
+		}
+		OutError.Reset();
+		return true;
 	}
 
 	bool FExperimentRunner::RunMatrix(
@@ -223,13 +452,44 @@ namespace AILOD
 	{
 		OutRuns.Reset();
 		if (Request.OutputRoot.IsEmpty() || Request.ExperimentID.IsEmpty()
-			|| Request.Methods.IsEmpty() || Request.Scenarios.IsEmpty() || Request.Seeds.IsEmpty()
 			|| Request.GitCommit.IsEmpty() || Request.UEVersion.IsEmpty() || Request.BuildType.IsEmpty()
-			|| Request.Hardware.IsEmpty() || Request.StartTime.IsEmpty() || Request.EndTime.IsEmpty())
+			|| Request.Hardware.IsEmpty())
 		{
-			OutError = TEXT("Experiment matrix requires output, identity, at least one method/scenario/seed, and complete environment metadata.");
+			OutError = TEXT("Experiment matrix requires output, identity, and complete build/hardware metadata.");
 			return false;
 		}
+		if (Request.bFormalRunRequested
+			&& (!Request.bFormalEnvironmentEligible
+				|| !Request.bRandomizeRunOrder
+				|| Request.OrderSeed == 0
+				|| !IsGitCommit(Request.GitCommit)
+				|| !Request.BuildType.Contains(TEXT("Shipping"), ESearchCase::IgnoreCase)))
+		{
+			OutError = TEXT("Formal runs require an approved Shipping environment, a 7-40 digit hexadecimal Git commit, and deterministic randomized order with a non-zero order seed.");
+			return false;
+		}
+
+		TArray<FExperimentRunPlanEntry> Schedule;
+		if (!BuildSchedule(Request, Schedule, OutError) || !WriteSchedule(Request, Schedule, OutError))
+		{
+			return false;
+		}
+
+		TMap<int32, FInputHashes> InputHashes;
+		for (const int32 Seed : Request.Seeds)
+		{
+			if (InputHashes.Contains(Seed)) continue;
+			FPhase0Config Config;
+			Config.Seed = Seed;
+			Config.PopulationPerKingdom = Request.PopulationPerKingdom;
+			FInputHashes& Hashes = InputHashes.Add(Seed);
+			const FString InputDirectory = FPaths::Combine(Request.OutputRoot, TEXT("Inputs"), FString::Printf(TEXT("Seed-%d"), Seed));
+			if (!GenerateInputs(InputDirectory, Config, Hashes.Population, Hashes.Damage, Hashes.Pool, OutError))
+			{
+				return false;
+			}
+		}
+
 		FUnifiedRunOptions Options;
 		Options.Mode = Request.Mode;
 		Options.bRetainCompletedEvents = Request.Mode != EUnifiedRunMode::Performance;
@@ -238,47 +498,52 @@ namespace AILOD
 		Options.bEnableMacroProfiling = Request.bEnableMacroProfiling;
 		Options.bEnableV17ShadowCohort = Request.bEnableV17ShadowCohort;
 		Options.ProposedModelVersion = Request.ProposedModelVersion;
-		for (const int32 Seed : Request.Seeds)
+
+		for (const FExperimentRunPlanEntry& Entry : Schedule)
 		{
-			FPhase0Config Config;
-			Config.Seed = Seed;
-			Config.PopulationPerKingdom = Request.PopulationPerKingdom;
-			FString PopulationHash;
-			FString DamageHash;
-			FString PoolHash;
-			const FString InputDirectory = FPaths::Combine(Request.OutputRoot, TEXT("Inputs"), FString::Printf(TEXT("Seed-%d"), Seed));
-			if (!GenerateInputs(InputDirectory, Config, PopulationHash, DamageHash, PoolHash, OutError))
+			const FInputHashes& Hashes = InputHashes.FindChecked(Entry.Seed);
+			FExperimentRunRecord& Run = OutRuns.AddDefaulted_GetRef();
+			if (Request.bResumeCompletedRuns)
 			{
-				return false;
+				bool bFound = false;
+				if (!TryLoadCompletedRun(Request, Entry, Hashes, Run, bFound, OutError))
+				{
+					AppendFailure(Request, Entry, OutError);
+					OutRuns.Pop();
+					return false;
+				}
+				if (bFound) continue;
 			}
 
-			for (const EUnifiedSimulationMethod Method : Request.Methods)
+			FPhase0Config Config;
+			Config.Seed = Entry.Seed;
+			Config.PopulationPerKingdom = Request.PopulationPerKingdom;
+			FUnifiedRunLogMetadata Metadata;
+			Metadata.ExperimentID = Request.ExperimentID;
+			Metadata.RunID = Entry.RunID;
+			Metadata.OutputDirectory = FPaths::Combine(Request.OutputRoot, TEXT("Runs"), Metadata.RunID);
+			Metadata.PopulationManifestSHA256 = Hashes.Population;
+			Metadata.DamageListSHA256 = Hashes.Damage;
+			Metadata.PersistentPoolSHA256 = Hashes.Pool;
+			Metadata.GitCommit = Request.GitCommit;
+			Metadata.UEVersion = Request.UEVersion;
+			Metadata.BuildType = Request.BuildType;
+			Metadata.Hardware = Request.Hardware;
+			Metadata.LogMode = Request.LogMode;
+			Metadata.StartTime = Request.StartTime;
+			Metadata.EndTime = Request.EndTime;
+			Metadata.bFormalRunRequested = Request.bFormalRunRequested;
+			Metadata.bFormalEnvironmentEligible = Request.bFormalEnvironmentEligible;
+			Metadata.ScheduleIndex = Entry.ScheduleIndex;
+			Metadata.RunOrdinal = Entry.ScheduleIndex;
+			Metadata.RepeatIndex = Entry.RepeatIndex;
+			Metadata.OrderSeed = Request.OrderSeed;
+			Metadata.bRunOrderRandomized = Request.bRandomizeRunOrder;
+			if (!RunOne(Config, Entry.Method, Entry.Scenario, Options, Metadata, Run, OutError))
 			{
-				for (const EStage2Scenario Scenario : Request.Scenarios)
-				{
-					FUnifiedRunLogMetadata Metadata;
-					Metadata.ExperimentID = Request.ExperimentID;
-					Metadata.RunID = FString::Printf(TEXT("%s-%s-%d"), ToString(Method), ToString(Scenario), Seed);
-					Metadata.OutputDirectory = FPaths::Combine(Request.OutputRoot, TEXT("Runs"), Metadata.RunID);
-					Metadata.PopulationManifestSHA256 = PopulationHash;
-					Metadata.DamageListSHA256 = DamageHash;
-					Metadata.PersistentPoolSHA256 = PoolHash;
-					Metadata.GitCommit = Request.GitCommit;
-					Metadata.UEVersion = Request.UEVersion;
-					Metadata.BuildType = Request.BuildType;
-					Metadata.Hardware = Request.Hardware;
-					Metadata.LogMode = Request.LogMode;
-					Metadata.StartTime = Request.StartTime;
-					Metadata.EndTime = Request.EndTime;
-					Metadata.bFormalRunRequested = Request.bFormalRunRequested;
-					Metadata.bFormalEnvironmentEligible = Request.bFormalEnvironmentEligible;
-					FExperimentRunRecord& Run = OutRuns.AddDefaulted_GetRef();
-					if (!RunOne(Config, Method, Scenario, Options, Metadata, Run, OutError))
-					{
-						OutRuns.Pop();
-						return false;
-					}
-				}
+				AppendFailure(Request, Entry, OutError);
+				OutRuns.Pop();
+				return false;
 			}
 		}
 		OutError.Reset();
@@ -369,6 +634,23 @@ namespace AILOD
 			&& Manifest->GetBoolField(TEXT("formal_run_requested"));
 		Metadata.bFormalEnvironmentEligible = Manifest->HasTypedField<EJson::Boolean>(TEXT("formal_environment_eligible"))
 			&& Manifest->GetBoolField(TEXT("formal_environment_eligible"));
+		Metadata.ExperimentProtocolVersion = Manifest->HasTypedField<EJson::String>(TEXT("experiment_protocol_version"))
+			? Manifest->GetStringField(TEXT("experiment_protocol_version"))
+			: TEXT("1.0");
+		Metadata.ScheduleIndex = Manifest->HasTypedField<EJson::Number>(TEXT("schedule_index"))
+			? static_cast<int32>(Manifest->GetNumberField(TEXT("schedule_index")))
+			: 1;
+		Metadata.RunOrdinal = Manifest->HasTypedField<EJson::Number>(TEXT("run_ordinal"))
+			? static_cast<int32>(Manifest->GetNumberField(TEXT("run_ordinal")))
+			: Metadata.ScheduleIndex;
+		Metadata.RepeatIndex = Manifest->HasTypedField<EJson::Number>(TEXT("repeat_index"))
+			? static_cast<int32>(Manifest->GetNumberField(TEXT("repeat_index")))
+			: 1;
+		Metadata.OrderSeed = Manifest->HasTypedField<EJson::Number>(TEXT("order_seed"))
+			? static_cast<int32>(Manifest->GetNumberField(TEXT("order_seed")))
+			: 0;
+		Metadata.bRunOrderRandomized = Manifest->HasTypedField<EJson::Boolean>(TEXT("run_order_randomized"))
+			&& Manifest->GetBoolField(TEXT("run_order_randomized"));
 		if (!RunOne(Config, Method, Scenario, Options, Metadata, OutRun, OutError)) return false;
 		if (!Manifest->HasTypedField<EJson::String>(TEXT("deterministic_digest"))
 			|| OutRun.DeterministicDigest != Manifest->GetStringField(TEXT("deterministic_digest")))

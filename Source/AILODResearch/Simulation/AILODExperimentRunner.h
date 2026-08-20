@@ -28,6 +28,20 @@ namespace AILOD
 		FString EndTime;
 		bool bFormalRunRequested = false;
 		bool bFormalEnvironmentEligible = false;
+		int32 RepeatCount = 1;
+		int32 OrderSeed = 0;
+		bool bRandomizeRunOrder = false;
+		bool bResumeCompletedRuns = false;
+	};
+
+	struct FExperimentRunPlanEntry
+	{
+		EUnifiedSimulationMethod Method = EUnifiedSimulationMethod::Oracle;
+		EStage2Scenario Scenario = EStage2Scenario::None;
+		int32 Seed = 0;
+		int32 RepeatIndex = 1;
+		int32 ScheduleIndex = 1;
+		FString RunID;
 	};
 
 	struct FExperimentRunRecord
@@ -43,6 +57,9 @@ namespace AILOD
 		FUnifiedCostBreakdown CostBreakdown;
 		FUnifiedMacroProfile MacroProfile;
 		FUnifiedV17ShadowProfile V17ShadowProfile;
+		int32 ScheduleIndex = 1;
+		int32 RepeatIndex = 1;
+		bool bSkippedExisting = false;
 	};
 
 	class FExperimentRunner
@@ -51,6 +68,11 @@ namespace AILOD
 		static bool RunMatrix(
 			const FExperimentMatrixRequest& Request,
 			TArray<FExperimentRunRecord>& OutRuns,
+			FString& OutError);
+
+		static bool BuildSchedule(
+			const FExperimentMatrixRequest& Request,
+			TArray<FExperimentRunPlanEntry>& OutSchedule,
 			FString& OutError);
 
 		static bool ReplayFromManifest(

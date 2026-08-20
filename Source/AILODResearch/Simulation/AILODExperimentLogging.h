@@ -24,6 +24,12 @@ namespace AILOD
 		FString EndTime;
 		bool bFormalRunRequested = false;
 		bool bFormalEnvironmentEligible = false;
+		FString ExperimentProtocolVersion = TEXT("1.0");
+		int32 ScheduleIndex = 1;
+		int32 RunOrdinal = 1;
+		int32 RepeatIndex = 1;
+		int32 OrderSeed = 0;
+		bool bRunOrderRandomized = false;
 	};
 
 	class FUnifiedRunLogWriter final

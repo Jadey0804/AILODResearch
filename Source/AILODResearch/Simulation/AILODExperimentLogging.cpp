@@ -342,6 +342,12 @@ namespace AILOD
 		Manifest->SetBoolField(TEXT("formal_environment_eligible"), Metadata.bFormalEnvironmentEligible);
 		Manifest->SetStringField(TEXT("formal_eligibility_reason"), FormalEligibilityReason);
 		Manifest->SetBoolField(TEXT("valid_for_formal_experiment"), bValidForFormalExperiment);
+		Manifest->SetStringField(TEXT("experiment_protocol_version"), Metadata.ExperimentProtocolVersion);
+		Manifest->SetNumberField(TEXT("schedule_index"), Metadata.ScheduleIndex);
+		Manifest->SetNumberField(TEXT("run_ordinal"), Metadata.RunOrdinal);
+		Manifest->SetNumberField(TEXT("repeat_index"), Metadata.RepeatIndex);
+		Manifest->SetNumberField(TEXT("order_seed"), Metadata.OrderSeed);
+		Manifest->SetBoolField(TEXT("run_order_randomized"), Metadata.bRunOrderRandomized);
 		if (Result.ProposedModelVersion == EProposedModelVersion::V17Authoritative)
 		{
 			Manifest->SetStringField(TEXT("proposed_model_version"), TEXT("1.7"));

@@ -24,6 +24,8 @@ namespace AILOD::LogSchema
 	inline constexpr TCHAR LedgerTransactionsFile[] = TEXT("ledger_transactions.jsonl");
 	inline constexpr TCHAR PerformanceFile[] = TEXT("performance_1s.csv");
 	inline constexpr TCHAR MetricsSummaryFile[] = TEXT("metrics_summary.csv");
+	inline constexpr TCHAR RunScheduleFile[] = TEXT("run_schedule.csv");
+	inline constexpr TCHAR RunFailuresFile[] = TEXT("run_failures.csv");
 
 	inline constexpr FFieldDefinition PreRunCommonFields[] =
 	{
@@ -103,6 +105,12 @@ namespace AILOD::LogSchema
 		{ TEXT("formal_run_requested"), TEXT("bool") },
 		{ TEXT("formal_environment_eligible"), TEXT("bool") },
 		{ TEXT("formal_eligibility_reason"), TEXT("string") },
+		{ TEXT("experiment_protocol_version"), TEXT("string") },
+		{ TEXT("schedule_index"), TEXT("int32") },
+		{ TEXT("run_ordinal"), TEXT("int32") },
+		{ TEXT("repeat_index"), TEXT("int32") },
+		{ TEXT("order_seed"), TEXT("int32") },
+		{ TEXT("run_order_randomized"), TEXT("bool") },
 		{ TEXT("valid_for_formal_experiment"), TEXT("bool") }
 	};
 
