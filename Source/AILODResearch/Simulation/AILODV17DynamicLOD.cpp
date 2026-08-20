@@ -626,12 +626,98 @@ namespace AILOD
 		}
 		else
 		{
-			if (!SelectLiftCell(*Identity, Capsules.Find(ResidentID), SelectedCellID, bUsedFallback, OutError)
-				|| !ExtractStateFromCell(SelectedCellID, ResidentID, State, OutError)
-				|| !LiftFromJointCell(*Identity, SelectedCellID, State, FailurePoint, OutError))
+			if (SelectLiftCell(*Identity, Capsules.Find(ResidentID), SelectedCellID, bUsedFallback, OutError))
 			{
-				Restore();
-				return false;
+				if (!ExtractStateFromCell(SelectedCellID, ResidentID, State, OutError)
+					|| !LiftFromJointCell(*Identity, SelectedCellID, State, FailurePoint, OutError))
+				{
+					Restore();
+					return false;
+				}
+			}
+			else
+			{
+				TArray<FEventID> PendingCandidates;
+				for (const TPair<FEventID, FV17AuthoritativeBatchEvent>& Pair : BatchEvents)
+				{
+					const FV17AuthoritativeBatchEvent& Event = Pair.Value;
+					const FV17AuthoritativeCellConfig* SourceCell = Cells.Find(Event.SourceCellID);
+					if (Event.Status == ESimulationEventState::Pending
+						&& Event.ActiveResidentID == 0
+						&& Event.ParticipantCount > 0
+						&& SourceCell != nullptr
+						&& SourceCell->Key.Kingdom == Identity->InitialKingdom
+						&& SourceCell->Key.Profession == Identity->Profession
+						&& SourceCell->Key.IncomeBand == Identity->IncomeBand)
+					{
+						PendingCandidates.Add(Event.BatchEventID);
+					}
+				}
+				PendingCandidates.Sort();
+				if (PendingCandidates.IsEmpty())
+				{
+					Transition.Result = EV17LODTransitionResult::NoEligibleJointCell;
+					Restore();
+					return false;
+				}
+
+				FEventID SelectedEventID = 0;
+				if (const FV17ContinuityCapsule* Capsule = Capsules.Find(ResidentID))
+				{
+					if (PendingCandidates.Contains(Capsule->BatchCursor))
+					{
+						SelectedEventID = Capsule->BatchCursor;
+					}
+				}
+				if (SelectedEventID == 0)
+				{
+					int64 TotalCount = 0;
+					for (const FEventID EventID : PendingCandidates)
+					{
+						TotalCount += BatchEvents.FindChecked(EventID).ParticipantCount;
+					}
+					uint64 Value = Mix64(static_cast<uint64>(static_cast<uint32>(Seed)));
+					Value ^= Mix64(static_cast<uint64>(Clock.Now().Minutes));
+					Value ^= Mix64(static_cast<uint64>(ResidentID));
+					int64 Pick = static_cast<int64>(Mix64(Value ^ 0x4C49465445564E54ull)
+						% static_cast<uint64>(TotalCount));
+					for (const FEventID EventID : PendingCandidates)
+					{
+						const int32 Count = BatchEvents.FindChecked(EventID).ParticipantCount;
+						if (Pick < Count)
+						{
+							SelectedEventID = EventID;
+							break;
+						}
+						Pick -= Count;
+					}
+				}
+
+				FV17AuthoritativeBatchEvent& SelectedEvent = BatchEvents.FindChecked(SelectedEventID);
+				SelectedCellID = SelectedEvent.SourceCellID;
+				FV17ParticipantRef NewRef;
+				NewRef.ParticipantRefID = BuildParticipantRefID(ResidentID, SelectedEventID);
+				NewRef.ResidentID = ResidentID;
+				NewRef.BatchEventID = SelectedEventID;
+				NewRef.ParentBatchEventID = SelectedEvent.ParentBatchEventID;
+				NewRef.ReservationID = SelectedEvent.BatchReservationID;
+				NewRef.InheritedOrderKey = SelectedEvent.InheritedOrderKey;
+				ParticipantRef = &ParticipantRefs.Add(ResidentID, NewRef);
+				if (!LiftFromPendingEvent(*Identity, *ParticipantRef, FailurePoint, OutError))
+				{
+					Restore();
+					return false;
+				}
+				const FActiveState& Active = ActiveStates.FindChecked(ResidentID);
+				State = {
+					Active.Definition.Cash,
+					Active.Definition.RepairCredit,
+					Active.Definition.Wood,
+					Active.Definition.Key.HomeState
+				};
+				Transition.BatchEventID = Active.ActiveEventID;
+				Transition.ParentBatchEventID = Active.ParentEventID;
+				bUsedFallback = true;
 			}
 			if (bUsedFallback) ++LiftReconstructionFallbackCount;
 		}

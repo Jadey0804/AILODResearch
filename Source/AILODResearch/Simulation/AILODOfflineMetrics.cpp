@@ -312,7 +312,12 @@ namespace AILOD
 				}
 				const FString Type = Event->GetStringField(TEXT("type"));
 				if (Event->GetStringField(TEXT("game_time")).StartsWith(TEXT("D-"))) continue;
-				const double Count = FMath::Max(1.0, Event->GetNumberField(TEXT("participants")));
+				double ParticipantCount = 1.0;
+				if (!Event->TryGetNumberField(TEXT("participant_count"), ParticipantCount))
+				{
+					Event->TryGetNumberField(TEXT("participants"), ParticipantCount);
+				}
+				const double Count = FMath::Max(1.0, ParticipantCount);
 				if (Type == TEXT("Routine")) OutRun.Behaviors[0] += Count;
 				else if (Type == TEXT("Work")) OutRun.Behaviors[1] += Count;
 				else if (Type == TEXT("BuyWood")) OutRun.Behaviors[2] += Count;

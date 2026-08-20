@@ -159,6 +159,16 @@ namespace AILOD
 
 	struct FV17AuthoritativeBatchEvent
 	{
+		struct FTargetFlow
+		{
+			FV17AuthoritativeCellID TargetCellID = 0;
+			FV17AuthoritativeJointKey TargetKey;
+			int32 ParticipantCount = 0;
+			int64 CashTotal = 0;
+			int64 RepairCreditTotal = 0;
+			int64 WoodTotal = 0;
+		};
+
 		FEventID BatchEventID = 0;
 		FEventID ParentBatchEventID = 0;
 		FV17AuthoritativeClaimID BatchClaimID = 0;
@@ -175,6 +185,19 @@ namespace AILOD
 		ESimulationEventState Status = ESimulationEventState::Pending;
 		FResidentID ActiveResidentID = 0;
 		FIndividualActionState FrozenState;
+		TArray<FTargetFlow> TargetFlows;
+	};
+
+	struct FV17SystemImportEvent
+	{
+		FEventID EventID = 0;
+		FReservationID ReservationID = 0;
+		EKingdom Kingdom = EKingdom::A;
+		double WoodQuantity = 0.0;
+		int64 CoinCost = 0;
+		FSimulationTime StartTime;
+		FSimulationTime EndTime;
+		ESimulationEventState Status = ESimulationEventState::Pending;
 	};
 
 	enum class EV17AuthoritativeFailurePoint : uint8
@@ -200,6 +223,7 @@ namespace AILOD
 		double CoinResidual = 0.0;
 		double WoodResidual = 0.0;
 		int32 NegativeJointCellCount = 0;
+		int32 JointCellResourceBandMismatchCount = 0;
 		int32 NegativeStockCount = 0;
 		int32 BatchRequestedGrantResidualCount = 0;
 		int32 BatchCapacityOverflowCount = 0;
@@ -273,6 +297,57 @@ namespace AILOD
 			FString& OutError,
 			EV17AuthoritativeFailurePoint FailurePoint = EV17AuthoritativeFailurePoint::None);
 
+		bool ApplySystemTransfer(
+			ESimulationResource Resource,
+			const FString& Source,
+			const FString& Destination,
+			double Quantity,
+			bool bBoundary,
+			const FString& IdempotencyKey,
+			FPolicyID PolicyID,
+			FString& OutError);
+		bool MoveJointCellParticipants(
+			FV17AuthoritativeCellID SourceCellID,
+			const FV17AuthoritativeJointKey& TargetKey,
+			int32 ParticipantCount,
+			int64 CashTotal,
+			int64 RepairCreditTotal,
+			int64 WoodTotal,
+			const FString& IdempotencyPrefix,
+			FPolicyID PolicyID,
+			FV17AuthoritativeCellID& OutTargetCellID,
+			FString& OutError);
+		bool SetJointCellAidEligibility(
+			FV17AuthoritativeCellID SourceCellID,
+			bool bEligible,
+			FV17AuthoritativeCellID& OutTargetCellID,
+			FString& OutError);
+		bool GrantRepairAid(
+			FV17AuthoritativeCellID SourceCellID,
+			int32 ParticipantCount,
+			int32 CoinPerParticipant,
+			FPolicyID PolicyID,
+			FV17AuthoritativeCellID& OutTargetCellID,
+			FString& OutError);
+		bool CreateInstantSystemEvent(
+			const FString& Type,
+			int32 ParticipantCount,
+			FPolicyID PolicyID,
+			FString& OutError);
+		bool QueueStateImport(
+			EKingdom Kingdom,
+			double WoodQuantity,
+			int64 CoinCost,
+			FPolicyID PolicyID,
+			FString& OutError);
+		bool SetWoodPrice(EKingdom Kingdom, double WoodPrice, FString& OutError);
+		bool SetHarvestRemaining(EKingdom Kingdom, int64 Quantity, FString& OutError);
+		bool NormalizeReadyCellBands(
+			FV17AuthoritativeCellID CellID,
+			FV17AuthoritativeCellID& OutPrimaryCellID,
+			FString& OutError);
+		void EnableExactAggregateResourceSplits() { bExactAggregateResourceSplits = true; }
+
 		int32 GetReadyCount(FV17AuthoritativeCellID CellID) const;
 		int32 GetPendingParticipantCount() const;
 		int32 GetActionParticipantCount(EIndividualAction Action) const;
@@ -285,6 +360,7 @@ namespace AILOD
 		int64 GetCellRepairCredit(FV17AuthoritativeCellID CellID) const;
 		int64 GetCellWood(FV17AuthoritativeCellID CellID) const;
 		int64 GetKingdomBalance(EKingdom Kingdom, ESimulationResource Resource, const TCHAR* Stock) const;
+		double GetKingdomBalanceExact(EKingdom Kingdom, ESimulationResource Resource, const TCHAR* Stock) const;
 		int32 GetActiveMicroCount() const { return ActiveStates.Num(); }
 		int32 GetLiftReconstructionFallbackCount() const { return LiftReconstructionFallbackCount; }
 		int64 GetRemainingWorkMinutes(FResidentID ResidentID) const;
@@ -299,6 +375,7 @@ namespace AILOD
 
 		const TMap<FV17AuthoritativeClaimID, FV17AuthoritativeClaim>& GetClaims() const { return Claims; }
 		const TMap<FEventID, FV17AuthoritativeBatchEvent>& GetBatchEvents() const { return BatchEvents; }
+		const TMap<FEventID, FV17SystemImportEvent>& GetSystemImportEvents() const { return SystemImportEvents; }
 		const TMap<FV17AuthoritativeCellID, FV17AuthoritativeCellConfig>& GetCells() const { return Cells; }
 		const FResourceLedger& GetLedger() const { return Ledger; }
 		const FReservationStore& GetReservations() const { return Reservations; }
@@ -399,6 +476,19 @@ namespace AILOD
 			bool bRejectedWait,
 			FString& OutError);
 		bool CompleteEvent(FV17AuthoritativeBatchEvent& Event, const FScheduledEvent& Due, bool& bWroteResource, FString& OutError);
+		bool CompleteSystemImport(FV17SystemImportEvent& Event, const FScheduledEvent& Due, FString& OutError);
+		void BuildNormalizedTargetFlows(
+			const FV17AuthoritativeJointKey& BaseKey,
+			int32 ParticipantCount,
+			int64 CashTotal,
+			int64 RepairCreditTotal,
+			int64 WoodTotal,
+			TArray<FV17AuthoritativeBatchEvent::FTargetFlow>& OutFlows);
+		bool DistributeEventStateToTargets(
+			FV17AuthoritativeBatchEvent& Event,
+			const FV17AuthoritativeJointKey& BaseKey,
+			FV17AuthoritativeCellID& OutPrimaryCellID,
+			FString& OutError);
 
 		FV17AuthoritativeClaimID BuildClaimID(
 			FV17AuthoritativeCellID SourceCellID,
@@ -414,6 +504,19 @@ namespace AILOD
 		FV17AuthoritativeCellID FindOrCreateTargetCell(
 			const FV17AuthoritativeJointKey& SourceKey,
 			const FIndividualActionState& FinalState);
+		FV17AuthoritativeCellID FindOrCreateCellByKey(const FV17AuthoritativeJointKey& Key);
+		bool TransferQuantity(
+			FSimulationTime Time,
+			ESimulationResource Resource,
+			const FString& Source,
+			const FString& Destination,
+			double Quantity,
+			bool bBoundary,
+			const FString& IdempotencyKey,
+			FEventID EventID,
+			FArriveID ArriveID,
+			FPolicyID PolicyID,
+			FString& OutError);
 		bool Transfer(
 			FSimulationTime Time,
 			ESimulationResource Resource,
@@ -471,6 +574,9 @@ namespace AILOD
 		TMap<FV17AuthoritativeClaimID, FV17AuthoritativeClaim> Claims;
 		TArray<FV17AuthoritativeClaimID> QueuedClaimIDs;
 		TMap<FEventID, FV17AuthoritativeBatchEvent> BatchEvents;
+		TMap<FEventID, FV17SystemImportEvent> SystemImportEvents;
+		bool bFractionalResourcesEnabled = false;
+		bool bExactAggregateResourceSplits = false;
 		int32 LiftReconstructionFallbackCount = 0;
 		int32 LiftRestrictResidueCount = 0;
 		int32 BatchSplitMergeResidualCount = 0;

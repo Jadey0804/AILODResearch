@@ -1,6 +1,6 @@
 # AILOD MVP Phase 6 增量实施计划与检查点
 
-**计划版本：2.3**<br>
+**计划版本：2.4**<br>
 **日期：2026-08-20**<br>
 **分支：`phase-6g-b-cohort-batch`**<br>
 **Phase 5.1 基线提交：`7ea750d6617f6346de37e19e2d20c9c76f5b682f`**<br>
@@ -18,7 +18,8 @@
 **Phase 6G-B2B 封板提交：`37120c4`**<br>
 **Phase 6G-B3 封板提交：`0ed8c16`**<br>
 **Phase 6G-B4 封板提交：`97e5843`**<br>
-**当前状态：项目作者已于 2026-08-20 确认 B5A，并授权独立本地提交后开始 B5B；B5C—B5E 尚未开始；所有既有提交均未推送。**
+**Phase 6G-B5A 封板提交：`8f7adbb`**<br>
+**当前状态：B5B 的完整行为、政策、Schema 1.2 明细日志和 200 人 Oracle 对照已实现并完成检查，等待项目作者确认；B5C—B5E 尚未开始；所有既有提交均未推送。**
 
 本文件把 Phase 6 和经证据触发的 6G-B 拆成可独立验收的实施步骤；模型事实只由版本化规格定义。本计划从 6G-B0 起按 `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.7.md` 导航，不自行新增或覆盖模型规则。规则冲突按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.7 顺序处理。
 
@@ -73,7 +74,7 @@ Phase 6 不负责：
 | Phase 6G-B2B | 隔离 Work 与工资/国库 Batch 切片 | 作者已确认，提交 `37120c4` 封板 |
 | Phase 6G-B3 | 全动作资源竞争批量化并一次性切换 Macro 权威 | 作者已确认，提交 `0ed8c16` 封板 |
 | Phase 6G-B4 | Dynamic Lift/Restrict、Capsule 与 Batch Split/Merge | 作者已确认，提交 `97e5843` 封板 |
-| Phase 6G-B5 | 200 准确性、2k—20k 回归/性能和 50k/100k 压力总验收 | 进行中：B5A 已获确认，B5B 已获授权开始 |
+| Phase 6G-B5 | 200 准确性、2k—20k 回归/性能和 50k/100k 压力总验收 | 进行中：B5A 已提交封板；B5B 已完成检查，等待作者确认 |
 
 ## 4. Phase 6A：可逐小时推进的生产会话
 
@@ -461,6 +462,20 @@ B0 检查点：
 - 一次旧 B1 影子清单重放歧义已修正：只有 `authority_mode=v1.7_authoritative` 才选择新权威路径；
 - Development Editor 编译成功，全套 `34/34 Success`、`0 Failed`、自动化错误 `0`、退出码 `0`；
 - B5A 只证明运行器、版本清单和重放接通；共享动作、地震、政策、Schema 1.2 明细日志、200 Oracle 准确性和 2k—100k 规模验收仍未完成；独立证据见 `AILOD_MVP_Phase6G_B5A_Checkpoint_CN.md`。
+
+#### B5B：接回完整行为并做 200 人对照
+
+实施记录（2026-08-20，等待项目作者确认）：
+
+- v1.7 完整 Runner 已接入地震、共享 Individual Domain 的六种行动和 HarvestCap、StateImport、RepairAid 三种固定政策；远处每个非空 Joint Cell 只规划一次，Active 仍按 Count=1 规划，并进入同一资源竞争；
+- 完整路径按群体总账精确切分 Coin/Credit/Wood，避免平均数除不尽后把资源留在零人口格子；StateImport 已完成下单、冻结付款、在途木材、三天后到货付款的单一权威闭环；
+- 复查发现并修正了“人数和资源总账守恒，但分组标签与组内资源区间不一致”的隐藏问题；资源变化后按少量档位确定性重分组，四场景 2,503 条可行动群体明细的错档记录为 0，并新增每小时失败检查；
+- 当某个外层群体全部处于进行中批量事件时，固定 Trace 仍可从该事件确定性拆出居民并继承剩余时间与预订；B3/B4 冻结 Digest 不变；
+- 固定 Seed `20260810`、总人口 200 的 Oracle/Proposed × 四场景共 8 个 Accuracy Run 全部无硬错误；行为 TVD 为 `0.000432—0.001287`，FirstAction 不一致率为 `0.05`；
+- Schema 1.2 已输出外层 Cohort/Joint Cell/批量参与人数、Batch/Individual 事件元数据、批量完成后的多个目标格子、聚合账本和 v1.7 Lift/Restrict 明细；StateImport 的六份原始日志可逐字节重放，Digest 为 `00FC271FD28C3438B6A98EFE4AAC6F345B4978EC`；
+- 跨模型原始 EventID 和任务剩余进度不一致率均为 `1.0`，这是个人事件与批量事件表示/节奏不同的信号，不是新版自身进入/退出丢任务；正式论文必须解释此边界，不能把内部 ID 相等当作玩家可见连续性；
+- Development Editor 编译成功；NullRHI 全套为 `35/35 Success`、`0 Failed`、自动化错误 `0`、退出码 `0`；`valid_for_formal_experiment=false` 继续保持；
+- 独立证据见 `AILOD_MVP_Phase6G_B5B_Checkpoint_CN.md`。B5C 的 2k/10k/20k 验收尚未开始。
 
 ## 12. Step 0 确认门
 

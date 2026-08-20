@@ -227,10 +227,14 @@ namespace AILOD
 	{
 		FSimulationTime GameTime;
 		FString CohortKey;
+		FString JointCellKey;
+		uint64 JointCellID = 0;
 		int32 Count = 0;
 		int64 CashSum = 0;
 		int64 CashSquaredSum = 0;
 		int64 RepairCreditSum = 0;
+		int64 WoodSum = 0;
+		int32 PendingParticipantCount = 0;
 		int32 WoodCounts[5] = {};
 		EMacroIntent MacroIntent = EMacroIntent::Routine;
 	};
@@ -320,6 +324,8 @@ namespace AILOD
 		TArray<FKingdomSnapshot> Snapshots;
 		TArray<FLODTransitionRecord> LODTransitions;
 		TArray<FUnifiedActivationObservation> ActivationObservations;
+		TMap<FEventID, FV17AuthoritativeBatchEvent> V17BatchEvents;
+		TArray<FV17LODTransitionRecord> V17LODTransitions;
 
 		bool IsHardErrorFree() const;
 		int32 GetHomeStateCount(EKingdom Kingdom, EHomeState HomeState) const;

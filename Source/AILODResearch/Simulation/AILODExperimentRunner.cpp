@@ -230,14 +230,6 @@ namespace AILOD
 			OutError = TEXT("Experiment matrix requires output, identity, at least one method/scenario/seed, and complete environment metadata.");
 			return false;
 		}
-		if (Request.ProposedModelVersion == EProposedModelVersion::V17Authoritative
-			&& Request.Methods.Contains(EUnifiedSimulationMethod::Proposed)
-			&& Request.Mode != EUnifiedRunMode::Performance)
-		{
-			OutError = TEXT("B5A only permits v1.7 authoritative engineering performance smoke runs; B5B must pass before accuracy logging is opened.");
-			return false;
-		}
-
 		FUnifiedRunOptions Options;
 		Options.Mode = Request.Mode;
 		Options.bRetainCompletedEvents = Request.Mode != EUnifiedRunMode::Performance;

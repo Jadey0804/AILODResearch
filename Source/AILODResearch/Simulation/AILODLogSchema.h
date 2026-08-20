@@ -130,6 +130,18 @@ namespace AILOD::LogSchema
 		{ TEXT("wood_count_4_plus"), TEXT("int32") }, { TEXT("macro_intent"), TEXT("enum") }
 	};
 
+	inline constexpr FFieldDefinition V17CohortTimeseriesFields[] =
+	{
+		{ TEXT("schema_version"), TEXT("string") }, { TEXT("experiment_id"), TEXT("string") },
+		{ TEXT("run_id"), TEXT("string") }, { TEXT("method"), TEXT("string") },
+		{ TEXT("scenario"), TEXT("string") }, { TEXT("seed"), TEXT("int32") },
+		{ TEXT("game_time"), TEXT("string") }, { TEXT("outer_cohort_key"), TEXT("string") },
+		{ TEXT("joint_cell_id"), TEXT("uint64") }, { TEXT("joint_cell_key"), TEXT("string") },
+		{ TEXT("count"), TEXT("int32") }, { TEXT("cash_sum"), TEXT("int64") },
+		{ TEXT("repair_credit_sum"), TEXT("int64") }, { TEXT("wood_sum"), TEXT("int64") },
+		{ TEXT("pending_participant_count"), TEXT("int32") }
+	};
+
 	inline constexpr FFieldDefinition NPCSnapshotFields[] =
 	{
 		{ TEXT("schema_version"), TEXT("string") }, { TEXT("experiment_id"), TEXT("string") },
@@ -159,6 +171,22 @@ namespace AILOD::LogSchema
 		{ TEXT("policy_id"), TEXT("int64") }
 	};
 
+	inline constexpr FFieldDefinition V17SimulationEventFields[] =
+	{
+		{ TEXT("schema_version"), TEXT("string") }, { TEXT("experiment_id"), TEXT("string") },
+		{ TEXT("run_id"), TEXT("string") }, { TEXT("method"), TEXT("string") },
+		{ TEXT("scenario"), TEXT("string") }, { TEXT("seed"), TEXT("int32") },
+		{ TEXT("game_time"), TEXT("string") }, { TEXT("event_id"), TEXT("int64") },
+		{ TEXT("arrive_id"), TEXT("int64") }, { TEXT("type"), TEXT("enum") },
+		{ TEXT("owner_type"), TEXT("enum") }, { TEXT("owner"), TEXT("string") },
+		{ TEXT("start_time"), TEXT("string") }, { TEXT("end_time"), TEXT("string") },
+		{ TEXT("participant_count"), TEXT("int32") }, { TEXT("batch_claim_id"), TEXT("uint64") },
+		{ TEXT("parent_batch_event_id"), TEXT("int64") }, { TEXT("source_cell_id"), TEXT("uint64") },
+		{ TEXT("target_cell_id"), TEXT("uint64") }, { TEXT("inherited_order_key"), TEXT("uint64") },
+		{ TEXT("target_flow_count"), TEXT("int32") }, { TEXT("target_flows"), TEXT("array") },
+		{ TEXT("cause"), TEXT("string") }, { TEXT("policy_id"), TEXT("int64") }
+	};
+
 	inline constexpr FFieldDefinition LODTransitionFields[] =
 	{
 		{ TEXT("schema_version"), TEXT("string") }, { TEXT("experiment_id"), TEXT("string") },
@@ -169,6 +197,17 @@ namespace AILOD::LogSchema
 		{ TEXT("requested_time"), TEXT("string") }, { TEXT("committed_time"), TEXT("string") },
 		{ TEXT("latency_ms"), TEXT("double") }, { TEXT("bucket"), TEXT("string") },
 		{ TEXT("arrive_id"), TEXT("int64") }, { TEXT("result"), TEXT("enum") }
+	};
+
+	inline constexpr FFieldDefinition V17LODTransitionFields[] =
+	{
+		{ TEXT("schema_version"), TEXT("string") }, { TEXT("experiment_id"), TEXT("string") },
+		{ TEXT("run_id"), TEXT("string") }, { TEXT("method"), TEXT("string") },
+		{ TEXT("scenario"), TEXT("string") }, { TEXT("seed"), TEXT("int32") },
+		{ TEXT("game_time"), TEXT("string") }, { TEXT("resident_id"), TEXT("int64") },
+		{ TEXT("direction"), TEXT("enum") }, { TEXT("selected_cell_id"), TEXT("uint64") },
+		{ TEXT("batch_event_id"), TEXT("int64") }, { TEXT("parent_batch_event_id"), TEXT("int64") },
+		{ TEXT("used_fallback"), TEXT("bool") }, { TEXT("result"), TEXT("enum") }
 	};
 
 	inline constexpr FFieldDefinition LedgerTransactionFields[] =

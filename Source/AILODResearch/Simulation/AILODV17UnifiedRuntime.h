@@ -29,8 +29,24 @@ namespace AILOD
 			TArray<FV17IdentityRecord>& OutIdentities,
 			TArray<FV17AuthoritativeKingdomConfig>& OutKingdoms,
 			FString& OutError) const;
-		bool QueueReadyFlows(FString& OutError);
+		bool ApplyEarthquake(FString& OutError);
+		bool ApplyPolicies(FSimulationTime Time, FString& OutError);
+		bool PlaceStateImportOrder(FString& OutError);
+		bool FreezeRepairAidEligibility(FString& OutError);
+		bool PayRepairAid(FString& OutError);
+		bool ApplyEnvironment(FSimulationTime Time, FString& OutError);
+		bool QueuePlannedFlows(FString& OutError);
 		bool ApplyActivationTrace(FSimulationTime Time, FString& OutError);
+		void ResolvePendingFirstActions();
+		void RecordFirstAction(FResidentID ResidentID, EIndividualAction Action, bool bContinuedEvent);
+		FIndividualWorldFacts BuildWorldFacts(EKingdom Kingdom) const;
+		FKingdomStocks BuildKingdomStocks(EKingdom Kingdom) const;
+		FKingdomSnapshot BuildKingdomSnapshot(FSimulationTime Time, EKingdom Kingdom) const;
+		void BuildCohortObservations(FSimulationTime Time, TArray<FUnifiedCohortObservation>& OutObservations) const;
+		void PublishObservations(FSimulationTime GameTime, FSimulationTime ProcessedTime);
+		FString PolicyStateAt(FSimulationTime ProcessedTime) const;
+		bool IsHarvestCapActive(EKingdom Kingdom, FSimulationTime Time) const;
+		void EnsureHarvestDay(EKingdom Kingdom, FSimulationTime Time);
 		void FillDiagnostics(FUnifiedRunResult& OutResult) const;
 
 		FPhase0Config Config;
@@ -43,6 +59,14 @@ namespace AILOD
 		TUniquePtr<FV17AuthoritativeMacroSession> Authority;
 		FUnifiedStepMeasurement LastStepMeasurement;
 		FUnifiedCostBreakdown CostBreakdown;
+		FUnifiedRunDiagnostics Diagnostics;
+		TArray<FUnifiedActivationObservation> ActivationObservations;
+		TMap<FResidentID, int32> PendingFirstActions;
+		bool bEarthquakeApplied = false;
+		int64 ImportBudgetRemaining = 0;
+		double WoodPrices[2] = { 1.0, 1.0 };
+		int32 HarvestDays[2] = { TNumericLimits<int32>::Min(), TNumericLimits<int32>::Min() };
+		double HarvestAllowances[2] = { 0.0, 0.0 };
 		int64 ResidentTouches = 0;
 		int32 MaxActiveCount = 0;
 	};

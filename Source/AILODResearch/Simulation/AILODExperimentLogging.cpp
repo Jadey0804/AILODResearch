@@ -122,6 +122,23 @@ namespace AILOD
 			}
 		}
 
+		const TCHAR* V17TransitionResultName(const EV17LODTransitionResult Result)
+		{
+			switch (Result)
+			{
+			case EV17LODTransitionResult::Committed: return TEXT("Committed");
+			case EV17LODTransitionResult::ResidentNotFound: return TEXT("ResidentNotFound");
+			case EV17LODTransitionResult::AlreadyActive: return TEXT("AlreadyActive");
+			case EV17LODTransitionResult::AlreadyRestricted: return TEXT("AlreadyRestricted");
+			case EV17LODTransitionResult::ActiveCapReached: return TEXT("ActiveCapReached");
+			case EV17LODTransitionResult::NoEligibleJointCell: return TEXT("NoEligibleJointCell");
+			case EV17LODTransitionResult::StateExtractionFailed: return TEXT("StateExtractionFailed");
+			case EV17LODTransitionResult::EventSplitFailed: return TEXT("EventSplitFailed");
+			case EV17LODTransitionResult::EventMergeFailed: return TEXT("EventMergeFailed");
+			default: return TEXT("Unknown");
+			}
+		}
+
 		const TCHAR* RunModeName(const EUnifiedRunMode Mode)
 		{
 			switch (Mode)
@@ -264,11 +281,15 @@ namespace AILOD
 			OutError = TEXT("Run logging requires complete output, identity, input-hash, build, hardware, log-mode, and time metadata.");
 			return false;
 		}
+		const bool bV17Authoritative = Result.ProposedModelVersion == EProposedModelVersion::V17Authoritative;
+		const int32 ExpectedLODTransitionCount = bV17Authoritative
+			? Result.V17LODTransitions.Num()
+			: Result.LODTransitions.Num();
 		if (Result.Mode != EUnifiedRunMode::Performance
 			&& (Hours.Num() != Result.WarmupHourSteps + Result.FormalHourSteps
 			|| Events.Num() != Result.Diagnostics.EventCount
 			|| Transactions.Num() != Result.Transactions.Num()
-			|| LODTransitions.Num() != Result.LODTransitions.Num()
+			|| (!bV17Authoritative && LODTransitions.Num() != ExpectedLODTransitionCount)
 			|| Activations.Num() != Result.ActivationObservations.Num()
 			|| NPCSnapshots.Num() != Result.ActivationObservations.Num()))
 		{
@@ -341,6 +362,9 @@ namespace AILOD
 			HardErrors->SetNumberField(TEXT("population_residual"), Result.V17Audit.PopulationResidual);
 			HardErrors->SetNumberField(TEXT("wood_residual"), Result.V17Audit.WoodResidual);
 			HardErrors->SetNumberField(TEXT("identity_mismatch"), Result.V17Audit.IdentityMismatchCount);
+			HardErrors->SetNumberField(
+				TEXT("joint_cell_resource_band_mismatch"),
+				Result.V17Audit.JointCellResourceBandMismatchCount);
 			HardErrors->SetNumberField(TEXT("batch_split_merge_residual"), Result.V17Audit.BatchSplitMergeResidualCount);
 		}
 		else
@@ -520,26 +544,45 @@ namespace AILOD
 			}
 		}
 
-		FString CohortCsv = CsvHeader(LogSchema::CohortTimeseriesFields);
+		FString CohortCsv = bV17Authoritative
+			? CsvHeader(LogSchema::V17CohortTimeseriesFields)
+			: CsvHeader(LogSchema::CohortTimeseriesFields);
 		for (const FUnifiedHourObservation& Hour : Hours)
 		{
 			for (const FUnifiedCohortObservation& Cohort : Hour.Cohorts)
 			{
 				TArray<FString> Fields = CommonCsvFields(Result, Metadata, Cohort.GameTime);
-				Fields.Append(
+				if (bV17Authoritative)
 				{
-					CsvString(Cohort.CohortKey),
-					FString::FromInt(Cohort.Count),
-					FString::Printf(TEXT("%lld"), Cohort.CashSum),
-					FString::Printf(TEXT("%lld"), Cohort.CashSquaredSum),
-					FString::Printf(TEXT("%lld"), Cohort.RepairCreditSum),
-					FString::FromInt(Cohort.WoodCounts[0]),
-					FString::FromInt(Cohort.WoodCounts[1]),
-					FString::FromInt(Cohort.WoodCounts[2]),
-					FString::FromInt(Cohort.WoodCounts[3]),
-					FString::FromInt(Cohort.WoodCounts[4]),
-					CsvString(MacroIntentName(Cohort.MacroIntent))
-				});
+					Fields.Append(
+					{
+						CsvString(Cohort.CohortKey),
+						FString::Printf(TEXT("%llu"), Cohort.JointCellID),
+						CsvString(Cohort.JointCellKey),
+						FString::FromInt(Cohort.Count),
+						FString::Printf(TEXT("%lld"), Cohort.CashSum),
+						FString::Printf(TEXT("%lld"), Cohort.RepairCreditSum),
+						FString::Printf(TEXT("%lld"), Cohort.WoodSum),
+						FString::FromInt(Cohort.PendingParticipantCount)
+					});
+				}
+				else
+				{
+					Fields.Append(
+					{
+						CsvString(Cohort.CohortKey),
+						FString::FromInt(Cohort.Count),
+						FString::Printf(TEXT("%lld"), Cohort.CashSum),
+						FString::Printf(TEXT("%lld"), Cohort.CashSquaredSum),
+						FString::Printf(TEXT("%lld"), Cohort.RepairCreditSum),
+						FString::FromInt(Cohort.WoodCounts[0]),
+						FString::FromInt(Cohort.WoodCounts[1]),
+						FString::FromInt(Cohort.WoodCounts[2]),
+						FString::FromInt(Cohort.WoodCounts[3]),
+						FString::FromInt(Cohort.WoodCounts[4]),
+						CsvString(MacroIntentName(Cohort.MacroIntent))
+					});
+				}
 				AppendCsvRow(CohortCsv, Fields);
 			}
 		}
@@ -580,31 +623,86 @@ namespace AILOD
 			TSharedRef<FJsonObject> Object = MakeCommonJson(Result, Metadata, Event.StartTime);
 			Object->SetNumberField(TEXT("event_id"), Record.EventID);
 			Object->SetNumberField(TEXT("arrive_id"), Event.ArriveID);
-			Object->SetNumberField(TEXT("parent_event_id"), Event.ParentEventID);
-			Object->SetStringField(TEXT("type"), Event.Type);
+			const FString LoggedType = bV17Authoritative && Event.Type == TEXT("BatchRepair")
+				? TEXT("Repair")
+				: bV17Authoritative && Event.Type == TEXT("BatchRejectedWait")
+					? TEXT("Wait")
+					: Event.Type;
+			Object->SetStringField(TEXT("type"), LoggedType);
 			Object->SetStringField(TEXT("owner"), Event.Owner);
 			Object->SetStringField(TEXT("start_time"), Event.StartTime.ToString());
 			Object->SetStringField(TEXT("end_time"), Event.EndTime.ToString());
-			Object->SetNumberField(TEXT("participants"), Event.ParticipantCount);
+			if (bV17Authoritative)
+			{
+				const FV17AuthoritativeBatchEvent* Batch = Result.V17BatchEvents.Find(Record.EventID);
+				Object->SetStringField(
+					TEXT("owner_type"), Event.ResidentID > 0 ? TEXT("Individual") : TEXT("Batch"));
+				Object->SetNumberField(TEXT("participant_count"), Event.ParticipantCount);
+				Object->SetNumberField(TEXT("batch_claim_id"), Batch != nullptr ? Batch->BatchClaimID : 0);
+				Object->SetNumberField(
+					TEXT("parent_batch_event_id"), Batch != nullptr ? Batch->ParentBatchEventID : Event.ParentEventID);
+				Object->SetNumberField(TEXT("source_cell_id"), Batch != nullptr ? Batch->SourceCellID : 0);
+				Object->SetNumberField(TEXT("target_cell_id"), Batch != nullptr ? Batch->TargetCellID : 0);
+				Object->SetNumberField(TEXT("inherited_order_key"), Batch != nullptr ? Batch->InheritedOrderKey : 0);
+				Object->SetNumberField(TEXT("target_flow_count"), Batch != nullptr ? Batch->TargetFlows.Num() : 0);
+				TArray<TSharedPtr<FJsonValue>> TargetFlows;
+				if (Batch != nullptr)
+				{
+					for (const FV17AuthoritativeBatchEvent::FTargetFlow& Flow : Batch->TargetFlows)
+					{
+						TSharedRef<FJsonObject> FlowObject = MakeShared<FJsonObject>();
+						FlowObject->SetNumberField(TEXT("target_cell_id"), Flow.TargetCellID);
+						FlowObject->SetNumberField(TEXT("participant_count"), Flow.ParticipantCount);
+						FlowObject->SetNumberField(TEXT("cash_total"), Flow.CashTotal);
+						FlowObject->SetNumberField(TEXT("repair_credit_total"), Flow.RepairCreditTotal);
+						FlowObject->SetNumberField(TEXT("wood_total"), Flow.WoodTotal);
+						TargetFlows.Add(MakeShared<FJsonValueObject>(FlowObject));
+					}
+				}
+				Object->SetArrayField(TEXT("target_flows"), TargetFlows);
+			}
+			else
+			{
+				Object->SetNumberField(TEXT("parent_event_id"), Event.ParentEventID);
+				Object->SetNumberField(TEXT("participants"), Event.ParticipantCount);
+			}
 			Object->SetStringField(TEXT("cause"), Event.Cause);
 			Object->SetNumberField(TEXT("policy_id"), Event.PolicyID);
 			EventJsonl += CondensedJson(Object) + TEXT("\n");
 		}
 
 		FString TransitionJsonl;
-		for (const FLODTransitionRecord& Transition : LODTransitions)
+		if (bV17Authoritative)
 		{
-			TSharedRef<FJsonObject> Object = MakeCommonJson(Result, Metadata, Transition.CommittedTime);
-			Object->SetNumberField(TEXT("persistent_id"), Transition.PersistentID);
-			Object->SetStringField(TEXT("from"), RepresentationName(Transition.From));
-			Object->SetStringField(TEXT("to"), RepresentationName(Transition.To));
-			Object->SetStringField(TEXT("requested_time"), Transition.RequestedTime.ToString());
-			Object->SetStringField(TEXT("committed_time"), Transition.CommittedTime.ToString());
-			Object->SetNumberField(TEXT("latency_ms"), 0.0);
-			Object->SetStringField(TEXT("bucket"), Transition.Bucket);
-			Object->SetNumberField(TEXT("arrive_id"), Transition.ArriveID);
-			Object->SetStringField(TEXT("result"), TransitionResultName(Transition.Result));
-			TransitionJsonl += CondensedJson(Object) + TEXT("\n");
+			for (const FV17LODTransitionRecord& Transition : Result.V17LODTransitions)
+			{
+				TSharedRef<FJsonObject> Object = MakeCommonJson(Result, Metadata, Transition.GameTime);
+				Object->SetNumberField(TEXT("resident_id"), Transition.ResidentID);
+				Object->SetStringField(TEXT("direction"), Transition.bLift ? TEXT("Lift") : TEXT("Restrict"));
+				Object->SetNumberField(TEXT("selected_cell_id"), Transition.SelectedCellID);
+				Object->SetNumberField(TEXT("batch_event_id"), Transition.BatchEventID);
+				Object->SetNumberField(TEXT("parent_batch_event_id"), Transition.ParentBatchEventID);
+				Object->SetBoolField(TEXT("used_fallback"), Transition.bUsedFallback);
+				Object->SetStringField(TEXT("result"), V17TransitionResultName(Transition.Result));
+				TransitionJsonl += CondensedJson(Object) + TEXT("\n");
+			}
+		}
+		else
+		{
+			for (const FLODTransitionRecord& Transition : LODTransitions)
+			{
+				TSharedRef<FJsonObject> Object = MakeCommonJson(Result, Metadata, Transition.CommittedTime);
+				Object->SetNumberField(TEXT("persistent_id"), Transition.PersistentID);
+				Object->SetStringField(TEXT("from"), RepresentationName(Transition.From));
+				Object->SetStringField(TEXT("to"), RepresentationName(Transition.To));
+				Object->SetStringField(TEXT("requested_time"), Transition.RequestedTime.ToString());
+				Object->SetStringField(TEXT("committed_time"), Transition.CommittedTime.ToString());
+				Object->SetNumberField(TEXT("latency_ms"), 0.0);
+				Object->SetStringField(TEXT("bucket"), Transition.Bucket);
+				Object->SetNumberField(TEXT("arrive_id"), Transition.ArriveID);
+				Object->SetStringField(TEXT("result"), TransitionResultName(Transition.Result));
+				TransitionJsonl += CondensedJson(Object) + TEXT("\n");
+			}
 		}
 
 		FString TransactionJsonl;

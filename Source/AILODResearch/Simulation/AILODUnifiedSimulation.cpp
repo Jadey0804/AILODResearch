@@ -4006,6 +4006,8 @@ namespace AILOD
 				&& FinalTime == FSimulationTime::FromDays(60)
 				&& V17Audit.IsHardErrorFree()
 				&& Diagnostics.MaxActiveMicro <= 50
+				&& PendingEventsAtOrBeforeEnd == 0
+				&& Diagnostics.FirstActionCount == ActivationObservations.Num()
 				&& !V17DeterministicDigest.IsEmpty();
 		}
 		return Audit.IsHardErrorFree()

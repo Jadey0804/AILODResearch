@@ -34,6 +34,7 @@ namespace AILOD
 			&& FMath::IsNearlyZero(CoinResidual, UE_DOUBLE_SMALL_NUMBER)
 			&& FMath::IsNearlyZero(WoodResidual, UE_DOUBLE_SMALL_NUMBER)
 			&& NegativeJointCellCount == 0
+			&& JointCellResourceBandMismatchCount == 0
 			&& NegativeStockCount == 0
 			&& BatchRequestedGrantResidualCount == 0
 			&& BatchCapacityOverflowCount == 0
@@ -706,7 +707,25 @@ namespace AILOD
 		const FPolicyID PolicyID,
 		FString& OutError)
 	{
-		if (Quantity <= 0)
+		return TransferQuantity(
+			Time, Resource, Source, Destination, static_cast<double>(Quantity), bBoundary,
+			IdempotencyKey, EventID, ArriveID, PolicyID, OutError);
+	}
+
+	bool FV17AuthoritativeMacroSession::TransferQuantity(
+		const FSimulationTime Time,
+		const ESimulationResource Resource,
+		const FString& Source,
+		const FString& Destination,
+		const double Quantity,
+		const bool bBoundary,
+		const FString& IdempotencyKey,
+		const FEventID EventID,
+		const FArriveID ArriveID,
+		const FPolicyID PolicyID,
+		FString& OutError)
+	{
+		if (Quantity <= UE_DOUBLE_SMALL_NUMBER)
 		{
 			OutError.Reset();
 			return true;
@@ -717,13 +736,35 @@ namespace AILOD
 		Request.Resource = Resource;
 		Request.Source = Source;
 		Request.Destination = Destination;
-		Request.Quantity = static_cast<double>(Quantity);
+		Request.Quantity = Quantity;
 		Request.bBoundaryFlow = bBoundary;
 		Request.EventID = EventID;
 		Request.ArriveID = ArriveID;
 		Request.PolicyID = PolicyID;
 		FTransactionID TransactionID = 0;
 		return Ledger.SubmitTransfer(Request, TransactionID, OutError);
+	}
+
+	bool FV17AuthoritativeMacroSession::ApplySystemTransfer(
+		const ESimulationResource Resource,
+		const FString& Source,
+		const FString& Destination,
+		const double Quantity,
+		const bool bBoundary,
+		const FString& IdempotencyKey,
+		const FPolicyID PolicyID,
+		FString& OutError)
+	{
+		if (!bInitialized || IdempotencyKey.IsEmpty() || !FMath::IsFinite(Quantity) || Quantity < 0.0)
+		{
+			OutError = TEXT("A v1.7 system transfer requires an initialized authority and a finite non-negative quantity.");
+			return false;
+		}
+		bFractionalResourcesEnabled |= Resource == ESimulationResource::Wood
+			&& !FMath::IsNearlyEqual(Quantity, static_cast<double>(FMath::RoundToInt64(Quantity)));
+		return TransferQuantity(
+			Clock.Now(), Resource, Source, Destination, Quantity, bBoundary,
+			IdempotencyKey, 0, 0, PolicyID, OutError);
 	}
 
 	bool FV17AuthoritativeMacroSession::TransferParticipantStateToEvent(
@@ -743,19 +784,36 @@ namespace AILOD
 		const FString WoodSource = bActive
 			? ActiveAccount(Claim.ActiveResidentID, TEXT("Wood"))
 			: CellAccount(Claim.SourceCellID, TEXT("Wood"));
+		int64 CashQuantity = static_cast<int64>(Claim.FrozenState.Cash) * ParticipantCount;
+		int64 CreditQuantity = static_cast<int64>(Claim.FrozenState.RepairCredit) * ParticipantCount;
+		int64 WoodQuantity = static_cast<int64>(Claim.FrozenState.Wood) * ParticipantCount;
+		if (bExactAggregateResourceSplits && !bActive)
+		{
+			const int32 RemainingCount = Cells.FindChecked(Claim.SourceCellID).Count;
+			auto ExactShare = [ParticipantCount, RemainingCount](const double Balance)
+			{
+				const int64 Total = FMath::RoundToInt64(Balance);
+				return ParticipantCount == RemainingCount
+					? Total
+					: Total * ParticipantCount / RemainingCount;
+			};
+			CashQuantity = ExactShare(Ledger.GetBalance(ESimulationResource::Coin, CashSource));
+			CreditQuantity = ExactShare(Ledger.GetBalance(ESimulationResource::Coin, CreditSource));
+			WoodQuantity = ExactShare(Ledger.GetBalance(ESimulationResource::Wood, WoodSource));
+		}
 		return Transfer(
 			Clock.Now(), ESimulationResource::Coin, CashSource, EventAccount(EventID, TEXT("Cash")),
-			static_cast<int64>(Claim.FrozenState.Cash) * ParticipantCount, false,
+			CashQuantity, false,
 			FString::Printf(TEXT("V17-CLAIM-%llu-EVENT-%lld-CASH"), Claim.BatchClaimID, EventID),
 			EventID, ArriveID, Claim.CausalPolicyID, OutError)
 			&& Transfer(
 				Clock.Now(), ESimulationResource::Coin, CreditSource, EventAccount(EventID, TEXT("RepairCredit")),
-				static_cast<int64>(Claim.FrozenState.RepairCredit) * ParticipantCount, false,
+				CreditQuantity, false,
 				FString::Printf(TEXT("V17-CLAIM-%llu-EVENT-%lld-CREDIT"), Claim.BatchClaimID, EventID),
 				EventID, ArriveID, Claim.CausalPolicyID, OutError)
 			&& Transfer(
 				Clock.Now(), ESimulationResource::Wood, WoodSource, EventAccount(EventID, TEXT("Wood")),
-				static_cast<int64>(Claim.FrozenState.Wood) * ParticipantCount, false,
+				WoodQuantity, false,
 				FString::Printf(TEXT("V17-CLAIM-%llu-EVENT-%lld-WOOD"), Claim.BatchClaimID, EventID),
 				EventID, ArriveID, Claim.CausalPolicyID, OutError);
 	}
@@ -857,18 +915,25 @@ namespace AILOD
 			const int64 CostPerParticipant = PaymentCoins(
 				Claim.PerParticipantDemand,
 				KingdomConfigs.FindChecked(SourceKey.Kingdom).WoodPrice);
-			const int64 CreditPerParticipant = FMath::Min<int64>(Claim.FrozenState.RepairCredit, CostPerParticipant);
-			const int64 CashPerParticipant = CostPerParticipant - CreditPerParticipant;
+			const int64 TotalCost = CostPerParticipant * ParticipantCount;
+			const int64 CreditPayment = bExactAggregateResourceSplits && Claim.ActiveResidentID == 0
+				? FMath::Min<int64>(
+					FMath::RoundToInt64(Ledger.GetBalance(
+						ESimulationResource::Coin,
+						EventAccount(EventID, TEXT("RepairCredit")))),
+					TotalCost)
+				: FMath::Min<int64>(Claim.FrozenState.RepairCredit, CostPerParticipant) * ParticipantCount;
+			const int64 CashPayment = TotalCost - CreditPayment;
 			if (!Transfer(
 				Clock.Now(), ESimulationResource::Coin,
 				EventAccount(EventID, TEXT("RepairCredit")), KingdomAccount(SourceKey.Kingdom, TEXT("MarketCoin")),
-				CreditPerParticipant * ParticipantCount, false,
+				CreditPayment, false,
 				FString::Printf(TEXT("V17-CLAIM-%llu-BUY-CREDIT"), Claim.BatchClaimID),
 				EventID, Request.ArriveID, Claim.CausalPolicyID, OutError)
 				|| !Transfer(
 					Clock.Now(), ESimulationResource::Coin,
 					EventAccount(EventID, TEXT("Cash")), KingdomAccount(SourceKey.Kingdom, TEXT("MarketCoin")),
-					CashPerParticipant * ParticipantCount, false,
+					CashPayment, false,
 					FString::Printf(TEXT("V17-CLAIM-%llu-BUY-CASH"), Claim.BatchClaimID),
 					EventID, Request.ArriveID, Claim.CausalPolicyID, OutError))
 			{
@@ -1011,6 +1076,12 @@ namespace AILOD
 		TargetKey.PurchasingPowerBand = PurchasingPowerBand(FinalState.Cash + FinalState.RepairCredit);
 		TargetKey.WoodBand = WoodBand(FinalState.Wood);
 		TargetKey.bAidEligible = SourceKey.bAidEligible && FinalState.HomeState == EHomeState::DamagedWaiting;
+		return FindOrCreateCellByKey(TargetKey);
+	}
+
+	FV17AuthoritativeCellID FV17AuthoritativeMacroSession::FindOrCreateCellByKey(
+		const FV17AuthoritativeJointKey& TargetKey)
+	{
 		if (const FV17AuthoritativeCellID* Existing = CellIDsByKey.Find(TargetKey))
 		{
 			return *Existing;
@@ -1033,6 +1104,500 @@ namespace AILOD
 		Cells.Add(CellID, Cell);
 		CellIDsByKey.Add(TargetKey, CellID);
 		return CellID;
+	}
+
+	bool FV17AuthoritativeMacroSession::MoveJointCellParticipants(
+		const FV17AuthoritativeCellID SourceCellID,
+		const FV17AuthoritativeJointKey& TargetKey,
+		const int32 ParticipantCount,
+		const int64 CashTotal,
+		const int64 RepairCreditTotal,
+		const int64 WoodTotal,
+		const FString& IdempotencyPrefix,
+		const FPolicyID PolicyID,
+		FV17AuthoritativeCellID& OutTargetCellID,
+		FString& OutError)
+	{
+		OutTargetCellID = 0;
+		const FV17AuthoritativeCellConfig* Source = Cells.Find(SourceCellID);
+		if (!bInitialized
+			|| Source == nullptr
+			|| ParticipantCount <= 0
+			|| ParticipantCount > Source->Count
+			|| CashTotal < 0
+			|| RepairCreditTotal < 0
+			|| WoodTotal < 0
+			|| IdempotencyPrefix.IsEmpty()
+			|| TargetKey.Kingdom != Source->Key.Kingdom
+			|| TargetKey.Profession != Source->Key.Profession
+			|| TargetKey.IncomeBand != Source->Key.IncomeBand
+			|| GetCellCash(SourceCellID) < CashTotal
+			|| GetCellRepairCredit(SourceCellID) < RepairCreditTotal
+			|| GetCellWood(SourceCellID) < WoodTotal)
+		{
+			OutError = TEXT("A Joint Cell transition requires a valid subset, exact available resources and the same outer Cohort.");
+			return false;
+		}
+
+		const FV17AuthoritativeMacroSession Before = *this;
+		OutTargetCellID = FindOrCreateCellByKey(TargetKey);
+		if (OutTargetCellID == SourceCellID)
+		{
+			OutError.Reset();
+			return true;
+		}
+		Cells.FindChecked(SourceCellID).Count -= ParticipantCount;
+		Cells.FindChecked(OutTargetCellID).Count += ParticipantCount;
+		if (!Transfer(
+			Clock.Now(), ESimulationResource::Coin,
+			CellAccount(SourceCellID, TEXT("Cash")), CellAccount(OutTargetCellID, TEXT("Cash")),
+			CashTotal, false, IdempotencyPrefix + TEXT("-CASH"), 0, 0, PolicyID, OutError)
+			|| !Transfer(
+				Clock.Now(), ESimulationResource::Coin,
+				CellAccount(SourceCellID, TEXT("RepairCredit")), CellAccount(OutTargetCellID, TEXT("RepairCredit")),
+				RepairCreditTotal, false, IdempotencyPrefix + TEXT("-CREDIT"), 0, 0, PolicyID, OutError)
+			|| !Transfer(
+				Clock.Now(), ESimulationResource::Wood,
+				CellAccount(SourceCellID, TEXT("Wood")), CellAccount(OutTargetCellID, TEXT("Wood")),
+				WoodTotal, false, IdempotencyPrefix + TEXT("-WOOD"), 0, 0, PolicyID, OutError))
+		{
+			*this = Before;
+			OutTargetCellID = 0;
+			return false;
+		}
+		OutError.Reset();
+		return true;
+	}
+
+	bool FV17AuthoritativeMacroSession::SetJointCellAidEligibility(
+		const FV17AuthoritativeCellID SourceCellID,
+		const bool bEligible,
+		FV17AuthoritativeCellID& OutTargetCellID,
+		FString& OutError)
+	{
+		const FV17AuthoritativeCellConfig* Source = Cells.Find(SourceCellID);
+		if (Source == nullptr || Source->Count <= 0)
+		{
+			OutError = TEXT("Aid eligibility can only be frozen for a non-empty ready Joint Cell.");
+			return false;
+		}
+		FV17AuthoritativeJointKey TargetKey = Source->Key;
+		TargetKey.bAidEligible = bEligible;
+		return MoveJointCellParticipants(
+			SourceCellID,
+			TargetKey,
+			Source->Count,
+			GetCellCash(SourceCellID),
+			GetCellRepairCredit(SourceCellID),
+			GetCellWood(SourceCellID),
+			FString::Printf(TEXT("V17-AID-ELIGIBILITY-C%llu-M%lld"), SourceCellID, Clock.Now().Minutes),
+			0,
+			OutTargetCellID,
+			OutError);
+	}
+
+	bool FV17AuthoritativeMacroSession::GrantRepairAid(
+		const FV17AuthoritativeCellID SourceCellID,
+		const int32 ParticipantCount,
+		const int32 CoinPerParticipant,
+		const FPolicyID PolicyID,
+		FV17AuthoritativeCellID& OutTargetCellID,
+		FString& OutError)
+	{
+		OutTargetCellID = 0;
+		const FV17AuthoritativeCellConfig* Source = Cells.Find(SourceCellID);
+		if (Source == nullptr
+			|| ParticipantCount <= 0
+			|| ParticipantCount > Source->Count
+			|| CoinPerParticipant <= 0
+			|| !Source->Key.bAidEligible)
+		{
+			OutError = TEXT("Repair Aid requires a positive subset from an eligible ready Joint Cell.");
+			return false;
+		}
+
+		const FV17AuthoritativeMacroSession Before = *this;
+		const int32 SourceCount = Source->Count;
+		const FV17AuthoritativeJointKey SourceKey = Source->Key;
+		const int64 Cash = GetCellCash(SourceCellID) * ParticipantCount / SourceCount;
+		const int64 Credit = GetCellRepairCredit(SourceCellID) * ParticipantCount / SourceCount;
+		const int64 Wood = GetCellWood(SourceCellID) * ParticipantCount / SourceCount;
+		const int64 Aid = static_cast<int64>(CoinPerParticipant) * ParticipantCount;
+		FV17AuthoritativeJointKey TargetKey = SourceKey;
+		TargetKey.bAidEligible = false;
+		TargetKey.PurchasingPowerBand = PurchasingPowerBand((Cash + Credit + Aid) / ParticipantCount);
+		const FString Prefix = FString::Printf(
+			TEXT("V17-AID-PAY-C%llu-M%lld"), SourceCellID, Clock.Now().Minutes);
+		if (!MoveJointCellParticipants(
+			SourceCellID, TargetKey, ParticipantCount, Cash, Credit, Wood,
+			Prefix, PolicyID, OutTargetCellID, OutError)
+			|| !Transfer(
+				Clock.Now(), ESimulationResource::Coin,
+				KingdomAccount(SourceKey.Kingdom, TEXT("TreasuryAvailable")),
+				CellAccount(OutTargetCellID, TEXT("RepairCredit")),
+				Aid, false, Prefix + TEXT("-GRANT"), 0, Scheduler.IssueArriveID(), PolicyID, OutError))
+		{
+			*this = Before;
+			OutTargetCellID = 0;
+			return false;
+		}
+		OutError.Reset();
+		return true;
+	}
+
+	bool FV17AuthoritativeMacroSession::CreateInstantSystemEvent(
+		const FString& Type,
+		const int32 ParticipantCount,
+		const FPolicyID PolicyID,
+		FString& OutError)
+	{
+		if (!bInitialized || Type.IsEmpty())
+		{
+			OutError = TEXT("An instant v1.7 system event requires an initialized authority and a type.");
+			return false;
+		}
+		FSimulationEventRequest Request;
+		Request.Type = Type;
+		Request.Owner = TEXT("V17System");
+		Request.StartTime = Clock.Now();
+		Request.EndTime = Clock.Now();
+		Request.ArriveID = Scheduler.IssueArriveID();
+		Request.ParticipantCount = FMath::Max(1, ParticipantCount);
+		Request.PolicyID = PolicyID;
+		FEventID EventID = 0;
+		return EventStore.CreateEvent(Request, EventID, OutError)
+			&& EventStore.CompleteEvent(EventID, OutError);
+	}
+
+	bool FV17AuthoritativeMacroSession::QueueStateImport(
+		const EKingdom Kingdom,
+		const double WoodQuantity,
+		const int64 CoinCost,
+		const FPolicyID PolicyID,
+		FString& OutError)
+	{
+		if (!bInitialized || WoodQuantity <= UE_DOUBLE_SMALL_NUMBER || CoinCost <= 0)
+		{
+			OutError = TEXT("A state import requires positive Wood and integer Coin cost.");
+			return false;
+		}
+		const FV17AuthoritativeMacroSession Before = *this;
+		FSimulationEventRequest Request;
+		Request.Type = TEXT("StateImport");
+		Request.Owner = TEXT("V17SystemImport");
+		Request.StartTime = Clock.Now();
+		Request.EndTime = FSimulationTime::FromMinutes(Clock.Now().Minutes + 3 * MinutesPerDay);
+		Request.ArriveID = Scheduler.IssueArriveID();
+		Request.ParticipantCount = 1;
+		Request.PolicyID = PolicyID;
+		FEventID EventID = 0;
+		if (!EventStore.CreateEvent(Request, EventID, OutError))
+		{
+			return false;
+		}
+
+		FReservationRequest Reservation;
+		Reservation.IdempotencyKey = FString::Printf(TEXT("V17-IMPORT-%lld-RESERVE"), EventID);
+		Reservation.GameTime = Clock.Now();
+		Reservation.Resource = ESimulationResource::Coin;
+		Reservation.SourceAccount = KingdomAccount(Kingdom, TEXT("TreasuryAvailable"));
+		Reservation.ReservedAccount = KingdomAccount(Kingdom, TEXT("TreasuryReserved"));
+		Reservation.Quantity = CoinCost;
+		Reservation.EventID = EventID;
+		Reservation.ArriveID = Request.ArriveID;
+		Reservation.PolicyID = PolicyID;
+		FReservationID ReservationID = 0;
+		if (!Reservations.CreateReservation(Reservation, Ledger, ReservationID, OutError)
+			|| !EventStore.SetReservationID(EventID, ReservationID, OutError)
+			|| !TransferQuantity(
+				Clock.Now(), ESimulationResource::Wood,
+				ExternalBoundaryAccount, KingdomAccount(Kingdom, TEXT("WoodInTransit")),
+				WoodQuantity, true, FString::Printf(TEXT("V17-IMPORT-%lld-WOOD"), EventID),
+				EventID, Request.ArriveID, PolicyID, OutError)
+			|| !Scheduler.Schedule({ EventID, Request.ArriveID, Request.EndTime }, Clock.Now(), OutError))
+		{
+			*this = Before;
+			return false;
+		}
+		bFractionalResourcesEnabled |= !FMath::IsNearlyEqual(
+			WoodQuantity, static_cast<double>(FMath::RoundToInt64(WoodQuantity)));
+		SystemImportEvents.Add(EventID, {
+			EventID, ReservationID, Kingdom, WoodQuantity, CoinCost,
+			Request.StartTime, Request.EndTime, ESimulationEventState::Pending });
+		OutError.Reset();
+		return true;
+	}
+
+	bool FV17AuthoritativeMacroSession::SetWoodPrice(
+		const EKingdom Kingdom,
+		const double WoodPrice,
+		FString& OutError)
+	{
+		FV17AuthoritativeKingdomConfig* Config = KingdomConfigs.Find(Kingdom);
+		if (Config == nullptr || !FMath::IsFinite(WoodPrice) || WoodPrice <= 0.0)
+		{
+			OutError = TEXT("The v1.7 Wood price must be finite and positive for an initialized kingdom.");
+			return false;
+		}
+		Config->WoodPrice = WoodPrice;
+		OutError.Reset();
+		return true;
+	}
+
+	bool FV17AuthoritativeMacroSession::SetHarvestRemaining(
+		const EKingdom Kingdom,
+		const int64 Quantity,
+		FString& OutError)
+	{
+		if (!HarvestRemaining.Contains(Kingdom) || Quantity < 0)
+		{
+			OutError = TEXT("The v1.7 harvest remainder requires an initialized kingdom and a non-negative quantity.");
+			return false;
+		}
+		HarvestRemaining.FindChecked(Kingdom) = Quantity;
+		OutError.Reset();
+		return true;
+	}
+
+	void FV17AuthoritativeMacroSession::BuildNormalizedTargetFlows(
+		const FV17AuthoritativeJointKey& BaseKey,
+		const int32 ParticipantCount,
+		const int64 CashTotal,
+		const int64 RepairCreditTotal,
+		const int64 WoodTotal,
+		TArray<FV17AuthoritativeBatchEvent::FTargetFlow>& OutFlows)
+	{
+		OutFlows.Reset();
+		struct FValueBucket
+		{
+			int64 Value = 0;
+			int32 Count = 0;
+		};
+		auto BuildBuckets = [ParticipantCount](const int64 Total, TArray<FValueBucket>& OutBuckets)
+		{
+			const int64 Lower = Total / ParticipantCount;
+			const int32 UpperCount = static_cast<int32>(Total - Lower * ParticipantCount);
+			if (ParticipantCount - UpperCount > 0)
+			{
+				OutBuckets.Add({ Lower, ParticipantCount - UpperCount });
+			}
+			if (UpperCount > 0)
+			{
+				OutBuckets.Add({ Lower + 1, UpperCount });
+			}
+		};
+
+		TArray<FValueBucket> PowerBuckets;
+		TArray<FValueBucket> WoodBuckets;
+		BuildBuckets(CashTotal + RepairCreditTotal, PowerBuckets);
+		BuildBuckets(WoodTotal, WoodBuckets);
+		int32 PowerIndex = 0;
+		int32 WoodIndex = 0;
+		while (PowerIndex < PowerBuckets.Num() && WoodIndex < WoodBuckets.Num())
+		{
+			FValueBucket& Power = PowerBuckets[PowerIndex];
+			FValueBucket& Wood = WoodBuckets[WoodIndex];
+			const int32 Count = FMath::Min(Power.Count, Wood.Count);
+			FV17AuthoritativeJointKey TargetKey = BaseKey;
+			TargetKey.PurchasingPowerBand = PurchasingPowerBand(Power.Value);
+			TargetKey.WoodBand = WoodBand(Wood.Value);
+			FV17AuthoritativeBatchEvent::FTargetFlow* Existing = OutFlows.FindByPredicate(
+				[&TargetKey](const FV17AuthoritativeBatchEvent::FTargetFlow& Flow)
+				{
+					return Flow.TargetKey == TargetKey;
+				});
+			if (Existing == nullptr)
+			{
+				FV17AuthoritativeBatchEvent::FTargetFlow& Flow = OutFlows.AddDefaulted_GetRef();
+				Flow.TargetKey = TargetKey;
+				Existing = &Flow;
+			}
+			Existing->ParticipantCount += Count;
+			Existing->CashTotal += Power.Value * Count;
+			Existing->WoodTotal += Wood.Value * Count;
+			Power.Count -= Count;
+			Wood.Count -= Count;
+			if (Power.Count == 0) ++PowerIndex;
+			if (Wood.Count == 0) ++WoodIndex;
+		}
+
+		OutFlows.Sort([](
+			const FV17AuthoritativeBatchEvent::FTargetFlow& Left,
+			const FV17AuthoritativeBatchEvent::FTargetFlow& Right)
+		{
+			const FV17AuthoritativeJointKey& A = Left.TargetKey;
+			const FV17AuthoritativeJointKey& B = Right.TargetKey;
+			if (A.Kingdom != B.Kingdom) return A.Kingdom < B.Kingdom;
+			if (A.Profession != B.Profession) return A.Profession < B.Profession;
+			if (A.IncomeBand != B.IncomeBand) return A.IncomeBand < B.IncomeBand;
+			if (A.HomeState != B.HomeState) return A.HomeState < B.HomeState;
+			if (A.Intent != B.Intent) return A.Intent < B.Intent;
+			if (A.PurchasingPowerBand != B.PurchasingPowerBand)
+			{
+				return A.PurchasingPowerBand < B.PurchasingPowerBand;
+			}
+			if (A.WoodBand != B.WoodBand) return A.WoodBand < B.WoodBand;
+			return A.bAidEligible < B.bAidEligible;
+		});
+
+		int64 RemainingCredit = RepairCreditTotal;
+		int64 RemainingPower = CashTotal + RepairCreditTotal;
+		for (int32 Index = 0; Index < OutFlows.Num(); ++Index)
+		{
+			FV17AuthoritativeBatchEvent::FTargetFlow& Flow = OutFlows[Index];
+			const int64 FlowPower = Flow.CashTotal;
+			const int64 PowerAfter = RemainingPower - FlowPower;
+			const int64 MinimumCredit = FMath::Max<int64>(0, RemainingCredit - PowerAfter);
+			const int64 MaximumCredit = FMath::Min(RemainingCredit, FlowPower);
+			const int64 DesiredCredit = Index + 1 == OutFlows.Num()
+				? RemainingCredit
+				: RepairCreditTotal * Flow.ParticipantCount / ParticipantCount;
+			Flow.RepairCreditTotal = FMath::Clamp(DesiredCredit, MinimumCredit, MaximumCredit);
+			Flow.CashTotal = FlowPower - Flow.RepairCreditTotal;
+			RemainingCredit -= Flow.RepairCreditTotal;
+			RemainingPower = PowerAfter;
+		}
+	}
+
+	bool FV17AuthoritativeMacroSession::NormalizeReadyCellBands(
+		const FV17AuthoritativeCellID CellID,
+		FV17AuthoritativeCellID& OutPrimaryCellID,
+		FString& OutError)
+	{
+		OutPrimaryCellID = 0;
+		const FV17AuthoritativeCellConfig* Cell = Cells.Find(CellID);
+		if (!bInitialized || Cell == nullptr || Cell->Count <= 0)
+		{
+			OutError = TEXT("Band normalization requires one non-empty ready Joint Cell.");
+			return false;
+		}
+		const FV17AuthoritativeJointKey BaseKey = Cell->Key;
+		const int32 Count = Cell->Count;
+		const int64 Cash = GetCellCash(CellID);
+		const int64 Credit = GetCellRepairCredit(CellID);
+		const int64 Wood = GetCellWood(CellID);
+		TArray<FV17AuthoritativeBatchEvent::FTargetFlow> Flows;
+		BuildNormalizedTargetFlows(BaseKey, Count, Cash, Credit, Wood, Flows);
+		if (Flows.Num() == 1 && Flows[0].TargetKey == BaseKey)
+		{
+			OutPrimaryCellID = CellID;
+			OutError.Reset();
+			return true;
+		}
+
+		const FV17AuthoritativeMacroSession Before = *this;
+		const int32 Ordinal = Ledger.GetTransactions().Num();
+		const FString TempPrefix = FString::Printf(
+			TEXT("V17.Normalize.%llu.M%lld.O%d"), CellID, Clock.Now().Minutes, Ordinal);
+		Cells.FindChecked(CellID).Count = 0;
+		if (!Transfer(
+				Clock.Now(), ESimulationResource::Coin,
+				CellAccount(CellID, TEXT("Cash")), TempPrefix + TEXT(".Cash"), Cash, false,
+				TempPrefix + TEXT("-TAKE-CASH"), 0, 0, 0, OutError)
+			|| !Transfer(
+				Clock.Now(), ESimulationResource::Coin,
+				CellAccount(CellID, TEXT("RepairCredit")), TempPrefix + TEXT(".RepairCredit"), Credit, false,
+				TempPrefix + TEXT("-TAKE-CREDIT"), 0, 0, 0, OutError)
+			|| !Transfer(
+				Clock.Now(), ESimulationResource::Wood,
+				CellAccount(CellID, TEXT("Wood")), TempPrefix + TEXT(".Wood"), Wood, false,
+				TempPrefix + TEXT("-TAKE-WOOD"), 0, 0, 0, OutError))
+		{
+			*this = Before;
+			return false;
+		}
+
+		int32 PrimaryCount = -1;
+		for (int32 Index = 0; Index < Flows.Num(); ++Index)
+		{
+			FV17AuthoritativeBatchEvent::FTargetFlow& Flow = Flows[Index];
+			Flow.TargetCellID = FindOrCreateCellByKey(Flow.TargetKey);
+			Cells.FindChecked(Flow.TargetCellID).Count += Flow.ParticipantCount;
+			const FString FlowPrefix = FString::Printf(TEXT("%s-F%d"), *TempPrefix, Index);
+			if (!Transfer(
+					Clock.Now(), ESimulationResource::Coin,
+					TempPrefix + TEXT(".Cash"), CellAccount(Flow.TargetCellID, TEXT("Cash")),
+					Flow.CashTotal, false, FlowPrefix + TEXT("-CASH"), 0, 0, 0, OutError)
+				|| !Transfer(
+					Clock.Now(), ESimulationResource::Coin,
+					TempPrefix + TEXT(".RepairCredit"), CellAccount(Flow.TargetCellID, TEXT("RepairCredit")),
+					Flow.RepairCreditTotal, false, FlowPrefix + TEXT("-CREDIT"), 0, 0, 0, OutError)
+				|| !Transfer(
+					Clock.Now(), ESimulationResource::Wood,
+					TempPrefix + TEXT(".Wood"), CellAccount(Flow.TargetCellID, TEXT("Wood")),
+					Flow.WoodTotal, false, FlowPrefix + TEXT("-WOOD"), 0, 0, 0, OutError))
+			{
+				*this = Before;
+				return false;
+			}
+			if (Flow.ParticipantCount > PrimaryCount
+				|| (Flow.ParticipantCount == PrimaryCount && Flow.TargetCellID < OutPrimaryCellID))
+			{
+				PrimaryCount = Flow.ParticipantCount;
+				OutPrimaryCellID = Flow.TargetCellID;
+			}
+		}
+		if (!Ledger.RemoveZeroBalanceAccount(ESimulationResource::Coin, TempPrefix + TEXT(".Cash"), OutError)
+			|| !Ledger.RemoveZeroBalanceAccount(ESimulationResource::Coin, TempPrefix + TEXT(".RepairCredit"), OutError)
+			|| !Ledger.RemoveZeroBalanceAccount(ESimulationResource::Wood, TempPrefix + TEXT(".Wood"), OutError))
+		{
+			*this = Before;
+			return false;
+		}
+		OutError.Reset();
+		return true;
+	}
+
+	bool FV17AuthoritativeMacroSession::DistributeEventStateToTargets(
+		FV17AuthoritativeBatchEvent& Event,
+		const FV17AuthoritativeJointKey& BaseKey,
+		FV17AuthoritativeCellID& OutPrimaryCellID,
+		FString& OutError)
+	{
+		OutPrimaryCellID = 0;
+		const int64 Cash = FMath::RoundToInt64(Ledger.GetBalance(
+			ESimulationResource::Coin, EventAccount(Event.BatchEventID, TEXT("Cash"))));
+		const int64 Credit = FMath::RoundToInt64(Ledger.GetBalance(
+			ESimulationResource::Coin, EventAccount(Event.BatchEventID, TEXT("RepairCredit"))));
+		const int64 Wood = FMath::RoundToInt64(Ledger.GetBalance(
+			ESimulationResource::Wood, EventAccount(Event.BatchEventID, TEXT("Wood"))));
+		BuildNormalizedTargetFlows(
+			BaseKey, Event.ParticipantCount, Cash, Credit, Wood, Event.TargetFlows);
+		const FSimulationEventRecord* Stored = EventStore.Find(Event.BatchEventID);
+		const FArriveID ArriveID = Stored != nullptr ? Stored->Event.ArriveID : 0;
+		int32 PrimaryCount = -1;
+		for (int32 Index = 0; Index < Event.TargetFlows.Num(); ++Index)
+		{
+			FV17AuthoritativeBatchEvent::FTargetFlow& Flow = Event.TargetFlows[Index];
+			Flow.TargetCellID = FindOrCreateCellByKey(Flow.TargetKey);
+			Cells.FindChecked(Flow.TargetCellID).Count += Flow.ParticipantCount;
+			const FString Prefix = FString::Printf(TEXT("V17-EVENT-%lld-TARGET-F%d"), Event.BatchEventID, Index);
+			if (!Transfer(
+					Event.EndTime, ESimulationResource::Coin,
+					EventAccount(Event.BatchEventID, TEXT("Cash")), CellAccount(Flow.TargetCellID, TEXT("Cash")),
+					Flow.CashTotal, false, Prefix + TEXT("-CASH"),
+					Event.BatchEventID, ArriveID, Event.CausalPolicyID, OutError)
+				|| !Transfer(
+					Event.EndTime, ESimulationResource::Coin,
+					EventAccount(Event.BatchEventID, TEXT("RepairCredit")), CellAccount(Flow.TargetCellID, TEXT("RepairCredit")),
+					Flow.RepairCreditTotal, false, Prefix + TEXT("-CREDIT"),
+					Event.BatchEventID, ArriveID, Event.CausalPolicyID, OutError)
+				|| !Transfer(
+					Event.EndTime, ESimulationResource::Wood,
+					EventAccount(Event.BatchEventID, TEXT("Wood")), CellAccount(Flow.TargetCellID, TEXT("Wood")),
+					Flow.WoodTotal, false, Prefix + TEXT("-WOOD"),
+					Event.BatchEventID, ArriveID, Event.CausalPolicyID, OutError))
+			{
+				return false;
+			}
+			if (Flow.ParticipantCount > PrimaryCount
+				|| (Flow.ParticipantCount == PrimaryCount && Flow.TargetCellID < OutPrimaryCellID))
+			{
+				PrimaryCount = Flow.ParticipantCount;
+				OutPrimaryCellID = Flow.TargetCellID;
+			}
+		}
+		return OutPrimaryCellID != 0;
 	}
 
 	bool FV17AuthoritativeMacroSession::TransferEventStateToDestination(
@@ -1204,8 +1769,23 @@ namespace AILOD
 		}
 		else
 		{
-			TargetCellID = FindOrCreateTargetCell(SourceKey, FinalState);
-			Cells.FindChecked(TargetCellID).Count += Event.ParticipantCount;
+			if (bExactAggregateResourceSplits)
+			{
+				FV17AuthoritativeJointKey BaseKey = SourceKey;
+				BaseKey.HomeState = FinalState.HomeState;
+				BaseKey.Intent = EMacroIntent::Routine;
+				BaseKey.bAidEligible = SourceKey.bAidEligible
+					&& FinalState.HomeState == EHomeState::DamagedWaiting;
+				if (!DistributeEventStateToTargets(Event, BaseKey, TargetCellID, OutError))
+				{
+					return false;
+				}
+			}
+			else
+			{
+				TargetCellID = FindOrCreateTargetCell(SourceKey, FinalState);
+				Cells.FindChecked(TargetCellID).Count += Event.ParticipantCount;
+			}
 			if (bDynamicLODEnabled)
 			{
 				TArray<FResidentID> CompletedResidents;
@@ -1231,7 +1811,8 @@ namespace AILOD
 				}
 			}
 		}
-		if (!TransferEventStateToDestination(Event, TargetCellID, OutError)
+		if (((Event.ActiveResidentID > 0 || !bExactAggregateResourceSplits)
+				&& !TransferEventStateToDestination(Event, TargetCellID, OutError))
 			|| !EventStore.CompleteEvent(Event.BatchEventID, OutError))
 		{
 			return false;
@@ -1239,6 +1820,56 @@ namespace AILOD
 		Event.TargetCellID = TargetCellID;
 		Event.RemainingWorkMinutes = 0;
 		Event.Status = ESimulationEventState::Completed;
+		return true;
+	}
+
+	bool FV17AuthoritativeMacroSession::CompleteSystemImport(
+		FV17SystemImportEvent& Event,
+		const FScheduledEvent& Due,
+		FString& OutError)
+	{
+		const FSimulationEventRecord* Stored = EventStore.Find(Event.EventID);
+		const FReservationRecord* Reservation = Reservations.Find(Event.ReservationID);
+		if (Stored == nullptr
+			|| Stored->State != ESimulationEventState::Pending
+			|| Stored->Event.ArriveID != Due.ArriveID
+			|| !(Stored->Event.EndTime == Due.ExecuteAt)
+			|| Event.Status != ESimulationEventState::Pending
+			|| Reservation == nullptr
+			|| Reservation->State != EReservationState::Active
+			|| Ledger.GetBalance(
+				ESimulationResource::Wood,
+				KingdomAccount(Event.Kingdom, TEXT("WoodInTransit"))) + UE_DOUBLE_SMALL_NUMBER < Event.WoodQuantity)
+		{
+			OutError = TEXT("A due state import no longer matches its event, payment reservation or in-transit Wood.");
+			return false;
+		}
+
+		if (!TransferQuantity(
+			Due.ExecuteAt,
+			ESimulationResource::Wood,
+			KingdomAccount(Event.Kingdom, TEXT("WoodInTransit")),
+			KingdomAccount(Event.Kingdom, TEXT("MarketWoodAvailable")),
+			Event.WoodQuantity,
+			false,
+			FString::Printf(TEXT("V17-IMPORT-%lld-ARRIVE"), Event.EventID),
+			Event.EventID,
+			Due.ArriveID,
+			Stored->Event.PolicyID,
+			OutError)
+			|| !Reservations.CommitReservation(
+				Event.ReservationID,
+				ExternalBoundaryAccount,
+				FString::Printf(TEXT("V17-IMPORT-%lld-PAY"), Event.EventID),
+				Due.ExecuteAt,
+				Ledger,
+				OutError)
+			|| !EventStore.CompleteEvent(Event.EventID, OutError))
+		{
+			return false;
+		}
+		Event.Status = ESimulationEventState::Completed;
+		OutError.Reset();
 		return true;
 	}
 
@@ -1260,10 +1891,27 @@ namespace AILOD
 		bool bInjectedResourceWriteSeen = false;
 		for (const FScheduledEvent& Due : DueEvents)
 		{
-			FV17AuthoritativeBatchEvent* Event = BatchEvents.Find(Due.EventID);
 			bool bWroteResource = false;
-			if (Event == nullptr || !CompleteEvent(*Event, Due, bWroteResource, OutError))
+			if (FV17AuthoritativeBatchEvent* Event = BatchEvents.Find(Due.EventID))
 			{
+				if (!CompleteEvent(*Event, Due, bWroteResource, OutError))
+				{
+					Restore();
+					return false;
+				}
+			}
+			else if (FV17SystemImportEvent* Import = SystemImportEvents.Find(Due.EventID))
+			{
+				if (!CompleteSystemImport(*Import, Due, OutError))
+				{
+					Restore();
+					return false;
+				}
+				bWroteResource = true;
+			}
+			else
+			{
+				OutError = TEXT("A due scheduled event is not owned by a v1.7 Batch or system import.");
 				Restore();
 				return false;
 			}
@@ -1388,6 +2036,14 @@ namespace AILOD
 		return FMath::RoundToInt64(Ledger.GetBalance(Resource, KingdomAccount(Kingdom, Stock)));
 	}
 
+	double FV17AuthoritativeMacroSession::GetKingdomBalanceExact(
+		const EKingdom Kingdom,
+		const ESimulationResource Resource,
+		const TCHAR* Stock) const
+	{
+		return Ledger.GetBalance(Resource, KingdomAccount(Kingdom, Stock));
+	}
+
 	FV17AuthoritativeAudit FV17AuthoritativeMacroSession::BuildAudit() const
 	{
 		FV17AuthoritativeAudit Audit;
@@ -1396,6 +2052,25 @@ namespace AILOD
 		{
 			AccountedPopulation += Pair.Value.Count;
 			Audit.NegativeJointCellCount += Pair.Value.Count < 0 ? 1 : 0;
+			if (Pair.Value.Count > 0)
+			{
+				const int64 Count = Pair.Value.Count;
+				const int64 Power = GetCellCash(Pair.Key) + GetCellRepairCredit(Pair.Key);
+				const int64 Wood = GetCellWood(Pair.Key);
+				const int64 PowerMinimum = Pair.Value.Key.PurchasingPowerBand == 0
+					? 0 : Pair.Value.Key.PurchasingPowerBand == 1 ? 4 : 8;
+				const int64 PowerMaximum = Pair.Value.Key.PurchasingPowerBand == 0
+					? 3 : Pair.Value.Key.PurchasingPowerBand == 1 ? 7 : TNumericLimits<int64>::Max();
+				const int64 WoodMinimum = Pair.Value.Key.WoodBand == 0
+					? 0 : Pair.Value.Key.WoodBand == 1 ? 1 : 4;
+				const int64 WoodMaximum = Pair.Value.Key.WoodBand == 0
+					? 0 : Pair.Value.Key.WoodBand == 1 ? 3 : TNumericLimits<int64>::Max();
+				const bool bPowerMismatch = Power < PowerMinimum * Count
+					|| (PowerMaximum != TNumericLimits<int64>::Max() && Power > PowerMaximum * Count);
+				const bool bWoodMismatch = Wood < WoodMinimum * Count
+					|| (WoodMaximum != TNumericLimits<int64>::Max() && Wood > WoodMaximum * Count);
+				Audit.JointCellResourceBandMismatchCount += bPowerMismatch || bWoodMismatch ? 1 : 0;
+			}
 		}
 		for (const TPair<FEventID, FV17AuthoritativeBatchEvent>& Pair : BatchEvents)
 		{
@@ -1419,7 +2094,7 @@ namespace AILOD
 			}
 		}
 
-		int32 PendingBatchEventCount = 0;
+		int32 PendingOwnedEventCount = 0;
 		TSet<FEventID> ScheduledEventIDs;
 		for (const FScheduledEvent& Pending : Scheduler.GetPendingEvents())
 		{
@@ -1429,7 +2104,7 @@ namespace AILOD
 		{
 			const FV17AuthoritativeBatchEvent& Event = Pair.Value;
 			const FSimulationEventRecord* Stored = EventStore.Find(Event.BatchEventID);
-			if (Event.Status == ESimulationEventState::Pending) ++PendingBatchEventCount;
+			if (Event.Status == ESimulationEventState::Pending) ++PendingOwnedEventCount;
 			if (Stored == nullptr
 				|| Stored->State != Event.Status
 				|| Stored->Event.ParticipantCount != Event.ParticipantCount
@@ -1447,8 +2122,36 @@ namespace AILOD
 					: EReservationState::Committed;
 				Audit.ReservationResidualCount += Reservation != nullptr && Reservation->State == Expected ? 0 : 1;
 			}
+			if (Event.Status == ESimulationEventState::Completed && !Event.TargetFlows.IsEmpty())
+			{
+				int32 TargetParticipants = 0;
+				for (const FV17AuthoritativeBatchEvent::FTargetFlow& Flow : Event.TargetFlows)
+				{
+					TargetParticipants += Flow.ParticipantCount;
+				}
+				Audit.BatchSplitMergeResidualCount += TargetParticipants == Event.ParticipantCount ? 0 : 1;
+			}
 		}
-		Audit.PendingEventResidualCount += PendingBatchEventCount == Scheduler.NumPending() ? 0 : 1;
+		for (const TPair<FEventID, FV17SystemImportEvent>& Pair : SystemImportEvents)
+		{
+			const FV17SystemImportEvent& Import = Pair.Value;
+			const FSimulationEventRecord* Stored = EventStore.Find(Import.EventID);
+			const FReservationRecord* Reservation = Reservations.Find(Import.ReservationID);
+			if (Import.Status == ESimulationEventState::Pending) ++PendingOwnedEventCount;
+			if (Stored == nullptr
+				|| Stored->State != Import.Status
+				|| Stored->Event.ReservationID != Import.ReservationID
+				|| Stored->Event.Type != TEXT("StateImport")
+				|| ScheduledEventIDs.Contains(Import.EventID) != (Import.Status == ESimulationEventState::Pending))
+			{
+				++Audit.PendingEventResidualCount;
+			}
+			const EReservationState Expected = Import.Status == ESimulationEventState::Pending
+				? EReservationState::Active
+				: EReservationState::Committed;
+			Audit.ReservationResidualCount += Reservation != nullptr && Reservation->State == Expected ? 0 : 1;
+		}
+		Audit.PendingEventResidualCount += PendingOwnedEventCount == Scheduler.NumPending() ? 0 : 1;
 		Audit.BatchCapacityOverflowCount = BatchCapacityOverflowCount;
 		for (const TPair<EKingdom, int64>& Pair : HarvestRemaining)
 		{
@@ -1635,6 +2338,10 @@ namespace AILOD
 			Scheduler.GetNextArriveID(),
 			bClaimsCommittedAtCurrentTime ? 1 : 0,
 			CapacityDay);
+		if (bExactAggregateResourceSplits)
+		{
+			Canonical += TEXT("ExactAggregateResourceSplits=1|");
+		}
 
 		TArray<FV17AuthoritativeCellID> CellIDs;
 		Cells.GetKeys(CellIDs);
@@ -1736,6 +2443,41 @@ namespace AILOD
 				Event.FrozenState.RepairCredit,
 				Event.FrozenState.Wood,
 				static_cast<int32>(Event.FrozenState.HomeState));
+			for (const FV17AuthoritativeBatchEvent::FTargetFlow& Flow : Event.TargetFlows)
+			{
+				Canonical += FString::Printf(
+					TEXT("EF=%lld,%llu,%d,%d,%d,%d,%d,%d,%d,%d,%lld,%lld,%lld|"),
+					EventID,
+					Flow.TargetCellID,
+					Flow.ParticipantCount,
+					static_cast<int32>(Flow.TargetKey.HomeState),
+					static_cast<int32>(Flow.TargetKey.Intent),
+					Flow.TargetKey.PurchasingPowerBand,
+					Flow.TargetKey.WoodBand,
+					Flow.TargetKey.bAidEligible ? 1 : 0,
+					static_cast<int32>(Flow.TargetKey.Profession),
+					static_cast<int32>(Flow.TargetKey.IncomeBand),
+					Flow.CashTotal,
+					Flow.RepairCreditTotal,
+					Flow.WoodTotal);
+			}
+		}
+		TArray<FEventID> ImportEventIDs;
+		SystemImportEvents.GetKeys(ImportEventIDs);
+		ImportEventIDs.Sort();
+		for (const FEventID EventID : ImportEventIDs)
+		{
+			const FV17SystemImportEvent& Import = SystemImportEvents.FindChecked(EventID);
+			Canonical += FString::Printf(
+				TEXT("IE=%lld,%lld,%d,%.9f,%lld,%lld,%lld,%d|"),
+				Import.EventID,
+				Import.ReservationID,
+				static_cast<int32>(Import.Kingdom),
+				Import.WoodQuantity,
+				Import.CoinCost,
+				Import.StartTime.Minutes,
+				Import.EndTime.Minutes,
+				static_cast<int32>(Import.Status));
 		}
 
 		TArray<FEventID> StoredEventIDs;
@@ -1771,28 +2513,58 @@ namespace AILOD
 		});
 		for (const FResourceAccountKey& Key : BalanceKeys)
 		{
-			Canonical += FString::Printf(
-				TEXT("L=%d,%s,%lld|"),
-				static_cast<int32>(Key.Resource),
-				*Key.Account,
-				FMath::RoundToInt64(Ledger.GetBalances().FindChecked(Key)));
+			if (bFractionalResourcesEnabled)
+			{
+				Canonical += FString::Printf(
+					TEXT("L=%d,%s,%.9f|"),
+					static_cast<int32>(Key.Resource),
+					*Key.Account,
+					Ledger.GetBalances().FindChecked(Key));
+			}
+			else
+			{
+				Canonical += FString::Printf(
+					TEXT("L=%d,%s,%lld|"),
+					static_cast<int32>(Key.Resource),
+					*Key.Account,
+					FMath::RoundToInt64(Ledger.GetBalances().FindChecked(Key)));
+			}
 		}
 		for (const FLedgerTransaction& Transaction : Ledger.GetTransactions())
 		{
 			const FLedgerTransferRequest& TransferRequest = Transaction.Transfer;
-			Canonical += FString::Printf(
-				TEXT("T=%lld,%s,%lld,%d,%s,%s,%lld,%d,%lld,%lld,%lld|"),
-				Transaction.TransactionID,
-				*TransferRequest.IdempotencyKey,
-				TransferRequest.GameTime.Minutes,
-				static_cast<int32>(TransferRequest.Resource),
-				*TransferRequest.Source,
-				*TransferRequest.Destination,
-				FMath::RoundToInt64(TransferRequest.Quantity),
-				TransferRequest.bBoundaryFlow ? 1 : 0,
-				TransferRequest.EventID,
-				TransferRequest.ArriveID,
-				TransferRequest.PolicyID);
+			if (bFractionalResourcesEnabled)
+			{
+				Canonical += FString::Printf(
+					TEXT("T=%lld,%s,%lld,%d,%s,%s,%.9f,%d,%lld,%lld,%lld|"),
+					Transaction.TransactionID,
+					*TransferRequest.IdempotencyKey,
+					TransferRequest.GameTime.Minutes,
+					static_cast<int32>(TransferRequest.Resource),
+					*TransferRequest.Source,
+					*TransferRequest.Destination,
+					TransferRequest.Quantity,
+					TransferRequest.bBoundaryFlow ? 1 : 0,
+					TransferRequest.EventID,
+					TransferRequest.ArriveID,
+					TransferRequest.PolicyID);
+			}
+			else
+			{
+				Canonical += FString::Printf(
+					TEXT("T=%lld,%s,%lld,%d,%s,%s,%lld,%d,%lld,%lld,%lld|"),
+					Transaction.TransactionID,
+					*TransferRequest.IdempotencyKey,
+					TransferRequest.GameTime.Minutes,
+					static_cast<int32>(TransferRequest.Resource),
+					*TransferRequest.Source,
+					*TransferRequest.Destination,
+					FMath::RoundToInt64(TransferRequest.Quantity),
+					TransferRequest.bBoundaryFlow ? 1 : 0,
+					TransferRequest.EventID,
+					TransferRequest.ArriveID,
+					TransferRequest.PolicyID);
+			}
 		}
 
 		TArray<FReservationID> ReservationIDs;
@@ -1801,19 +2573,38 @@ namespace AILOD
 		for (const FReservationID ReservationID : ReservationIDs)
 		{
 			const FReservationRecord& Reservation = Reservations.GetReservations().FindChecked(ReservationID);
-			Canonical += FString::Printf(
-				TEXT("R=%lld,%s,%lld,%d,%s,%s,%lld,%lld,%lld,%lld,%d|"),
-				ReservationID,
-				*Reservation.Request.IdempotencyKey,
-				Reservation.Request.GameTime.Minutes,
-				static_cast<int32>(Reservation.Request.Resource),
-				*Reservation.Request.SourceAccount,
-				*Reservation.Request.ReservedAccount,
-				FMath::RoundToInt64(Reservation.Request.Quantity),
-				Reservation.Request.EventID,
-				Reservation.Request.ArriveID,
-				Reservation.Request.PolicyID,
-				static_cast<int32>(Reservation.State));
+			if (bFractionalResourcesEnabled)
+			{
+				Canonical += FString::Printf(
+					TEXT("R=%lld,%s,%lld,%d,%s,%s,%.9f,%lld,%lld,%lld,%d|"),
+					ReservationID,
+					*Reservation.Request.IdempotencyKey,
+					Reservation.Request.GameTime.Minutes,
+					static_cast<int32>(Reservation.Request.Resource),
+					*Reservation.Request.SourceAccount,
+					*Reservation.Request.ReservedAccount,
+					Reservation.Request.Quantity,
+					Reservation.Request.EventID,
+					Reservation.Request.ArriveID,
+					Reservation.Request.PolicyID,
+					static_cast<int32>(Reservation.State));
+			}
+			else
+			{
+				Canonical += FString::Printf(
+					TEXT("R=%lld,%s,%lld,%d,%s,%s,%lld,%lld,%lld,%lld,%d|"),
+					ReservationID,
+					*Reservation.Request.IdempotencyKey,
+					Reservation.Request.GameTime.Minutes,
+					static_cast<int32>(Reservation.Request.Resource),
+					*Reservation.Request.SourceAccount,
+					*Reservation.Request.ReservedAccount,
+					FMath::RoundToInt64(Reservation.Request.Quantity),
+					Reservation.Request.EventID,
+					Reservation.Request.ArriveID,
+					Reservation.Request.PolicyID,
+					static_cast<int32>(Reservation.State));
+			}
 		}
 
 		TArray<FScheduledEvent> PendingEvents = Scheduler.GetPendingEvents();
@@ -1868,6 +2659,11 @@ namespace AILOD
 			Audit.ActiveCapViolationCount,
 			Audit.DuplicateTransactionCount,
 			Audit.DuplicateCompletionCount);
+		if (bExactAggregateResourceSplits)
+		{
+			Canonical += FString::Printf(
+				TEXT("XB=%d|"), Audit.JointCellResourceBandMismatchCount);
+		}
 		if (bDynamicLODEnabled)
 		{
 			Canonical += TEXT("DynamicLOD=1|");
