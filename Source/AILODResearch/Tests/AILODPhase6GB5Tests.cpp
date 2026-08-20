@@ -214,4 +214,206 @@ bool FAILODPhase6GB5BAccuracyAndPolicyTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAILODPhase6GB5CScaleRegressionTest,
+	"AILODResearch.Phase6G.V17ScaleRegression",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAILODPhase6GB5CScaleRegressionTest::RunTest(const FString& Parameters)
+{
+	using namespace AILOD;
+	using namespace AILOD::LogSchema;
+
+	const FString TestRoot = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AILOD/Phase6GB5CCheckpoint"));
+	IFileManager::Get().DeleteDirectory(*TestRoot, false, true);
+	for (const int32 TotalPopulation : { 2000, 10000, 20000 })
+	{
+		const FString ScaleRoot = FPaths::Combine(TestRoot, FString::Printf(TEXT("Population-%d"), TotalPopulation));
+		FExperimentMatrixRequest Request;
+		Request.OutputRoot = ScaleRoot;
+		Request.ExperimentID = FString::Printf(TEXT("PHASE6GB5C-ENGINEERING-%d"), TotalPopulation);
+		Request.Methods = { EUnifiedSimulationMethod::Proposed, EUnifiedSimulationMethod::PerAgent };
+		Request.Scenarios = { EStage2Scenario::StateImport };
+		Request.Seeds = { 20260810 };
+		Request.PopulationPerKingdom = TotalPopulation / 2;
+		Request.Mode = EUnifiedRunMode::Performance;
+		Request.ProposedModelVersion = EProposedModelVersion::V17Authoritative;
+		Request.GitCommit = TEXT("phase-6g-b5c-local");
+		Request.UEVersion = TEXT("5.4");
+		Request.BuildType = TEXT("Development Editor");
+		Request.Hardware = TEXT("automation-test-host");
+		Request.LogMode = TEXT("B5CEngineeringPerformance");
+		Request.StartTime = TEXT("2026-08-20T00:00:00Z");
+		Request.EndTime = TEXT("2026-08-20T00:03:00Z");
+
+		TArray<FExperimentRunRecord> Runs;
+		FString Error;
+		if (!FExperimentRunner::RunMatrix(Request, Runs, Error))
+		{
+			AddError(FString::Printf(TEXT("The B5C %d-person scale run failed: %s"), TotalPopulation, *Error));
+			return false;
+		}
+		TestEqual(*FString::Printf(TEXT("B5C %d runs Proposed and PerAgent"), TotalPopulation), Runs.Num(), 2);
+		const FExperimentRunRecord* Proposed = Runs.FindByPredicate([](const FExperimentRunRecord& Run)
+		{
+			return Run.RunID.StartsWith(TEXT("Proposed-"));
+		});
+		const FExperimentRunRecord* PerAgent = Runs.FindByPredicate([](const FExperimentRunRecord& Run)
+		{
+			return Run.RunID.StartsWith(TEXT("PerAgent-"));
+		});
+		if (Proposed == nullptr || PerAgent == nullptr)
+		{
+			AddError(FString::Printf(TEXT("B5C %d-person output is missing Proposed or PerAgent."), TotalPopulation));
+			return false;
+		}
+		const FString ExpectedDigest = TotalPopulation == 2000
+			? TEXT("38995B7B27CB95192929E14F86FBE63977771520")
+			: TotalPopulation == 10000
+				? TEXT("00B082902227FA9EE37E9BE9BFA0605E09A7A1DD")
+				: TEXT("7F317FB86A55F96AB8632A558515A56C41925E8B");
+		TestEqual(*FString::Printf(TEXT("B5C %d freezes the v1.7 deterministic Digest"), TotalPopulation),
+			Proposed->DeterministicDigest, ExpectedDigest);
+
+		for (const FExperimentRunRecord* Run : { Proposed, PerAgent })
+		{
+			TestTrue(*FString::Printf(TEXT("%s has no hard error"), *Run->RunID), Run->bHardErrorFree);
+			TestEqual(*FString::Printf(TEXT("%s uses Performance mode"), *Run->RunID),
+				static_cast<int32>(Run->Mode), static_cast<int32>(EUnifiedRunMode::Performance));
+			TestTrue(*FString::Printf(TEXT("%s records production cost"), *Run->RunID),
+				Run->CostBreakdown.ProductionCpuMs > 0.0);
+			TestTrue(*FString::Printf(TEXT("%s writes performance samples"), *Run->RunID),
+				Run->PerformanceSampleCount > 0);
+			TestEqual(*FString::Printf(TEXT("%s excludes validation cost"), *Run->RunID),
+				Run->CostBreakdown.ValidationCpuMs, 0.0);
+			TestEqual(*FString::Printf(TEXT("%s excludes snapshot cost"), *Run->RunID),
+				Run->CostBreakdown.SnapshotCpuMs, 0.0);
+			TestEqual(*FString::Printf(TEXT("%s excludes observer cost"), *Run->RunID),
+				Run->CostBreakdown.ObserverCpuMs, 0.0);
+		}
+
+		TestEqual(*FString::Printf(TEXT("B5C %d initializes every stable identity"), TotalPopulation),
+			Proposed->Diagnostics.V17IdentityCount, static_cast<int64>(TotalPopulation));
+		TestEqual(*FString::Printf(TEXT("B5C %d never scans all identities during an hour"), TotalPopulation),
+			Proposed->Diagnostics.V17IdentityScanCountPerHour, int64(0));
+		TestTrue(*FString::Printf(TEXT("B5C %d keeps Active residents within 50"), TotalPopulation),
+			Proposed->Diagnostics.MaxActiveMicro <= 50);
+		TestEqual(*FString::Printf(TEXT("B5C %d performs only initial and final full audits"), TotalPopulation),
+			Proposed->Diagnostics.FullAuditCount, int64(2));
+
+		const FString ManifestPath = FPaths::Combine(Proposed->RunDirectory, RunManifestFile);
+		FString ManifestText;
+		TSharedPtr<FJsonObject> Manifest;
+		if (!FFileHelper::LoadFileToString(ManifestText, *ManifestPath)
+			|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(ManifestText), Manifest)
+			|| !Manifest.IsValid())
+		{
+			AddError(FString::Printf(TEXT("B5C %d could not read the Proposed manifest."), TotalPopulation));
+			return false;
+		}
+		TestEqual(*FString::Printf(TEXT("B5C %d writes Schema 1.2"), TotalPopulation),
+			Manifest->GetStringField(TEXT("schema_version")), FString(TEXT("1.2")));
+		TestEqual(*FString::Printf(TEXT("B5C %d writes Spec 1.7"), TotalPopulation),
+			Manifest->GetStringField(TEXT("spec_version")), FString(TEXT("1.7")));
+		TestEqual(*FString::Printf(TEXT("B5C %d records the v1.7 authority"), TotalPopulation),
+			Manifest->GetStringField(TEXT("authority_mode")), FString(TEXT("v1.7_authoritative")));
+		TestFalse(*FString::Printf(TEXT("B5C %d keeps formal validity closed"), TotalPopulation),
+			Manifest->GetBoolField(TEXT("valid_for_formal_experiment")));
+		const TSharedPtr<FJsonObject>* HardErrors = nullptr;
+		const TSharedPtr<FJsonObject>* Measurements = nullptr;
+		const TSharedPtr<FJsonObject>* V17Diagnostics = nullptr;
+		if (!Manifest->TryGetObjectField(TEXT("hard_errors"), HardErrors) || HardErrors == nullptr)
+		{
+			AddError(FString::Printf(TEXT("B5C %d manifest is missing hard-error results."), TotalPopulation));
+			return false;
+		}
+		for (const TPair<FString, TSharedPtr<FJsonValue>>& Field : (*HardErrors)->Values)
+		{
+			TestEqual(*FString::Printf(TEXT("B5C %d hard error %s is zero"), TotalPopulation, *Field.Key),
+				Field.Value->AsNumber(), 0.0);
+		}
+		if (!Manifest->TryGetObjectField(TEXT("measurement_summary"), Measurements) || Measurements == nullptr
+			|| !(*Measurements)->TryGetObjectField(TEXT("v1_7_diagnostics"), V17Diagnostics) || V17Diagnostics == nullptr)
+		{
+			AddError(FString::Printf(TEXT("B5C %d manifest is missing v1.7 diagnostics."), TotalPopulation));
+			return false;
+		}
+		TestEqual(*FString::Printf(TEXT("B5C %d manifest records two full audits"), TotalPopulation),
+			(*V17Diagnostics)->GetNumberField(TEXT("full_audit_count")), 2.0);
+
+		TArray<FString> ActualFiles;
+		IFileManager::Get().FindFiles(ActualFiles, *FPaths::Combine(Proposed->RunDirectory, TEXT("*")), true, false);
+		ActualFiles.Sort();
+		TArray<FString> ExpectedFiles = { PerformanceFile, RunManifestFile };
+		ExpectedFiles.Sort();
+		TestEqual(*FString::Printf(TEXT("B5C %d performance run writes only isolated artifacts"), TotalPopulation),
+			FString::Join(ActualFiles, TEXT("|")), FString::Join(ExpectedFiles, TEXT("|")));
+		FString PerformanceText;
+		TestTrue(*FString::Printf(TEXT("B5C %d performance samples load"), TotalPopulation),
+			FFileHelper::LoadFileToString(PerformanceText, *FPaths::Combine(Proposed->RunDirectory, PerformanceFile)));
+		TestTrue(*FString::Printf(TEXT("B5C %d performance rows use Schema 1.2"), TotalPopulation),
+			PerformanceText.Contains(TEXT("\n\"1.2\",")));
+
+		const FString SummaryPath = FPaths::Combine(ScaleRoot, MetricsSummaryFile);
+		if (!FOfflineMetricsEvaluator::BuildSummary(ScaleRoot, SummaryPath, Error))
+		{
+			AddError(FString::Printf(TEXT("B5C %d offline performance rebuild failed: %s"), TotalPopulation, *Error));
+			return false;
+		}
+		FString FirstSummary;
+		TestTrue(*FString::Printf(TEXT("B5C %d performance summary loads"), TotalPopulation),
+			FFileHelper::LoadFileToString(FirstSummary, *SummaryPath));
+		TestTrue(*FString::Printf(TEXT("B5C %d summary reports production samples"), TotalPopulation),
+			FirstSummary.Contains(TEXT("Performance.AICpuMs.P95")));
+		TestTrue(*FString::Printf(TEXT("B5C %d summary reports full-run production cost"), TotalPopulation),
+			FirstSummary.Contains(TEXT("Performance.AICpuMs.Total")));
+		TestTrue(*FString::Printf(TEXT("B5C %d summary reports the full-run PerAgent comparison"), TotalPopulation),
+			FirstSummary.Contains(TEXT("Performance.SpeedupVsPerAgent.TotalAI")));
+		TestTrue(*FString::Printf(TEXT("B5C %d summary can be deleted"), TotalPopulation),
+			IFileManager::Get().Delete(*SummaryPath));
+		TestTrue(*FString::Printf(TEXT("B5C %d summary rebuilds from raw files"), TotalPopulation),
+			FOfflineMetricsEvaluator::BuildSummary(ScaleRoot, SummaryPath, Error));
+		FString RebuiltSummary;
+		TestTrue(*FString::Printf(TEXT("B5C %d rebuilt summary loads"), TotalPopulation),
+			FFileHelper::LoadFileToString(RebuiltSummary, *SummaryPath));
+		TestEqual(*FString::Printf(TEXT("B5C %d summary rebuild is byte-identical"), TotalPopulation),
+			RebuiltSummary, FirstSummary);
+
+		FExperimentRunRecord Replay;
+		const FString ReplayRoot = FPaths::Combine(ScaleRoot, TEXT("Replay"));
+		if (!FExperimentRunner::ReplayFromManifest(ManifestPath, ReplayRoot, Replay, Error))
+		{
+			AddError(FString::Printf(TEXT("B5C %d Proposed replay failed: %s"), TotalPopulation, *Error));
+			return false;
+		}
+		TestEqual(*FString::Printf(TEXT("B5C %d replay preserves the deterministic Digest"), TotalPopulation),
+			Replay.DeterministicDigest, Proposed->DeterministicDigest);
+		TestTrue(*FString::Printf(TEXT("B5C %d replay remains hard-error free"), TotalPopulation),
+			Replay.bHardErrorFree);
+		TestEqual(*FString::Printf(TEXT("B5C %d replay preserves resident touches"), TotalPopulation),
+			Replay.Diagnostics.V17ResidentTouches, Proposed->Diagnostics.V17ResidentTouches);
+		TestEqual(*FString::Printf(TEXT("B5C %d replay preserves batch event count"), TotalPopulation),
+			Replay.Diagnostics.V17BatchEventCount, Proposed->Diagnostics.V17BatchEventCount);
+
+		const double MeanProductionSpeedup = Proposed->CostBreakdown.ProductionCpuMs > 0.0
+			? PerAgent->CostBreakdown.ProductionCpuMs / Proposed->CostBreakdown.ProductionCpuMs
+			: 0.0;
+		AddInfo(FString::Printf(
+			TEXT("B5C population=%d digest=%s proposed_ms=%.3f per_agent_ms=%.3f engineering_speedup=%.3f identity_scans_per_hour=%lld resident_touches=%lld cells=%d claims=%lld events=%lld participants=%lld active=%d"),
+			TotalPopulation,
+			*Proposed->DeterministicDigest,
+			Proposed->CostBreakdown.ProductionCpuMs,
+			PerAgent->CostBreakdown.ProductionCpuMs,
+			MeanProductionSpeedup,
+			Proposed->Diagnostics.V17IdentityScanCountPerHour,
+			Proposed->Diagnostics.V17ResidentTouches,
+			Proposed->Diagnostics.V17NonEmptyJointCellCount,
+			Proposed->Diagnostics.V17BatchClaimCount,
+			Proposed->Diagnostics.V17BatchEventCount,
+			Proposed->Diagnostics.V17ParticipantCount,
+			Proposed->Diagnostics.MaxActiveMicro));
+	}
+	return true;
+}
+
 #endif

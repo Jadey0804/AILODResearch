@@ -123,6 +123,7 @@ namespace AILOD
 		Authority->EnableExactAggregateResourceSplits();
 		ImportBudgetRemaining = Config.PopulationPerKingdom;
 		const double AuditStart = FPlatformTime::Seconds();
+		++Diagnostics.FullAuditCount;
 		if (!Authority->BuildAudit().IsHardErrorFree())
 		{
 			OutError = TEXT("The initialized v1.7 authority failed its hard-error check.");
@@ -1115,6 +1116,7 @@ namespace AILOD
 		if (Options.Mode != EUnifiedRunMode::Performance)
 		{
 			const double AuditStart = FPlatformTime::Seconds();
+			++Diagnostics.FullAuditCount;
 			if (!Authority->BuildAudit().IsHardErrorFree())
 			{
 				OutError = TEXT("The v1.7 hourly hard-error check failed.");
@@ -1148,6 +1150,7 @@ namespace AILOD
 		}
 		const double FinalizeStart = FPlatformTime::Seconds();
 		const double AuditStart = FPlatformTime::Seconds();
+		++Diagnostics.FullAuditCount;
 		const FV17AuthoritativeAudit Audit = Authority->BuildAudit();
 		const double FinalAuditMs = (FPlatformTime::Seconds() - AuditStart) * 1000.0;
 		CostBreakdown.AuditCpuMs += FinalAuditMs;
@@ -1258,6 +1261,7 @@ namespace AILOD
 		OutDiagnostics.PlanningEvaluationCount = Diagnostics.PlanningEvaluationCount;
 		OutDiagnostics.CohortPlanningEvaluationCount = Diagnostics.CohortPlanningEvaluationCount;
 		OutDiagnostics.ActiveMicroPlanningEvaluationCount = Diagnostics.ActiveMicroPlanningEvaluationCount;
+		OutDiagnostics.FullAuditCount = Diagnostics.FullAuditCount;
 		OutDiagnostics.ActivationRequestCount = Diagnostics.ActivationRequestCount;
 		OutDiagnostics.Day14ActivationCount = Diagnostics.Day14ActivationCount;
 		OutDiagnostics.Day14DeactivationCount = Diagnostics.Day14DeactivationCount;

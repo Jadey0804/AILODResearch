@@ -409,6 +409,7 @@ namespace AILOD
 			Diagnostics->SetNumberField(TEXT("identity_count"), Result.Diagnostics.V17IdentityCount);
 			Diagnostics->SetNumberField(TEXT("identity_scan_count_per_hour"), Result.Diagnostics.V17IdentityScanCountPerHour);
 			Diagnostics->SetNumberField(TEXT("resident_touches"), Result.Diagnostics.V17ResidentTouches);
+			Diagnostics->SetNumberField(TEXT("full_audit_count"), Result.Diagnostics.FullAuditCount);
 			Diagnostics->SetNumberField(TEXT("non_empty_joint_cell_count"), Result.Diagnostics.V17NonEmptyJointCellCount);
 			Diagnostics->SetNumberField(TEXT("batch_claim_count"), Result.Diagnostics.V17BatchClaimCount);
 			Diagnostics->SetNumberField(TEXT("batch_event_count"), Result.Diagnostics.V17BatchEventCount);

@@ -462,9 +462,16 @@ namespace AILOD
 
 		double Mean(const TArray<double>& Values)
 		{
-			double Sum = 0.0;
-			for (const double Value : Values) Sum += Value;
-			return Values.IsEmpty() ? 0.0 : Sum / Values.Num();
+			double Total = 0.0;
+			for (const double Value : Values) Total += Value;
+			return Values.IsEmpty() ? 0.0 : Total / Values.Num();
+		}
+
+		double Sum(const TArray<double>& Values)
+		{
+			double Total = 0.0;
+			for (const double Value : Values) Total += Value;
+			return Total;
 		}
 
 		double Percentile(const TArray<double>& Values, const double Fraction)
@@ -491,6 +498,10 @@ namespace AILOD
 			AddPerformanceSeries(Run, TEXT("MacroCpuMs"), Run.MacroCpuSamples, TEXT("ms_per_wall_bucket"), OutRows);
 			AddPerformanceSeries(Run, TEXT("MicroCpuMs"), Run.MicroCpuSamples, TEXT("ms_per_wall_bucket"), OutRows);
 			AddPerformanceSeries(Run, TEXT("TransitionCpuMs"), Run.TransitionCpuSamples, TEXT("ms_per_wall_bucket"), OutRows);
+			OutRows.Add({ &Run, TEXT("Performance.AICpuMs.Total"), Sum(Run.AICpuSamples), TEXT("full_67_game_day_production_cpu_ms"), TEXT("") });
+			OutRows.Add({ &Run, TEXT("Performance.MacroCpuMs.Total"), Sum(Run.MacroCpuSamples), TEXT("full_67_game_day_macro_cpu_ms"), TEXT("") });
+			OutRows.Add({ &Run, TEXT("Performance.MicroCpuMs.Total"), Sum(Run.MicroCpuSamples), TEXT("full_67_game_day_micro_cpu_ms"), TEXT("") });
+			OutRows.Add({ &Run, TEXT("Performance.TransitionCpuMs.Total"), Sum(Run.TransitionCpuSamples), TEXT("full_67_game_day_transition_cpu_ms"), TEXT("") });
 			OutRows.Add({ &Run, TEXT("Performance.MemoryMB.Mean"), Mean(Run.MemorySamples), TEXT("process_used_physical_mb"), TEXT("") });
 			OutRows.Add({ &Run, TEXT("Performance.MemoryMB.Peak"), Percentile(Run.MemorySamples, 1.0), TEXT("process_used_physical_mb"), TEXT("") });
 			OutRows.Add({ &Run, TEXT("Performance.ActiveCount.Max"), Percentile(Run.ActiveCountSamples, 1.0), TEXT("count"), TEXT("") });
@@ -566,8 +577,10 @@ namespace AILOD
 				}
 				const double RunMean = Mean(Run.AICpuSamples);
 				const double RunP95 = Percentile(Run.AICpuSamples, 0.95);
+				const double RunTotal = Sum(Run.AICpuSamples);
 				Metrics.Add({ &Run, TEXT("Performance.SpeedupVsPerAgent.MeanAI"), RunMean > 0.0 ? Mean(PerAgent->AICpuSamples) / RunMean : 0.0, FString::Printf(TEXT("baseline=%s"), *PerAgent->RunID), TEXT("") });
 				Metrics.Add({ &Run, TEXT("Performance.SpeedupVsPerAgent.P95AI"), RunP95 > 0.0 ? Percentile(PerAgent->AICpuSamples, 0.95) / RunP95 : 0.0, FString::Printf(TEXT("baseline=%s"), *PerAgent->RunID), TEXT("") });
+				Metrics.Add({ &Run, TEXT("Performance.SpeedupVsPerAgent.TotalAI"), RunTotal > 0.0 ? Sum(PerAgent->AICpuSamples) / RunTotal : 0.0, FString::Printf(TEXT("baseline=%s;full_67_game_day_production_cpu_ms"), *PerAgent->RunID), TEXT("") });
 			}
 		}
 		else
