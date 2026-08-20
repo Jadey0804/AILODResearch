@@ -203,6 +203,14 @@ bool FAILODPhase6GB5BAccuracyAndPolicyTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("B5B reports policy-effect error"), Summary.Contains(TEXT("PolicyEffect.ForestWood")));
 	TestTrue(TEXT("B5B reports participant-weighted behavior TVD"), Summary.Contains(TEXT("Behavior.TVD")));
 	TestTrue(TEXT("B5B reports FirstAction continuity"), Summary.Contains(TEXT("Continuity.FirstActionMismatchRate")));
+	TestTrue(TEXT("B5B reports the average money difference"), Summary.Contains(TEXT("Continuity.MoneyMAE")));
+	TestTrue(TEXT("B5B reports the normalized money difference"), Summary.Contains(TEXT("Continuity.MoneyNormalizedMAE")));
+	TestTrue(TEXT("B5B reports the average repair-credit difference"), Summary.Contains(TEXT("Continuity.RepairCreditMAE")));
+	TestTrue(TEXT("B5B reports the average inventory-wood difference"), Summary.Contains(TEXT("Continuity.InventoryWoodMAE")));
+	TestTrue(TEXT("B5B reports whether both methods agree that a task is active"), Summary.Contains(TEXT("Continuity.TaskActiveStatusMismatchRate")));
+	TestTrue(TEXT("B5B reports comparable same-goal task time difference"), Summary.Contains(TEXT("Continuity.TaskRemainingHoursMAE")));
+	TestTrue(TEXT("B5B labels raw event identifiers as internal diagnostics"), Summary.Contains(TEXT("Continuity.Diagnostic.EventIDExactMismatchRate")));
+	TestFalse(TEXT("B5B no longer presents raw event identifiers as a primary continuity metric"), Summary.Contains(TEXT("Continuity.EventIDMismatchRate")));
 	TestFalse(TEXT("B5B metrics contain no NaN"), Summary.Contains(TEXT("nan"), ESearchCase::IgnoreCase));
 	TestFalse(TEXT("B5B metrics contain no infinity"), Summary.Contains(TEXT("inf"), ESearchCase::IgnoreCase));
 	AddInfo(FString::Printf(

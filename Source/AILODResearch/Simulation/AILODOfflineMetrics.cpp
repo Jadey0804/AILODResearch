@@ -435,6 +435,15 @@ namespace AILOD
 			const TCHAR* Names[] = { TEXT("PersistentID"), TEXT("HomeID"), TEXT("Kingdom"), TEXT("Profession"), TEXT("Money"), TEXT("RepairCredit"), TEXT("InventoryWood"), TEXT("HomeState"), TEXT("EventID"), TEXT("TaskProgress"), TEXT("ReservationID"), TEXT("CurrentGoal"), TEXT("FirstAction") };
 			int32 Compared = 0;
 			int32 Mismatches[UE_ARRAY_COUNT(Names)] = {};
+			double MoneyAbsoluteError = 0.0;
+			double MoneyNormalizedError = 0.0;
+			double RepairCreditAbsoluteError = 0.0;
+			double RepairCreditNormalizedError = 0.0;
+			double InventoryWoodAbsoluteError = 0.0;
+			double InventoryWoodNormalizedError = 0.0;
+			int32 TaskActiveStatusMismatches = 0;
+			int32 ComparableActiveTasks = 0;
+			double TaskRemainingHoursAbsoluteError = 0.0;
 			for (const TPair<FString, TArray<FString>>& Pair : Run.NPCSnapshots)
 			{
 				if (const TArray<FString>* OracleValues = Oracle.NPCSnapshots.Find(Pair.Key))
@@ -444,12 +453,57 @@ namespace AILOD
 					{
 						if (Pair.Value[Index] != (*OracleValues)[Index]) ++Mismatches[Index];
 					}
+					const double Money = FCString::Atod(*Pair.Value[4]);
+					const double OracleMoney = FCString::Atod(*(*OracleValues)[4]);
+					const double RepairCredit = FCString::Atod(*Pair.Value[5]);
+					const double OracleRepairCredit = FCString::Atod(*(*OracleValues)[5]);
+					const double InventoryWood = FCString::Atod(*Pair.Value[6]);
+					const double OracleInventoryWood = FCString::Atod(*(*OracleValues)[6]);
+					MoneyAbsoluteError += FMath::Abs(Money - OracleMoney);
+					MoneyNormalizedError += FMath::Abs(Money - OracleMoney) / FMath::Max(1.0, FMath::Abs(OracleMoney));
+					RepairCreditAbsoluteError += FMath::Abs(RepairCredit - OracleRepairCredit);
+					RepairCreditNormalizedError += FMath::Abs(RepairCredit - OracleRepairCredit) / FMath::Max(1.0, FMath::Abs(OracleRepairCredit));
+					InventoryWoodAbsoluteError += FMath::Abs(InventoryWood - OracleInventoryWood);
+					InventoryWoodNormalizedError += FMath::Abs(InventoryWood - OracleInventoryWood) / FMath::Max(1.0, FMath::Abs(OracleInventoryWood));
+
+					const double RemainingHours = FCString::Atod(*Pair.Value[9]);
+					const double OracleRemainingHours = FCString::Atod(*(*OracleValues)[9]);
+					const bool bTaskActive = RemainingHours > UE_DOUBLE_SMALL_NUMBER;
+					const bool bOracleTaskActive = OracleRemainingHours > UE_DOUBLE_SMALL_NUMBER;
+					if (bTaskActive != bOracleTaskActive) ++TaskActiveStatusMismatches;
+					if (bTaskActive && bOracleTaskActive && Pair.Value[11] == (*OracleValues)[11])
+					{
+						TaskRemainingHoursAbsoluteError += FMath::Abs(RemainingHours - OracleRemainingHours);
+						++ComparableActiveTasks;
+					}
 				}
 			}
 			for (int32 Index = 0; Index < UE_ARRAY_COUNT(Names); ++Index)
 			{
-				OutRows.Add({ &Run, FString::Printf(TEXT("Continuity.%sMismatchRate"), Names[Index]), Compared > 0 ? static_cast<double>(Mismatches[Index]) / Compared : 0.0, FString::Printf(TEXT("paired_snapshots=%d"), Compared), Oracle.RunID });
+				const bool bInternalDiagnostic = Index == 8 || Index == 9 || Index == 10;
+				const FString MetricName = bInternalDiagnostic
+					? FString::Printf(TEXT("Continuity.Diagnostic.%sExactMismatchRate"), Names[Index])
+					: FString::Printf(TEXT("Continuity.%sMismatchRate"), Names[Index]);
+				const FString MetricScale = bInternalDiagnostic
+					? FString::Printf(TEXT("paired_snapshots=%d;internal_representation_only"), Compared)
+					: FString::Printf(TEXT("paired_snapshots=%d"), Compared);
+				OutRows.Add({
+					&Run,
+					MetricName,
+					Compared > 0 ? static_cast<double>(Mismatches[Index]) / Compared : 0.0,
+					MetricScale,
+					Oracle.RunID });
 			}
+			const double Denominator = Compared > 0 ? static_cast<double>(Compared) : 1.0;
+			OutRows.Add({ &Run, TEXT("Continuity.PairedSnapshotCount"), static_cast<double>(Compared), TEXT("count"), Oracle.RunID });
+			OutRows.Add({ &Run, TEXT("Continuity.MoneyMAE"), MoneyAbsoluteError / Denominator, TEXT("coin_per_paired_snapshot"), Oracle.RunID });
+			OutRows.Add({ &Run, TEXT("Continuity.MoneyNormalizedMAE"), MoneyNormalizedError / Denominator, TEXT("abs_error_div_max_1_abs_oracle"), Oracle.RunID });
+			OutRows.Add({ &Run, TEXT("Continuity.RepairCreditMAE"), RepairCreditAbsoluteError / Denominator, TEXT("coin_per_paired_snapshot"), Oracle.RunID });
+			OutRows.Add({ &Run, TEXT("Continuity.RepairCreditNormalizedMAE"), RepairCreditNormalizedError / Denominator, TEXT("abs_error_div_max_1_abs_oracle"), Oracle.RunID });
+			OutRows.Add({ &Run, TEXT("Continuity.InventoryWoodMAE"), InventoryWoodAbsoluteError / Denominator, TEXT("wood_per_paired_snapshot"), Oracle.RunID });
+			OutRows.Add({ &Run, TEXT("Continuity.InventoryWoodNormalizedMAE"), InventoryWoodNormalizedError / Denominator, TEXT("abs_error_div_max_1_abs_oracle"), Oracle.RunID });
+			OutRows.Add({ &Run, TEXT("Continuity.TaskActiveStatusMismatchRate"), Compared > 0 ? static_cast<double>(TaskActiveStatusMismatches) / Compared : 0.0, FString::Printf(TEXT("paired_snapshots=%d"), Compared), Oracle.RunID });
+			OutRows.Add({ &Run, TEXT("Continuity.TaskRemainingHoursMAE"), ComparableActiveTasks > 0 ? TaskRemainingHoursAbsoluteError / ComparableActiveTasks : 0.0, FString::Printf(TEXT("hours;paired_same_goal_active_snapshots=%d"), ComparableActiveTasks), Oracle.RunID });
 		}
 
 		void AddHardErrors(const FOfflineRun& Run, TArray<FMetricRow>& OutRows)
