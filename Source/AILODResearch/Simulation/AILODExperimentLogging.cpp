@@ -319,6 +319,29 @@ namespace AILOD
 		Manifest->SetStringField(TEXT("end_time"), Metadata.EndTime);
 		Manifest->SetBoolField(TEXT("valid"), Result.IsHardErrorFree());
 		Manifest->SetStringField(TEXT("deterministic_digest"), FUnifiedSimulationRunner::BuildDeterministicDigest(Result));
+		Manifest->SetStringField(TEXT("deterministic_digest_version"), Result.DeterministicDigestVersion);
+		const bool bFormalModelEligible = Result.bFormalModelEligible
+			&& !Result.bEnableV17ShadowCohort
+			&& !(Result.Method == EUnifiedSimulationMethod::Proposed
+				&& Result.ProposedModelVersion != EProposedModelVersion::V17Authoritative);
+		const bool bValidForFormalExperiment = bFormalModelEligible
+			&& Metadata.bFormalRunRequested
+			&& Metadata.bFormalEnvironmentEligible
+			&& Result.IsHardErrorFree();
+		const TCHAR* FormalEligibilityReason = !Metadata.bFormalRunRequested
+			? TEXT("engineering_run_not_requested_as_formal")
+			: !bFormalModelEligible
+				? TEXT("model_version_not_yet_formally_eligible")
+				: !Metadata.bFormalEnvironmentEligible
+					? TEXT("formal_environment_check_failed")
+					: !Result.IsHardErrorFree()
+						? TEXT("hard_error_gate_failed")
+						: TEXT("eligible");
+		Manifest->SetBoolField(TEXT("formal_model_eligible"), bFormalModelEligible);
+		Manifest->SetBoolField(TEXT("formal_run_requested"), Metadata.bFormalRunRequested);
+		Manifest->SetBoolField(TEXT("formal_environment_eligible"), Metadata.bFormalEnvironmentEligible);
+		Manifest->SetStringField(TEXT("formal_eligibility_reason"), FormalEligibilityReason);
+		Manifest->SetBoolField(TEXT("valid_for_formal_experiment"), bValidForFormalExperiment);
 		if (Result.ProposedModelVersion == EProposedModelVersion::V17Authoritative)
 		{
 			Manifest->SetStringField(TEXT("proposed_model_version"), TEXT("1.7"));
@@ -327,7 +350,6 @@ namespace AILOD
 			Manifest->SetStringField(TEXT("joint_state_version"), Result.JointStateVersion);
 			Manifest->SetStringField(TEXT("claim_allocation_version"), Result.ClaimAllocationVersion);
 			Manifest->SetStringField(TEXT("capsule_version"), Result.CapsuleVersion);
-			Manifest->SetBoolField(TEXT("valid_for_formal_experiment"), Result.bValidForFormalExperiment);
 		}
 		else if (Result.bEnableV17ShadowCohort)
 		{
@@ -337,7 +359,6 @@ namespace AILOD
 			Manifest->SetStringField(TEXT("joint_state_version"), TEXT("1.7-shadow"));
 			Manifest->SetStringField(TEXT("claim_allocation_version"), TEXT("1.7-shadow"));
 			Manifest->SetStringField(TEXT("capsule_version"), TEXT("not_active"));
-			Manifest->SetBoolField(TEXT("valid_for_formal_experiment"), false);
 		}
 		else
 		{
@@ -349,7 +370,6 @@ namespace AILOD
 			Manifest->SetStringField(TEXT("joint_state_version"), TEXT("not_applicable"));
 			Manifest->SetStringField(TEXT("claim_allocation_version"), TEXT("not_applicable"));
 			Manifest->SetStringField(TEXT("capsule_version"), TEXT("not_applicable"));
-			Manifest->SetBoolField(TEXT("valid_for_formal_experiment"), Result.IsHardErrorFree());
 		}
 		TSharedRef<FJsonObject> HardErrors = MakeShared<FJsonObject>();
 		if (Result.ProposedModelVersion == EProposedModelVersion::V17Authoritative)

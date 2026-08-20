@@ -2331,7 +2331,7 @@ namespace AILOD
 	FString FV17AuthoritativeMacroSession::BuildDeterministicDigest() const
 	{
 		FString Canonical = FString::Printf(
-			TEXT("Spec=1.7|Schema=1.2|Authority=v1.7_authoritative|Formal=0|Seed=%d|Time=%lld|Population=%d|NextArrive=%lld|Committed=%d|CapacityDay=%lld|"),
+			TEXT("DomainDigest=1.7-domain-v2|Authority=v1.7_authoritative|Seed=%d|Time=%lld|Population=%d|NextArrive=%lld|Committed=%d|CapacityDay=%lld|"),
 			Seed,
 			Clock.Now().Minutes,
 			InitialPopulation,

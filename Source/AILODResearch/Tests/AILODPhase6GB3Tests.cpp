@@ -169,12 +169,12 @@ bool FAILODPhase6GB3AuthoritativeResourceBatchTest::RunTest(const FString& Param
 	if (!InitializeB3Fixture(*this, RunA)) return false;
 	const FString InitialDigest = RunA.BuildDeterministicDigest();
 	TestEqual(TEXT("Initial B3 authority has the frozen digest"), InitialDigest,
-		FString(TEXT("99A149ED3562B40F5B50753F8901503F2AFA2B9F")));
+		FString(TEXT("397C1F76B29E3DD5F25708858C014A05EE424756")));
 	FB3ClaimIDs IDsA;
 	if (!QueueB3Fixture(*this, RunA, IDsA, false)) return false;
 	const FString QueuedDigest = RunA.BuildDeterministicDigest();
 	TestEqual(TEXT("Queued B3 authority has the frozen digest"), QueuedDigest,
-		FString(TEXT("0E04957B7078C06BC7C05678E07CEF1A0ED5F70E")));
+		FString(TEXT("709330EF30FFA4C9511BFDC7BC048EDB59471EEB")));
 
 	FV17AuthoritativeMacroSession RunB(20260810);
 	if (!InitializeB3Fixture(*this, RunB)) return false;
@@ -187,7 +187,7 @@ bool FAILODPhase6GB3AuthoritativeResourceBatchTest::RunTest(const FString& Param
 	TestTrue(TEXT("Run B commits all same-hour Claims in stable order"), RunB.ResolveAndCommitClaims(Error));
 	const FString CommittedDigest = RunA.BuildDeterministicDigest();
 	TestEqual(TEXT("Committed B3 authority has the frozen digest"), CommittedDigest,
-		FString(TEXT("74736CFA1DD97E9B989481935E7D5FB2AF281DD1")));
+		FString(TEXT("A4CE9C52A36A50BAC7814A03597F8038FC956A07")));
 	TestEqual(TEXT("Reversing Flow arrival order leaves allocation and commit identical"), RunB.BuildDeterministicDigest(), CommittedDigest);
 
 	TestEqual(TEXT("Market gives exactly three complete four-Wood purchases"), Granted(RunA, IDsA.MarketMacro, IDsA.MarketActive), 3);
@@ -257,7 +257,7 @@ bool FAILODPhase6GB3AuthoritativeResourceBatchTest::RunTest(const FString& Param
 	TestTrue(TEXT("Run B completes the same authoritative session"), RunB.AdvanceTo(FSimulationTime::FromHours(48), Error));
 	const FString CompletedDigest = RunA.BuildDeterministicDigest();
 	TestEqual(TEXT("Completed B3 authority has the frozen digest"), CompletedDigest,
-		FString(TEXT("1E9E92F077220DF3A44DFB8B7BF2E866D873F342")));
+		FString(TEXT("787D47C1CA16E4877F7805656CFBCD3349BCC7A1")));
 	TestEqual(TEXT("Completion replay remains deterministic"), RunB.BuildDeterministicDigest(), CompletedDigest);
 	TestEqual(TEXT("No participant remains busy after all actions finish"), RunA.GetPendingParticipantCount(), 0);
 	TestEqual(TEXT("No scheduled batch remains after all actions finish"), RunA.GetScheduler().NumPending(), 0);

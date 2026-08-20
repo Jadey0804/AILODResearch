@@ -26,6 +26,8 @@ namespace AILOD
 		FString LogMode = TEXT("EngineeringAccuracy");
 		FString StartTime;
 		FString EndTime;
+		bool bFormalRunRequested = false;
+		bool bFormalEnvironmentEligible = false;
 	};
 
 	struct FExperimentRunRecord

@@ -1177,7 +1177,8 @@ namespace AILOD
 		OutResult.JointStateVersion = TEXT("1.7");
 		OutResult.ClaimAllocationVersion = TEXT("1.7");
 		OutResult.CapsuleVersion = TEXT("1");
-		OutResult.bValidForFormalExperiment = false;
+		OutResult.DeterministicDigestVersion = TEXT("1.7-domain-v2");
+		OutResult.bFormalModelEligible = false;
 		OutResult.ConfigHash = PopulationManifest.ConfigHash;
 		OutResult.FinalTime = Authority->GetCurrentTime();
 		OutResult.WarmupHourSteps = 7 * static_cast<int32>(HoursPerDay);

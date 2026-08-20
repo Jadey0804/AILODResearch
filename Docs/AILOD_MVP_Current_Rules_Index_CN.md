@@ -1,6 +1,6 @@
 # AILOD MVP 当前有效规则索引
 
-**索引版本：4.1**<br>
+**索引版本：4.2**<br>
 **日期：2026-08-20**<br>
 **用途：说明当前规则的读取顺序、冲突优先级和各文档职责。**<br>
 **性质：本文件只做导航，不新增模型规则、不替代原规格，也不构成阶段验收。**
@@ -55,6 +55,7 @@
 | Phase 6G-B5D-Lite Checkpoint | Proposed-only 的 50k/100k 压力运行、100k 重放和 20k→100k 后台增长检查 | 证明当前工程环境能推进 100k，且后台对象未随人口增长；不提供 50k/100k Per-Agent 速度比，也不替代 B5E |
 | Phase 6G-B5E Checkpoint | 20k 下四组交错顺序的 Proposed/Per-Agent 最终工程测速 | 判断 3 倍工程目标是否在顺序对调后稳定成立；不是论文正式统计，正式实验前加固完成并再次确认前不开放正式实验资格 |
 | Phase 6H Plan / H0 Checkpoint | 把加固拆成 H0—H5，并在看结果前固定指标、5 Seed 和复核线 | 只冻结范围和验收方法，不代表 H1—H5 已实现 |
+| Phase 6H-H1 Checkpoint | 领域摘要与正式资格分离、三项资格记录、新旧摘要映射和 Phase 6G 回归 | 证明管理标签不改变领域摘要；H2—H5 完成前模型正式资格仍关闭 |
 
 ## 3. 当前最容易误读的有效规则
 
@@ -77,7 +78,7 @@
 | 正式实验政策 | 正式比较使用固定政策输入；动态 King Utility 不属于当前 MVP | v1.3 §2、§4；v1.5 §1 |
 | 性能结论 | Validation 复算、完整 Audit、Snapshot 和日志成本必须与生产算法成本分开；整场速度使用所有 `ai_cpu_ms` 的总和，约一秒桶的 Mean/P95 不能代替总速度比 | v1.6 §6；v1.7 §13.3；Phase 5.1 Checkpoint §7 |
 | 复杂度边界 | 一次性 Identity 初始化/静态内存允许 `O(N)`；每小时不得扫描全员或生成 `O(N)` 候选、事件、事务；ParticipantCount 作为整数随人口增长不等于 Batch 对象数增长 | v1.7 §1、§3、§13 |
-| 版本与 Digest | B1 Shadow 仍以 v1.6/Schema 1.1 为权威；v1.7 权威接管时使用 Spec 1.7、Schema 1.2、新 ConfigHash 和新 Digest | v1.7 §1、§11 |
+| 版本与 Digest | B1 Shadow 仍以 v1.6/Schema 1.1 为权威；当前 v1.7 权威领域摘要使用 `1.7-domain-v2`，不包含 Formal、日志 Schema、构建或机器信息；旧值与新值对应见 H1 Checkpoint | v1.7 §1、§11；v1.8 §4；H1 Checkpoint |
 | 正式资格与领域摘要 | 正式资格是实验管理信息，不进入模拟领域摘要；正式 Run 必须同时满足模型已批准、本次明确请求、环境合格和硬错误为 0 | v1.8 §4 |
 | 连续性误差 | 身份仍是零错误门；钱、补助、木材、房屋、任务和 FirstAction 同时报告不一致率与误差大小；EventID/ReservationID 只作内部编号诊断 | v1.8 §5 |
 | 内存结论 | `memory_mb` 是整个进程；Proposed 另外报告各权威容器的已追踪字节，未测量前不得宣称某个容器是主要问题 | v1.8 §7 |
@@ -101,7 +102,7 @@ Phase 6A—6F 已经实现以下内容：
 
 以上 Phase 6A—6F 历史边界以 v1.6 §8 和 Phase 5.1 Checkpoint §8 为准；6G-B 的新 Proposed 规则以 v1.7 为准。
 
-当前位于 `phase-6h-preformal-hardening`。B5E 已以本地提交 `ef07f6c` 封板，项目作者已确认 B5 工程验收。正式实验资格继续关闭；H0 正在冻结 v1.8、6H 计划和大白话检查点，H1—H5 尚未完成。所有既有提交均未推送。
+当前位于 `phase-6h-preformal-hardening`。B5E 已以 `ef07f6c` 封板，H0 已以 `669bea6` 封板。H1 编译、定向检查和 13 项 Phase 6G 回归已通过，正在独立本地提交；H2—H5 尚未完成，正式实验资格继续关闭。所有既有提交均未推送。
 
 ## 5. 后续修改规则
 

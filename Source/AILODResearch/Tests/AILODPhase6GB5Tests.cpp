@@ -268,10 +268,10 @@ bool FAILODPhase6GB5CScaleRegressionTest::RunTest(const FString& Parameters)
 			return false;
 		}
 		const FString ExpectedDigest = TotalPopulation == 2000
-			? TEXT("38995B7B27CB95192929E14F86FBE63977771520")
+			? TEXT("E67208009BB126D73DBFB81950B011A8060811C0")
 			: TotalPopulation == 10000
-				? TEXT("00B082902227FA9EE37E9BE9BFA0605E09A7A1DD")
-				: TEXT("7F317FB86A55F96AB8632A558515A56C41925E8B");
+				? TEXT("9E3185F7D8726CA1D0DB70DC165F8919A877F034")
+				: TEXT("213A183F0394E50E0FB079FAD4FB38BCD6C2D381");
 		TestEqual(*FString::Printf(TEXT("B5C %d freezes the v1.7 deterministic Digest"), TotalPopulation),
 			Proposed->DeterministicDigest, ExpectedDigest);
 
@@ -466,8 +466,8 @@ bool FAILODPhase6GB5DStressLiteTest::RunTest(const FString& Parameters)
 		if (Runs.Num() != 1) return false;
 		const FExperimentRunRecord& Run = Runs[0];
 		const FString ExpectedDigest = TotalPopulation == 50000
-			? TEXT("EE29C67F7A0C98A5C1138143CE09B3D064492599")
-			: TEXT("C6231059510F7A6E89ABE529BDE80836CFBECC78");
+			? TEXT("D1C4DBA669C8DF60928EB678DEB6C246F466C2E4")
+			: TEXT("0E1A9B54C815B0A93163256249564A1F51F6BA39");
 		TestEqual(*FString::Printf(TEXT("B5D-Lite %d freezes the v1.7 deterministic Digest"), TotalPopulation),
 			Run.DeterministicDigest, ExpectedDigest);
 		TestTrue(*FString::Printf(TEXT("B5D-Lite %d has no hard error"), TotalPopulation), Run.bHardErrorFree);
@@ -605,7 +605,7 @@ bool FAILODPhase6GB5EFinalEngineeringGateTest::RunTest(const FString& Parameters
 
 	constexpr int32 PairCount = 4;
 	constexpr double RequiredSpeedup = 3.0;
-	const FString ExpectedProposedDigest = TEXT("7F317FB86A55F96AB8632A558515A56C41925E8B");
+	const FString ExpectedProposedDigest = TEXT("213A183F0394E50E0FB079FAD4FB38BCD6C2D381");
 	const FString TestRoot = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AILOD/Phase6GB5ECheckpoint"));
 	IFileManager::Get().DeleteDirectory(*TestRoot, false, true);
 	TArray<double> PairSpeedups;

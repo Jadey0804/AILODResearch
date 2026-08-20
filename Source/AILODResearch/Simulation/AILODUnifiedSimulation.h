@@ -292,7 +292,8 @@ namespace AILOD
 		FString JointStateVersion;
 		FString ClaimAllocationVersion;
 		FString CapsuleVersion;
-		bool bValidForFormalExperiment = true;
+		FString DeterministicDigestVersion = TEXT("legacy-domain-v1");
+		bool bFormalModelEligible = true;
 		EUnifiedFaultInjectionPoint FaultInjection = EUnifiedFaultInjectionPoint::None;
 		FString ConfigHash;
 		FSimulationTime FinalTime;

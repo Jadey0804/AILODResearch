@@ -278,7 +278,7 @@ bool FAILODPhase6GB4DynamicTraceAndCapTest::RunTest(const FString& Parameters)
 	}
 	const FString FixedTraceDigest = TraceA.BuildDeterministicDigest();
 	TestEqual(TEXT("The fixed B4 trace has the frozen digest"), FixedTraceDigest,
-		FString(TEXT("1582AA3FFA38AC25789456AA94765143BF09A321")));
+		FString(TEXT("038664D6C8E9BE0608E249FB6955C31A6A194F67")));
 	TestEqual(TEXT("The same Seed and fixed trace replay exactly"), TraceB.BuildDeterministicDigest(), FixedTraceDigest);
 	TestEqual(TEXT("The fixed trace creates exactly sixty Lift records"),
 		TraceA.GetLODTransitions().FilterByPredicate([](const FV17LODTransitionRecord& Record)
@@ -365,7 +365,7 @@ bool FAILODPhase6GB4DynamicTraceAndCapTest::RunTest(const FString& Parameters)
 
 	const FString ContinuityDigest = ContinuityRun.BuildDeterministicDigest();
 	TestEqual(TEXT("The zero-time, rollback and cap checks have the frozen digest"), ContinuityDigest,
-		FString(TEXT("30B7545FD96B5CC65D8DAD86A7863256E0563A4D")));
+		FString(TEXT("B4B9EF82BC633F1754E1849B4E8AFB3FBEFCC074")));
 	AddInfo(FString::Printf(
 		TEXT("Phase6GB4 fixed_trace=%s continuity=%s max_active=%d identities=%d capsules=%d transitions=%d"),
 		*FixedTraceDigest,
@@ -523,7 +523,7 @@ bool FAILODPhase6GB4RepairSplitMergeTest::RunTest(const FString& Parameters)
 
 	const FString CompletedDigest = Session.BuildDeterministicDigest();
 	TestEqual(TEXT("The repair split and merge run has the frozen digest"), CompletedDigest,
-		FString(TEXT("936C044128D58AE1E13574F08B97C469C016D504")));
+		FString(TEXT("13E9892812BEEDDF16B8B4C39CDB143CE9FBE843")));
 	AddInfo(FString::Printf(
 		TEXT("Phase6GB4 repair=%s events=%d transactions=%d capsules=%d refs=%d"),
 		*CompletedDigest,
@@ -653,7 +653,7 @@ bool FAILODPhase6GB4ReservationSplitMergeTest::RunTest(const FString& Parameters
 
 	const FString CompletedDigest = Session.BuildDeterministicDigest();
 	TestEqual(TEXT("The reservation split and merge run has the frozen digest"), CompletedDigest,
-		FString(TEXT("E3081367E43FB7014B8FC149F2FD693ACDD2C93A")));
+		FString(TEXT("54F95B3A708F612F12203632B5BA97A289BA4624")));
 	AddInfo(FString::Printf(
 		TEXT("Phase6GB4 reservation=%s reservations=%d transactions=%d events=%d"),
 		*CompletedDigest,

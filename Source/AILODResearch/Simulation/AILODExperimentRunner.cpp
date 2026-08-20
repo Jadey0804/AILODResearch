@@ -270,6 +270,8 @@ namespace AILOD
 					Metadata.LogMode = Request.LogMode;
 					Metadata.StartTime = Request.StartTime;
 					Metadata.EndTime = Request.EndTime;
+					Metadata.bFormalRunRequested = Request.bFormalRunRequested;
+					Metadata.bFormalEnvironmentEligible = Request.bFormalEnvironmentEligible;
 					FExperimentRunRecord& Run = OutRuns.AddDefaulted_GetRef();
 					if (!RunOne(Config, Method, Scenario, Options, Metadata, Run, OutError))
 					{
@@ -363,6 +365,10 @@ namespace AILOD
 		Metadata.LogMode = Manifest->GetStringField(TEXT("log_mode"));
 		Metadata.StartTime = Manifest->GetStringField(TEXT("start_time"));
 		Metadata.EndTime = Manifest->GetStringField(TEXT("end_time"));
+		Metadata.bFormalRunRequested = Manifest->HasTypedField<EJson::Boolean>(TEXT("formal_run_requested"))
+			&& Manifest->GetBoolField(TEXT("formal_run_requested"));
+		Metadata.bFormalEnvironmentEligible = Manifest->HasTypedField<EJson::Boolean>(TEXT("formal_environment_eligible"))
+			&& Manifest->GetBoolField(TEXT("formal_environment_eligible"));
 		if (!RunOne(Config, Method, Scenario, Options, Metadata, OutRun, OutError)) return false;
 		if (!Manifest->HasTypedField<EJson::String>(TEXT("deterministic_digest"))
 			|| OutRun.DeterministicDigest != Manifest->GetStringField(TEXT("deterministic_digest")))

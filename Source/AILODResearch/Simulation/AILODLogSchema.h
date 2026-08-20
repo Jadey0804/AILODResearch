@@ -98,6 +98,11 @@ namespace AILOD::LogSchema
 		{ TEXT("joint_state_version"), TEXT("string") },
 		{ TEXT("claim_allocation_version"), TEXT("string") },
 		{ TEXT("capsule_version"), TEXT("string") },
+		{ TEXT("deterministic_digest_version"), TEXT("string") },
+		{ TEXT("formal_model_eligible"), TEXT("bool") },
+		{ TEXT("formal_run_requested"), TEXT("bool") },
+		{ TEXT("formal_environment_eligible"), TEXT("bool") },
+		{ TEXT("formal_eligibility_reason"), TEXT("string") },
 		{ TEXT("valid_for_formal_experiment"), TEXT("bool") }
 	};
 

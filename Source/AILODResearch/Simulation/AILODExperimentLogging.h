@@ -22,6 +22,8 @@ namespace AILOD
 		FString LogMode;
 		FString StartTime;
 		FString EndTime;
+		bool bFormalRunRequested = false;
+		bool bFormalEnvironmentEligible = false;
 	};
 
 	class FUnifiedRunLogWriter final
