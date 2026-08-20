@@ -1,6 +1,6 @@
 # AILOD MVP 当前有效规则索引
 
-**索引版本：4.0**<br>
+**索引版本：4.1**<br>
 **日期：2026-08-20**<br>
 **用途：说明当前规则的读取顺序、冲突优先级和各文档职责。**<br>
 **性质：本文件只做导航，不新增模型规则、不替代原规格，也不构成阶段验收。**
@@ -15,27 +15,29 @@
 4. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.4.md`；
 5. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.5.md`；
 6. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.6.md`；
-7. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.7.md`。
+7. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.7.md`；
+8. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.8.md`。
 
 冲突处理规则：
 
 - 后一版本只覆盖其中明确写出的冲突项；
 - 没有被后续版本明确覆盖的内容，继续继承较早版本；
-- v1.7 是当前最高版本，但不能脱离 v1.1—v1.6 单独阅读；
-- v1.1 中“单一事实源”的表述应理解为“基准事实源”。当前完整事实源是 v1.1 加 v1.2—v1.7 的累计覆盖链；
+- v1.8 是当前最高版本，但只覆盖正式实验前的证据、运行管理和内存测量规则；v1.7 的模拟行为仍然有效；
+- v1.1 中“单一事实源”的表述应理解为“基准事实源”。当前完整事实源是 v1.1 加 v1.2—v1.8 的累计覆盖链；
 - 不得根据摘要、旧状态表或旧交接说明，反向覆盖正式规格中的较新规则。
 
 ## 2. 每份文档负责什么
 
 | 文档 | 当前职责 | 使用边界 |
 |---|---|---|
-| v1.1 Implementation Spec | 研究问题、系统边界、政策与场景、公式、时间线、实验矩阵、指标、日志 Schema、阶段 0—8 基础 DoD | 是基准规格，但冲突项必须应用 v1.2—v1.7 覆盖 |
+| v1.1 Implementation Spec | 研究问题、系统边界、政策与场景、公式、时间线、实验矩阵、指标、日志 Schema、阶段 0—8 基础 DoD | 是基准规格，但冲突项必须应用 v1.2—v1.8 覆盖 |
 | v1.2 Acceptance Spec | 整数初值与付款、Repair Aid 资格、ArriveID、损伤清单、正式压力场景、性能环境等已批准修正 | 只覆盖明确列出的 v1.1 条目 |
 | v1.3 Acceptance Spec | 第一版 MVP 范围、四方法验证矩阵、数据契约以及 Phase 0—3 验收记录 | 研究范围继续有效；20 人 Persistent 上限等条目已被 v1.4 覆盖 |
 | v1.4 Architecture Spec | 全员轻量 CoreState、状态与计算分离、唯一权威来源、统一动作和竞争、Phase 4 验收 | 是 v1.6 Current Proposed 的历史架构基础；全员动态状态和个人竞争已被 v1.7 明确覆盖 |
 | v1.5 Unified Runtime Spec | 单一权威 Runtime、四方法共享语义、统一小时管线、Phase 5 入口与 DoD | 精确 Cohort 一致性要求已被 v1.6 覆盖 |
 | v1.6 Phase 5.1 Spec | 受控 Cohort 近似、固定 Activation Trace、Simple 激活公平性、失败原子边界、运行模式和 Phase 6 前置架构债务 | 固定 Trace、Simple 公平性、动作定义、小时顺序和测量隔离继续有效；Proposed 的人口表示、个人候选/提交和旧日志语义已被 v1.7 覆盖 |
 | v1.7 Cohort Batch Spec | Identity Registry、权威 Joint State、Action Flow、Batch Claim/Event、聚合 Ledger、Capsule、Dynamic Lift/Restrict、新 Digest/Schema 和 6G-B0—B5 | 是 6G-B 及最终 Proposed 的最高优先级规则；B1/B2 仍由 v1.6 运行，B3 才一次性切换 Macro 权威，B4 接入完整动态 LOD；各检查点必须标明 authority mode，不得长期双写或形成混合真相 |
+| v1.8 Pre-Formal Hardening Spec | 正式资格与领域摘要分离、连续性大小误差、批量运行顺序/续跑、分项内存和 5 Seed 预检查 | 不修改 v1.7 行为模型；是 H0—H5 的最高优先级证据和实验工具规则 |
 | Phase 5 Handoff v1.0 | Phase 5 开始前的导航、源码位置、历史现场和验证方法 | 生成时间早于 v1.6；不是模型事实源，涉及当前 Phase 5.1 时必须回到 v1.6 和检查点核对 |
 | Phase 5.1 Checkpoint | Phase 5.1 实现证据、Hash、Digest、自动验收结果、已知边界和待完成项 | 是验收记录，不新增或覆盖模型规则 |
 | Phase 6 Incremental Plan | 将既有 Phase 6 范围拆成 6A—6F 检查点并记录逐步验收状态 | 是实施导航与检查点，不新增或覆盖模型规则；每一步必须经作者确认后才能进入下一步 |
@@ -52,6 +54,7 @@
 | Phase 6G-B5C Checkpoint | 2k、10k、20k 的确定性重放、硬错误、批量增长、生产总成本和离线重建 | 证明中等规模工程链路与整场成本口径已接通；单轮 20k 速度不能替代 B5E 的重复和顺序控制，也不代表 50k/100k 已通过 |
 | Phase 6G-B5D-Lite Checkpoint | Proposed-only 的 50k/100k 压力运行、100k 重放和 20k→100k 后台增长检查 | 证明当前工程环境能推进 100k，且后台对象未随人口增长；不提供 50k/100k Per-Agent 速度比，也不替代 B5E |
 | Phase 6G-B5E Checkpoint | 20k 下四组交错顺序的 Proposed/Per-Agent 最终工程测速 | 判断 3 倍工程目标是否在顺序对调后稳定成立；不是论文正式统计，正式实验前加固完成并再次确认前不开放正式实验资格 |
+| Phase 6H Plan / H0 Checkpoint | 把加固拆成 H0—H5，并在看结果前固定指标、5 Seed 和复核线 | 只冻结范围和验收方法，不代表 H1—H5 已实现 |
 
 ## 3. 当前最容易误读的有效规则
 
@@ -75,6 +78,9 @@
 | 性能结论 | Validation 复算、完整 Audit、Snapshot 和日志成本必须与生产算法成本分开；整场速度使用所有 `ai_cpu_ms` 的总和，约一秒桶的 Mean/P95 不能代替总速度比 | v1.6 §6；v1.7 §13.3；Phase 5.1 Checkpoint §7 |
 | 复杂度边界 | 一次性 Identity 初始化/静态内存允许 `O(N)`；每小时不得扫描全员或生成 `O(N)` 候选、事件、事务；ParticipantCount 作为整数随人口增长不等于 Batch 对象数增长 | v1.7 §1、§3、§13 |
 | 版本与 Digest | B1 Shadow 仍以 v1.6/Schema 1.1 为权威；v1.7 权威接管时使用 Spec 1.7、Schema 1.2、新 ConfigHash 和新 Digest | v1.7 §1、§11 |
+| 正式资格与领域摘要 | 正式资格是实验管理信息，不进入模拟领域摘要；正式 Run 必须同时满足模型已批准、本次明确请求、环境合格和硬错误为 0 | v1.8 §4 |
+| 连续性误差 | 身份仍是零错误门；钱、补助、木材、房屋、任务和 FirstAction 同时报告不一致率与误差大小；EventID/ReservationID 只作内部编号诊断 | v1.8 §5 |
+| 内存结论 | `memory_mb` 是整个进程；Proposed 另外报告各权威容器的已追踪字节，未测量前不得宣称某个容器是主要问题 | v1.8 §7 |
 
 ## 4. 当前阶段边界
 
@@ -95,7 +101,7 @@ Phase 6A—6F 已经实现以下内容：
 
 以上 Phase 6A—6F 历史边界以 v1.6 §8 和 Phase 5.1 Checkpoint §8 为准；6G-B 的新 Proposed 规则以 v1.7 为准。
 
-当前位于 `phase-6g-b-cohort-batch`。Phase 6A—6F 已分别以本地提交 `71e3565`、`c0e84d2`、`eb44bf3`、`93282ed`、`6ee6873`、`c629bb6` 封板；6G-A、6G-B0、6G-B1、6G-B2A、6G-B2B、6G-B3、B4、B5A、B5B、B5C 和 B5D-Lite 已分别以本地提交 `41d3bae`、`8a1ac11`、`90020f2`、`af3b253`、`37120c4`、`0ed8c16`、`97e5843`、`8f7adbb`、`e17d0dc`、`b0d75e0`、`3c2f9bc` 封板。B5E 两轮共 8 组 20k 交错配对全部超过 3 倍线，38 项完整回归通过，项目作者已确认 B5 工程验收；正式实验资格继续关闭，先完成正式实验前加固。B5E 正在独立本地提交封板，所有既有提交均未推送。
+当前位于 `phase-6h-preformal-hardening`。B5E 已以本地提交 `ef07f6c` 封板，项目作者已确认 B5 工程验收。正式实验资格继续关闭；H0 正在冻结 v1.8、6H 计划和大白话检查点，H1—H5 尚未完成。所有既有提交均未推送。
 
 ## 5. 后续修改规则
 
