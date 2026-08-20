@@ -593,4 +593,169 @@ bool FAILODPhase6GB5DStressLiteTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAILODPhase6GB5EFinalEngineeringGateTest,
+	"AILODResearch.Phase6G.V17FinalEngineeringGate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAILODPhase6GB5EFinalEngineeringGateTest::RunTest(const FString& Parameters)
+{
+	using namespace AILOD;
+	using namespace AILOD::LogSchema;
+
+	constexpr int32 PairCount = 4;
+	constexpr double RequiredSpeedup = 3.0;
+	const FString ExpectedProposedDigest = TEXT("7F317FB86A55F96AB8632A558515A56C41925E8B");
+	const FString TestRoot = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AILOD/Phase6GB5ECheckpoint"));
+	IFileManager::Get().DeleteDirectory(*TestRoot, false, true);
+	TArray<double> PairSpeedups;
+	double ProposedProductionTotalMs = 0.0;
+	double PerAgentProductionTotalMs = 0.0;
+	FString ExpectedPerAgentDigest;
+
+	for (int32 PairIndex = 0; PairIndex < PairCount; ++PairIndex)
+	{
+		const bool bProposedFirst = PairIndex % 2 == 0;
+		const FString PairRoot = FPaths::Combine(TestRoot, FString::Printf(TEXT("Pair-%d-%s"),
+			PairIndex + 1, bProposedFirst ? TEXT("Proposed-First") : TEXT("PerAgent-First")));
+		FExperimentMatrixRequest Request;
+		Request.OutputRoot = PairRoot;
+		Request.ExperimentID = FString::Printf(TEXT("PHASE6GB5E-ENGINEERING-PAIR-%d"), PairIndex + 1);
+		if (bProposedFirst)
+		{
+			Request.Methods = { EUnifiedSimulationMethod::Proposed, EUnifiedSimulationMethod::PerAgent };
+		}
+		else
+		{
+			Request.Methods = { EUnifiedSimulationMethod::PerAgent, EUnifiedSimulationMethod::Proposed };
+		}
+		Request.Scenarios = { EStage2Scenario::StateImport };
+		Request.Seeds = { 20260810 };
+		Request.PopulationPerKingdom = 10000;
+		Request.Mode = EUnifiedRunMode::Performance;
+		Request.ProposedModelVersion = EProposedModelVersion::V17Authoritative;
+		Request.GitCommit = TEXT("phase-6g-b5e-local");
+		Request.UEVersion = TEXT("5.4");
+		Request.BuildType = TEXT("Development Editor");
+		Request.Hardware = TEXT("automation-test-host");
+		Request.LogMode = TEXT("B5EEngineeringPairedPerformance");
+		Request.StartTime = TEXT("2026-08-20T00:00:00Z");
+		Request.EndTime = TEXT("2026-08-20T00:08:00Z");
+
+		TArray<FExperimentRunRecord> Runs;
+		FString Error;
+		if (!FExperimentRunner::RunMatrix(Request, Runs, Error))
+		{
+			AddError(FString::Printf(TEXT("B5E pair %d failed: %s"), PairIndex + 1, *Error));
+			return false;
+		}
+		TestEqual(*FString::Printf(TEXT("B5E pair %d contains exactly two methods"), PairIndex + 1), Runs.Num(), 2);
+		if (Runs.Num() != 2) return false;
+		TestTrue(*FString::Printf(TEXT("B5E pair %d runs the frozen first method"), PairIndex + 1),
+			Runs[0].RunID.StartsWith(bProposedFirst ? TEXT("Proposed-") : TEXT("PerAgent-")));
+
+		const FExperimentRunRecord* Proposed = Runs.FindByPredicate([](const FExperimentRunRecord& Run)
+		{
+			return Run.RunID.StartsWith(TEXT("Proposed-"));
+		});
+		const FExperimentRunRecord* PerAgent = Runs.FindByPredicate([](const FExperimentRunRecord& Run)
+		{
+			return Run.RunID.StartsWith(TEXT("PerAgent-"));
+		});
+		if (Proposed == nullptr || PerAgent == nullptr)
+		{
+			AddError(FString::Printf(TEXT("B5E pair %d is missing Proposed or PerAgent."), PairIndex + 1));
+			return false;
+		}
+
+		TestEqual(*FString::Printf(TEXT("B5E pair %d preserves the Proposed result"), PairIndex + 1),
+			Proposed->DeterministicDigest, ExpectedProposedDigest);
+		if (ExpectedPerAgentDigest.IsEmpty())
+		{
+			ExpectedPerAgentDigest = PerAgent->DeterministicDigest;
+		}
+		else
+		{
+			TestEqual(*FString::Printf(TEXT("B5E pair %d preserves the PerAgent result"), PairIndex + 1),
+				PerAgent->DeterministicDigest, ExpectedPerAgentDigest);
+		}
+		for (const FExperimentRunRecord* Run : { Proposed, PerAgent })
+		{
+			TestTrue(*FString::Printf(TEXT("B5E pair %d %s has no hard error"), PairIndex + 1, *Run->RunID),
+				Run->bHardErrorFree);
+			TestEqual(*FString::Printf(TEXT("B5E pair %d %s uses Performance mode"), PairIndex + 1, *Run->RunID),
+				static_cast<int32>(Run->Mode), static_cast<int32>(EUnifiedRunMode::Performance));
+			TestTrue(*FString::Printf(TEXT("B5E pair %d %s records production cost"), PairIndex + 1, *Run->RunID),
+				Run->CostBreakdown.ProductionCpuMs > 0.0);
+			TestEqual(*FString::Printf(TEXT("B5E pair %d %s excludes validation cost"), PairIndex + 1, *Run->RunID),
+				Run->CostBreakdown.ValidationCpuMs, 0.0);
+			TestEqual(*FString::Printf(TEXT("B5E pair %d %s excludes snapshot cost"), PairIndex + 1, *Run->RunID),
+				Run->CostBreakdown.SnapshotCpuMs, 0.0);
+			TestEqual(*FString::Printf(TEXT("B5E pair %d %s excludes observer cost"), PairIndex + 1, *Run->RunID),
+				Run->CostBreakdown.ObserverCpuMs, 0.0);
+		}
+		TestEqual(*FString::Printf(TEXT("B5E pair %d never scans all identities during an hour"), PairIndex + 1),
+			Proposed->Diagnostics.V17IdentityScanCountPerHour, int64(0));
+		TestTrue(*FString::Printf(TEXT("B5E pair %d keeps Active residents within 50"), PairIndex + 1),
+			Proposed->Diagnostics.MaxActiveMicro <= 50);
+
+		FString ProposedManifestText;
+		FString PerAgentManifestText;
+		TSharedPtr<FJsonObject> ProposedManifest;
+		TSharedPtr<FJsonObject> PerAgentManifest;
+		const FString ProposedManifestPath = FPaths::Combine(Proposed->RunDirectory, RunManifestFile);
+		const FString PerAgentManifestPath = FPaths::Combine(PerAgent->RunDirectory, RunManifestFile);
+		if (!FFileHelper::LoadFileToString(ProposedManifestText, *ProposedManifestPath)
+			|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(ProposedManifestText), ProposedManifest)
+			|| !ProposedManifest.IsValid()
+			|| !FFileHelper::LoadFileToString(PerAgentManifestText, *PerAgentManifestPath)
+			|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(PerAgentManifestText), PerAgentManifest)
+			|| !PerAgentManifest.IsValid())
+		{
+			AddError(FString::Printf(TEXT("B5E pair %d could not read both manifests."), PairIndex + 1));
+			return false;
+		}
+		for (const FString& HashField : { FString(TEXT("population_manifest_sha256")), FString(TEXT("damage_list_sha256")), FString(TEXT("persistent_pool_sha256")) })
+		{
+			TestEqual(*FString::Printf(TEXT("B5E pair %d shares %s"), PairIndex + 1, *HashField),
+				ProposedManifest->GetStringField(HashField), PerAgentManifest->GetStringField(HashField));
+		}
+		TestFalse(*FString::Printf(TEXT("B5E pair %d keeps formal validity closed until pre-formal hardening"), PairIndex + 1),
+			ProposedManifest->GetBoolField(TEXT("valid_for_formal_experiment")));
+
+		const double PairSpeedup = PerAgent->CostBreakdown.ProductionCpuMs / Proposed->CostBreakdown.ProductionCpuMs;
+		PairSpeedups.Add(PairSpeedup);
+		ProposedProductionTotalMs += Proposed->CostBreakdown.ProductionCpuMs;
+		PerAgentProductionTotalMs += PerAgent->CostBreakdown.ProductionCpuMs;
+		TestTrue(*FString::Printf(TEXT("B5E pair %d reaches the frozen 3x engineering target"), PairIndex + 1),
+			PairSpeedup >= RequiredSpeedup);
+		AddInfo(FString::Printf(
+			TEXT("B5E pair=%d order=%s proposed_ms=%.3f per_agent_ms=%.3f speedup=%.3f proposed_digest=%s per_agent_digest=%s"),
+			PairIndex + 1,
+			bProposedFirst ? TEXT("Proposed-PerAgent") : TEXT("PerAgent-Proposed"),
+			Proposed->CostBreakdown.ProductionCpuMs,
+			PerAgent->CostBreakdown.ProductionCpuMs,
+			PairSpeedup,
+			*Proposed->DeterministicDigest,
+			*PerAgent->DeterministicDigest));
+	}
+
+	TArray<double> SortedSpeedups = PairSpeedups;
+	SortedSpeedups.Sort();
+	const double MedianSpeedup = (SortedSpeedups[1] + SortedSpeedups[2]) * 0.5;
+	const double PooledSpeedup = PerAgentProductionTotalMs / ProposedProductionTotalMs;
+	TestTrue(TEXT("B5E median speedup reaches the frozen 3x engineering target"), MedianSpeedup >= RequiredSpeedup);
+	TestTrue(TEXT("B5E pooled speedup reaches the frozen 3x engineering target"), PooledSpeedup >= RequiredSpeedup);
+	AddInfo(FString::Printf(
+		TEXT("B5E summary pairs=%d minimum_speedup=%.3f median_speedup=%.3f maximum_speedup=%.3f pooled_speedup=%.3f proposed_total_ms=%.3f per_agent_total_ms=%.3f"),
+		PairSpeedups.Num(),
+		SortedSpeedups[0],
+		MedianSpeedup,
+		SortedSpeedups.Last(),
+		PooledSpeedup,
+		ProposedProductionTotalMs,
+		PerAgentProductionTotalMs));
+	return true;
+}
+
 #endif

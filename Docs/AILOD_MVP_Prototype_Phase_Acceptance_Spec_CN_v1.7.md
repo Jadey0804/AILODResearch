@@ -3,10 +3,10 @@
 **版本：v1.7**<br>
 **日期：2026-08-18**<br>
 **验收文档可读性规则增补：2026-08-19**<br>
-**状态：研究方向与 6G-B0 规则已由项目作者于 2026-08-18 确认；B0—B4 已分别封板，B1、B2A、B2B、B3、B4 提交为 `90020f2`、`af3b253`、`37120c4`、`0ed8c16`、`97e5843`；B5A—B5C 已由项目作者确认并以 `8f7adbb`、`e17d0dc`、`b0d75e0` 封板；B5D-Lite 完整检查已通过并获项目作者确认，正在独立本地提交封板，B5 总验收尚未完成**<br>
+**状态：研究方向与 6G-B0 规则已由项目作者于 2026-08-18 确认；B0—B4 已分别封板，B1、B2A、B2B、B3、B4 提交为 `90020f2`、`af3b253`、`37120c4`、`0ed8c16`、`97e5843`；B5A—B5D-Lite 已由项目作者确认并以 `8f7adbb`、`e17d0dc`、`b0d75e0`、`3c2f9bc` 封板；B5E 公平测速和完整回归已通过，项目作者已确认 B5 工程验收，正式实验资格继续关闭并先完成正式实验前加固**<br>
 **基准文档：`AILOD_MVP_Prototype_Implementation_Spec_CN.md` v1.1**<br>
 **前序修订：v1.2、v1.3、v1.4、v1.5、v1.6**<br>
-**工程证据：`AILOD_MVP_Phase6G_A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B1_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2B_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B3_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B4_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5B_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5C_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5D_Lite_Checkpoint_CN.md`**<br>
+**工程证据：`AILOD_MVP_Phase6G_A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B1_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B2B_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B3_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B4_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5A_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5B_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5C_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5D_Lite_Checkpoint_CN.md`、`AILOD_MVP_Phase6G_B5E_Checkpoint_CN.md`**<br>
 **用途：用结构化 Cohort 权威状态、批量 Claim/Event 和按需 Lift/Restrict 替代 Proposed 的每小时全员候选与个人提交；历史文档保留不改。**
 
 ## 1. 文档优先级、实施生效点与不变项
@@ -481,6 +481,21 @@ B5D-Lite 实施记录（2026-08-20，完整检查通过，项目作者已确认�
 - 100k 单轮 Production 相比 B5C 20k 约为 `1.87` 倍；它证明没有接近 5 倍增长，但不是正式计时结论；
 - Development Editor 编译成功；NullRHI 完整回归为 `37/37 Success`、失败 0、自动化错误 0、退出码 0，B5C 与 B5D-Lite 的固定结果指纹均未变化；
 - B5E 尚未完成，`valid_for_formal_experiment=false` 继续保持；详细证据见 `AILOD_MVP_Phase6G_B5D_Lite_Checkpoint_CN.md`。
+
+B5E 运行前冻结（2026-08-20，在查看 B5E 结果前写定）：
+
+- 固定 20k、StateImport、Seed `20260810` 和 Performance 模式，四组方法顺序为 `P→A / A→P / P→A / A→P`；
+- 每组、四组中位数和八次合计的 `PerAgent Production / Proposed Production` 均须 `≥3.0`；
+- 八次均须硬错误为 0、方法内 Digest 一致、配对输入指纹相同，Proposed 每小时 Identity Scan 为 0 且 Active `≤50`；
+- 测速通过后仍先保持 `valid_for_formal_experiment=false`；项目作者确认 B5 工程结论后，先完成正式实验前加固，再统一决定是否开启正式实验资格并执行最后完整回归；详细证据见 `AILOD_MVP_Phase6G_B5E_Checkpoint_CN.md`。
+
+B5E 实施结果（2026-08-20，项目作者已确认 B5 工程验收）：
+
+- 第一轮四组 20k 速度比最低 `5.321`、中位数 `5.387`、合计 `5.394`；完整回归中的第二轮最低 `5.226`、中位数 `5.320`、合计 `5.318`；
+- 两轮共 8 组全部超过预先固定的 3 倍线，Proposed/Per-Agent 先后顺序没有改变结论；
+- 两种方法各自结果可重复、配对输入相同、严重错误为 0；Proposed 每小时 Identity Scan 为 0、Active `≤50`；
+- Development Editor 编译成功；NullRHI 完整回归 `38/38 Success`、失败 0、自动化错误 0、退出码 0，B5C/B5D 固定结果指纹不变；
+- 项目作者已确认 B5 工程验收；`valid_for_formal_experiment=false` 继续保持，先完成正式实验前加固，B5E 正在独立本地提交封板、尚未推送；详细证据见 `AILOD_MVP_Phase6G_B5E_Checkpoint_CN.md`。
 
 每个步骤必须使用同一 `phase-6g-b-cohort-batch` 分支上的独立本地提交，完成 Development Editor 编译、全部既有测试和本步新增测试，更新检查点后停止等待作者确认；未经明确要求不推送。B0 是纯文档例外，只要求文档/版本/Git 一致性检查，不重复运行未受影响的 UE 二进制测试。
 

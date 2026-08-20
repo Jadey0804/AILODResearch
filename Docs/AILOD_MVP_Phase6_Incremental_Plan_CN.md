@@ -1,6 +1,6 @@
 # AILOD MVP Phase 6 增量实施计划与检查点
 
-**计划版本：2.7**<br>
+**计划版本：2.8**<br>
 **日期：2026-08-20**<br>
 **分支：`phase-6g-b-cohort-batch`**<br>
 **Phase 5.1 基线提交：`7ea750d6617f6346de37e19e2d20c9c76f5b682f`**<br>
@@ -21,7 +21,8 @@
 **Phase 6G-B5A 封板提交：`8f7adbb`**<br>
 **Phase 6G-B5B 封板提交：`e17d0dc`**<br>
 **Phase 6G-B5C 封板提交：`b0d75e0`**<br>
-**当前状态：项目作者已确认 B5D-Lite 的 50k、100k Proposed 压力测试、100k 重放和 37 项完整回归；B5D-Lite 正在独立本地提交封板，随后开始 B5E，所有既有提交均未推送。**
+**Phase 6G-B5D-Lite 封板提交：`3c2f9bc`**<br>
+**当前状态：B5D-Lite 已提交封板；B5E 两轮共 8 组 20k 交错配对和 38 项完整回归均已通过，项目作者已确认 B5 工程验收；正式实验资格继续关闭，先完成正式实验前加固，所有既有提交均未推送。**
 
 本文件把 Phase 6 和经证据触发的 6G-B 拆成可独立验收的实施步骤；模型事实只由版本化规格定义。本计划从 6G-B0 起按 `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.7.md` 导航，不自行新增或覆盖模型规则。规则冲突按 `AILOD_MVP_Current_Rules_Index_CN.md` 指定的 v1.1 → v1.7 顺序处理。
 
@@ -76,7 +77,7 @@ Phase 6 不负责：
 | Phase 6G-B2B | 隔离 Work 与工资/国库 Batch 切片 | 作者已确认，提交 `37120c4` 封板 |
 | Phase 6G-B3 | 全动作资源竞争批量化并一次性切换 Macro 权威 | 作者已确认，提交 `0ed8c16` 封板 |
 | Phase 6G-B4 | Dynamic Lift/Restrict、Capsule 与 Batch Split/Merge | 作者已确认，提交 `97e5843` 封板 |
-| Phase 6G-B5 | 200 准确性、2k—20k 回归/性能和 50k/100k 压力总验收 | 进行中：B5A—B5C 已提交封板；B5D-Lite 已获作者确认，正在封板 |
+| Phase 6G-B5 | 200 准确性、2k—20k 回归/性能和 50k/100k 压力总验收 | 作者已确认 B5 工程验收；正式实验资格保持关闭，先完成正式实验前加固 |
 
 ## 4. Phase 6A：可逐小时推进的生产会话
 
@@ -481,7 +482,7 @@ B0 检查点：
 
 #### B5C：复验 2k、10k、20k 的规模和生产成本
 
-实施记录（2026-08-20，完成检查，等待项目作者确认）：
+实施记录（2026-08-20，项目作者已确认，提交 `b0d75e0`）：
 
 - 固定 Seed `20260810`、StateImport 场景下，2k、10k、20k 各运行 Proposed v1.7 与 Per-Agent，并分别从清单重放 Proposed；三档固定 Digest 为 `38995B7B27CB95192929E14F86FBE63977771520`、`00B082902227FA9EE37E9BE9BFA0605E09A7A1DD`、`7F317FB86A55F96AB8632A558515A56C41925E8B`，重放均相同；
 - 三档硬错误为 0、每小时 Identity Scan 为 0、ResidentTouches 均为 120、结束时非空状态格均为 9；Batch Claim 为 `2823 / 2827 / 2827`，Batch Event 为 `2892 / 2905 / 2905`，没有随人口从 2k 到 20k 近似增长 10 倍；
@@ -503,6 +504,25 @@ B0 检查点：
 - 第二次独立定向运行的 50k/100k 初始化为 `27.127 / 55.998 ms`，整场 Production 为 `4409.361 / 6705.896 ms`；100k 相比 B5C 20k 的单轮生产时间约为 `1.87` 倍，不是完全不变，但远低于 5 倍人口增长；
 - Development Editor 编译成功；NullRHI 完整回归实际发现 37 项，`37/37 Success`、失败 0、自动化错误 0、退出码 0；B5C 与 B5D-Lite 的固定结果指纹全部保持不变；
 - `valid_for_formal_experiment=false` 继续保持；B5E 尚未完成；独立证据见 `AILOD_MVP_Phase6G_B5D_Lite_Checkpoint_CN.md`。
+
+#### B5E：20k 最终公平测速
+
+运行前冻结（2026-08-20，在查看 B5E 结果前写定）：
+
+- 固定 20k、StateImport、Seed `20260810` 和 Performance 模式，不再优化 Proposed；
+- 共做四组 Proposed/Per-Agent 配对，顺序固定为 `P→A / A→P / P→A / A→P`；
+- 每组、四组中位数和合计速度比都必须达到 `PerAgent Production / Proposed Production ≥ 3.0`；
+- 八次均须硬错误为 0、结果可重复、输入指纹一致，Proposed 每小时 Identity Scan 为 0 且 Active `≤50`；
+- 测速通过后只形成“建议通过 B5”的检查点，`valid_for_formal_experiment=false` 保持到项目作者确认；独立证据见 `AILOD_MVP_Phase6G_B5E_Checkpoint_CN.md`。
+
+实施结果（2026-08-20，项目作者已确认 B5 工程验收）：
+
+- 第一轮四组速度比为 `5.428 / 5.321 / 5.481 / 5.346`，最低 `5.321`、中位数 `5.387`、合计 `5.394`；
+- 38 项完整回归里的第二轮为 `5.319 / 5.321 / 5.226 / 5.412`，最低 `5.226`、中位数 `5.320`、合计 `5.318`；
+- 两轮共 8 组全部超过预先固定的 3 倍线；两种方法顺序没有改变结论；
+- Proposed 和 Per-Agent 各自的八次 Digest 一致，配对输入一致，严重错误为 0，Proposed 每小时 Identity Scan 为 0、Active `≤50`；
+- Development Editor 编译成功；NullRHI 完整回归 `38/38 Success`、失败 0、自动化错误 0、退出码 0；B5C/B5D 固定结果指纹不变；
+- 项目作者已确认 B5 工程验收；`valid_for_formal_experiment=false` 继续保持，先完成正式实验前加固，B5E 正在独立本地提交封板、尚未推送。
 
 ## 12. Step 0 确认门
 
