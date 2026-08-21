@@ -1,7 +1,7 @@
 # AILOD MVP 当前有效规则索引
 
-**索引版本：4.6**<br>
-**日期：2026-08-20**<br>
+**索引版本：4.7**<br>
+**日期：2026-08-21**<br>
 **用途：说明当前规则的读取顺序、冲突优先级和各文档职责。**<br>
 **性质：本文件只做导航，不新增模型规则、不替代原规格，也不构成阶段验收。**
 
@@ -16,14 +16,15 @@
 5. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.5.md`；
 6. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.6.md`；
 7. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.7.md`；
-8. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.8.md`。
+8. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.8.md`；
+9. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.9.md`。
 
 冲突处理规则：
 
 - 后一版本只覆盖其中明确写出的冲突项；
 - 没有被后续版本明确覆盖的内容，继续继承较早版本；
-- v1.8 是当前最高版本，但只覆盖正式实验前的证据、运行管理和内存测量规则；v1.7 的模拟行为仍然有效；
-- v1.1 中“单一事实源”的表述应理解为“基准事实源”。当前完整事实源是 v1.1 加 v1.2—v1.8 的累计覆盖链；
+- v1.9 是当前最高版本，只覆盖每栋房的状态连续性、批量维修到具体 HomeID 的对应、Lift 读取顺序和住房承诺计时；其余 v1.7 模拟行为与 v1.8 加固规则仍然有效；
+- v1.1 中“单一事实源”的表述应理解为“基准事实源”。当前完整事实源是 v1.1 加 v1.2—v1.9 的累计覆盖链；
 - 不得根据摘要、旧状态表或旧交接说明，反向覆盖正式规格中的较新规则。
 
 ## 2. 每份文档负责什么
@@ -37,7 +38,8 @@
 | v1.5 Unified Runtime Spec | 单一权威 Runtime、四方法共享语义、统一小时管线、Phase 5 入口与 DoD | 精确 Cohort 一致性要求已被 v1.6 覆盖 |
 | v1.6 Phase 5.1 Spec | 受控 Cohort 近似、固定 Activation Trace、Simple 激活公平性、失败原子边界、运行模式和 Phase 6 前置架构债务 | 固定 Trace、Simple 公平性、动作定义、小时顺序和测量隔离继续有效；Proposed 的人口表示、个人候选/提交和旧日志语义已被 v1.7 覆盖 |
 | v1.7 Cohort Batch Spec | Identity Registry、权威 Joint State、Action Flow、Batch Claim/Event、聚合 Ledger、Capsule、Dynamic Lift/Restrict、新 Digest/Schema 和 6G-B0—B5 | 是 6G-B 及最终 Proposed 的最高优先级规则；B1/B2 仍由 v1.6 运行，B3 才一次性切换 Macro 权威，B4 接入完整动态 LOD；各检查点必须标明 authority mode，不得长期双写或形成混合真相 |
-| v1.8 Pre-Formal Hardening Spec | 正式资格与领域摘要分离、连续性大小误差、批量运行顺序/续跑、分项内存和 5 Seed 预检查 | 不修改 v1.7 行为模型；是 H0—H5 的最高优先级证据和实验工具规则 |
+| v1.8 Pre-Formal Hardening Spec | 正式资格与领域摘要分离、连续性大小误差、批量运行顺序/续跑、分项内存和 5 Seed 预检查 | H0—H5 的证据和实验工具规则继续有效；“不修改 v1.7 行为模型”的阶段边界已完成，后续住房定向修正以 v1.9 为准 |
+| v1.9 Home Continuity Spec | 每栋房紧凑状态、批量维修对应具体 HomeID、Lift 优先读取房屋状态、住房承诺任务计时和 H6 验收 | 只修住房连续性，不改变 Cohort 规划、批量竞争、资源公式、Active=50 或其他方法；是 H6 的最高优先级规则 |
 | Phase 5 Handoff v1.0 | Phase 5 开始前的导航、源码位置、历史现场和验证方法 | 生成时间早于 v1.6；不是模型事实源，涉及当前 Phase 5.1 时必须回到 v1.6 和检查点核对 |
 | Phase 5.1 Checkpoint | Phase 5.1 实现证据、Hash、Digest、自动验收结果、已知边界和待完成项 | 是验收记录，不新增或覆盖模型规则 |
 | Phase 6 Incremental Plan | 将既有 Phase 6 范围拆成 6A—6F 检查点并记录逐步验收状态 | 是实施导航与检查点，不新增或覆盖模型规则；每一步必须经作者确认后才能进入下一步 |
@@ -86,6 +88,9 @@
 | 正式资格与领域摘要 | 正式资格是实验管理信息，不进入模拟领域摘要；正式 Run 必须同时满足模型已批准、本次明确请求、环境合格和硬错误为 0 | v1.8 §4 |
 | 连续性误差 | 身份仍是零错误门；钱、补助、木材、房屋、任务和 FirstAction 同时报告不一致率与误差大小；EventID/ReservationID 只作内部编号诊断 | v1.8 §5 |
 | 内存结论 | `memory_mb` 是整个进程；Proposed 另外报告各权威容器的已追踪字节，未测量前不得宣称某个容器是主要问题 | v1.8 §7 |
+| 住房连续性 | Joint State 继续负责离屏社会总量和决策；另为每个 HomeID 保存一个紧凑房屋状态，维修中的房屋临时指向对应 Batch Event；Lift 必须先读这份状态 | v1.9 §3—§6 |
+| 房屋变化成本 | 只允许在实际发生地震、维修开始或完成时按变化房屋数更新；不得每小时扫描全部 Identity，也不得为批量维修生成逐人事件或交易 | v1.9 §3、§5 |
+| 住房承诺计时 | 原通用任务指标继续保留；RestoreHome 的进行中状态和剩余时间另行报告，不能让 Routine 周期差异掩盖维修承诺 | v1.9 §8 |
 
 ## 4. 当前阶段边界
 
@@ -106,7 +111,7 @@ Phase 6A—6F 已经实现以下内容：
 
 以上 Phase 6A—6F 历史边界以 v1.6 §8 和 Phase 5.1 Checkpoint §8 为准；6G-B 的新 Proposed 规则以 v1.7 为准。
 
-当前位于 `phase-6h-preformal-hardening`。B5E、H0、H1、H2、H3、H4 已分别以 `ef07f6c`、`669bea6`、`bd9079f`、`52795a0`、`ab59954`、`cecee95` 封板。H5 已完成 41 项完整回归和 40 Runs 预实验；Routine 计时差异已定位，但住房状态与第一行动仍有可见近似误差，正式模型资格继续关闭，等待项目作者决定是否另开 v1.9 定向修正。所有提交均未推送。
+当前位于 `phase-6i-home-continuity`。B5E、H0、H1、H2、H3、H4、H5 已分别以 `ef07f6c`、`669bea6`、`bd9079f`、`52795a0`、`ab59954`、`cecee95`、`4e11072` 封板。项目作者已于 2026-08-21 采纳 v1.9 / H6 住房连续性定向修正；H6 实现和复验进行中，正式模型资格继续关闭。所有提交均未推送。
 
 ## 5. 后续修改规则
 
