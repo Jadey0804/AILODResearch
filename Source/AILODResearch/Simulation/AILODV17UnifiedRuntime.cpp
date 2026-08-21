@@ -1196,7 +1196,7 @@ namespace AILOD
 		OutResult.ClaimAllocationVersion = TEXT("1.7");
 		OutResult.CapsuleVersion = TEXT("1");
 		OutResult.DeterministicDigestVersion = TEXT("1.9-domain-v1");
-		OutResult.bFormalModelEligible = false;
+		OutResult.bFormalModelEligible = true;
 		OutResult.ConfigHash = PopulationManifest.ConfigHash;
 		OutResult.FinalTime = Authority->GetCurrentTime();
 		OutResult.WarmupHourSteps = 7 * static_cast<int32>(HoursPerDay);

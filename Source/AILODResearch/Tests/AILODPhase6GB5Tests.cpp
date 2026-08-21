@@ -79,8 +79,13 @@ bool FAILODPhase6GB5ARunnerAuthorityTest::RunTest(const FString& Parameters)
 		Manifest->GetStringField(TEXT("proposed_model_version")), FString(TEXT("1.9")));
 	TestEqual(TEXT("The manifest names the sole state authority"),
 		Manifest->GetStringField(TEXT("authority_mode")), FString(TEXT("v1.9_home_continuity")));
-	TestFalse(TEXT("B5A keeps formal-experiment validity closed until all B5 gates pass"),
+	TestTrue(TEXT("H6-F marks the approved v1.9 model as formally eligible"),
+		Manifest->GetBoolField(TEXT("formal_model_eligible")));
+	TestFalse(TEXT("An engineering run is still not formal unless it explicitly requests formal execution"),
 		Manifest->GetBoolField(TEXT("valid_for_formal_experiment")));
+	TestEqual(TEXT("The manifest explains why this engineering run is not formal"),
+		Manifest->GetStringField(TEXT("formal_eligibility_reason")),
+		FString(TEXT("engineering_run_not_requested_as_formal")));
 
 	FExperimentRunRecord Replay;
 	const FString ReplayRoot = FPaths::Combine(TestRoot, TEXT("Replay"));
