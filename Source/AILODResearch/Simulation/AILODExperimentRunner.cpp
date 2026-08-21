@@ -281,6 +281,9 @@ namespace AILOD
 				};
 				OutRun.V17TrackedMemory.AuthorityFixedBytes = Bytes(TEXT("authority_fixed_bytes"));
 				OutRun.V17TrackedMemory.IdentityRegistryBytes = Bytes(TEXT("identity_registry_bytes"));
+				OutRun.V17TrackedMemory.HomeContinuityBytes = (*TrackedMemory)->HasField(TEXT("home_continuity_bytes"))
+					? Bytes(TEXT("home_continuity_bytes"))
+					: 0;
 				OutRun.V17TrackedMemory.JointStateBytes = Bytes(TEXT("joint_state_bytes"));
 				OutRun.V17TrackedMemory.ActiveStateBytes = Bytes(TEXT("active_state_bytes"));
 				OutRun.V17TrackedMemory.CapsuleBytes = Bytes(TEXT("continuity_capsule_bytes"));
@@ -638,7 +641,8 @@ namespace AILOD
 		Options.bEnableV17ShadowCohort = (*Parameters)->HasField(TEXT("enable_v17_shadow_cohort"))
 			&& (*Parameters)->GetBoolField(TEXT("enable_v17_shadow_cohort"));
 		if (Manifest->HasTypedField<EJson::String>(TEXT("authority_mode"))
-			&& Manifest->GetStringField(TEXT("authority_mode")) == TEXT("v1.7_authoritative"))
+			&& (Manifest->GetStringField(TEXT("authority_mode")) == TEXT("v1.7_authoritative")
+				|| Manifest->GetStringField(TEXT("authority_mode")) == TEXT("v1.9_home_continuity")))
 		{
 			Options.ProposedModelVersion = EProposedModelVersion::V17Authoritative;
 		}

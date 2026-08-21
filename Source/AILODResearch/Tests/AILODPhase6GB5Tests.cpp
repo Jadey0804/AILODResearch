@@ -73,12 +73,12 @@ bool FAILODPhase6GB5ARunnerAuthorityTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("The authoritative run writes Schema 1.2"),
 		Manifest->GetStringField(TEXT("schema_version")), FString(TEXT("1.2")));
-	TestEqual(TEXT("The authoritative run writes Spec 1.7"),
-		Manifest->GetStringField(TEXT("spec_version")), FString(TEXT("1.7")));
-	TestEqual(TEXT("The manifest names v1.7 as the Proposed model"),
-		Manifest->GetStringField(TEXT("proposed_model_version")), FString(TEXT("1.7")));
+	TestEqual(TEXT("The authoritative run writes Spec 1.9"),
+		Manifest->GetStringField(TEXT("spec_version")), FString(TEXT("1.9")));
+	TestEqual(TEXT("The manifest names v1.9 as the Proposed model"),
+		Manifest->GetStringField(TEXT("proposed_model_version")), FString(TEXT("1.9")));
 	TestEqual(TEXT("The manifest names the sole state authority"),
-		Manifest->GetStringField(TEXT("authority_mode")), FString(TEXT("v1.7_authoritative")));
+		Manifest->GetStringField(TEXT("authority_mode")), FString(TEXT("v1.9_home_continuity")));
 	TestFalse(TEXT("B5A keeps formal-experiment validity closed until all B5 gates pass"),
 		Manifest->GetBoolField(TEXT("valid_for_formal_experiment")));
 
@@ -209,6 +209,9 @@ bool FAILODPhase6GB5BAccuracyAndPolicyTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("B5B reports the average inventory-wood difference"), Summary.Contains(TEXT("Continuity.InventoryWoodMAE")));
 	TestTrue(TEXT("B5B reports whether both methods agree that a task is active"), Summary.Contains(TEXT("Continuity.TaskActiveStatusMismatchRate")));
 	TestTrue(TEXT("B5B reports comparable same-goal task time difference"), Summary.Contains(TEXT("Continuity.TaskRemainingHoursMAE")));
+	TestTrue(TEXT("H6 reports housing commitment timing separately from Routine"),
+		Summary.Contains(TEXT("Continuity.CommitmentTaskActiveStatusMismatchRate"))
+		&& Summary.Contains(TEXT("Continuity.CommitmentTaskRemainingHoursMAE")));
 	TestTrue(TEXT("B5B labels raw event identifiers as internal diagnostics"), Summary.Contains(TEXT("Continuity.Diagnostic.EventIDExactMismatchRate")));
 	TestFalse(TEXT("B5B no longer presents raw event identifiers as a primary continuity metric"), Summary.Contains(TEXT("Continuity.EventIDMismatchRate")));
 	TestFalse(TEXT("B5B metrics contain no NaN"), Summary.Contains(TEXT("nan"), ESearchCase::IgnoreCase));
@@ -276,11 +279,11 @@ bool FAILODPhase6GB5CScaleRegressionTest::RunTest(const FString& Parameters)
 			return false;
 		}
 		const FString ExpectedDigest = TotalPopulation == 2000
-			? TEXT("E67208009BB126D73DBFB81950B011A8060811C0")
+			? TEXT("79C4122D8C4009D054EB075A7BF02560027E1E74")
 			: TotalPopulation == 10000
-				? TEXT("9E3185F7D8726CA1D0DB70DC165F8919A877F034")
-				: TEXT("213A183F0394E50E0FB079FAD4FB38BCD6C2D381");
-		TestEqual(*FString::Printf(TEXT("B5C %d freezes the v1.7 deterministic Digest"), TotalPopulation),
+				? TEXT("FB21BAE980BF500FE62D793B6FBD5C1FFC621866")
+				: TEXT("D681CF97BCF47AC6E7B0E44C2BE413594EF19CE9");
+		TestEqual(*FString::Printf(TEXT("B5C %d freezes the v1.9 deterministic Digest"), TotalPopulation),
 			Proposed->DeterministicDigest, ExpectedDigest);
 
 		for (const FExperimentRunRecord* Run : { Proposed, PerAgent })
@@ -321,10 +324,10 @@ bool FAILODPhase6GB5CScaleRegressionTest::RunTest(const FString& Parameters)
 		}
 		TestEqual(*FString::Printf(TEXT("B5C %d writes Schema 1.2"), TotalPopulation),
 			Manifest->GetStringField(TEXT("schema_version")), FString(TEXT("1.2")));
-		TestEqual(*FString::Printf(TEXT("B5C %d writes Spec 1.7"), TotalPopulation),
-			Manifest->GetStringField(TEXT("spec_version")), FString(TEXT("1.7")));
-		TestEqual(*FString::Printf(TEXT("B5C %d records the v1.7 authority"), TotalPopulation),
-			Manifest->GetStringField(TEXT("authority_mode")), FString(TEXT("v1.7_authoritative")));
+		TestEqual(*FString::Printf(TEXT("B5C %d writes Spec 1.9"), TotalPopulation),
+			Manifest->GetStringField(TEXT("spec_version")), FString(TEXT("1.9")));
+		TestEqual(*FString::Printf(TEXT("B5C %d records the v1.9 authority"), TotalPopulation),
+			Manifest->GetStringField(TEXT("authority_mode")), FString(TEXT("v1.9_home_continuity")));
 		TestFalse(*FString::Printf(TEXT("B5C %d keeps formal validity closed"), TotalPopulation),
 			Manifest->GetBoolField(TEXT("valid_for_formal_experiment")));
 		const TSharedPtr<FJsonObject>* HardErrors = nullptr;
@@ -476,9 +479,9 @@ bool FAILODPhase6GB5DStressLiteTest::RunTest(const FString& Parameters)
 		if (Runs.Num() != 1) return false;
 		const FExperimentRunRecord& Run = Runs[0];
 		const FString ExpectedDigest = TotalPopulation == 50000
-			? TEXT("D1C4DBA669C8DF60928EB678DEB6C246F466C2E4")
-			: TEXT("0E1A9B54C815B0A93163256249564A1F51F6BA39");
-		TestEqual(*FString::Printf(TEXT("B5D-Lite %d freezes the v1.7 deterministic Digest"), TotalPopulation),
+			? TEXT("4CFB4E5B6B4854929B0BD2FF034D2A2AEE20B54C")
+			: TEXT("BC92D8E699B4EFE2D6A126CAD212565F2A9F2E3C");
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d freezes the v1.9 deterministic Digest"), TotalPopulation),
 			Run.DeterministicDigest, ExpectedDigest);
 		TestTrue(*FString::Printf(TEXT("B5D-Lite %d has no hard error"), TotalPopulation), Run.bHardErrorFree);
 		TestEqual(*FString::Printf(TEXT("B5D-Lite %d initializes every identity"), TotalPopulation),
@@ -505,6 +508,10 @@ bool FAILODPhase6GB5DStressLiteTest::RunTest(const FString& Parameters)
 			Run.V17TrackedMemory.TotalBytes, Run.V17TrackedMemory.SumComponents());
 		TestTrue(*FString::Printf(TEXT("H4 %d tracks identity memory"), TotalPopulation),
 			Run.V17TrackedMemory.IdentityRegistryBytes > 0);
+		TestTrue(*FString::Printf(TEXT("H6 %d tracks housing continuity memory"), TotalPopulation),
+			Run.V17TrackedMemory.HomeContinuityBytes > 0);
+		TestTrue(*FString::Printf(TEXT("H6 %d records concrete housing changes"), TotalPopulation),
+			Run.Diagnostics.V19HomeStateUpdateCount > 0);
 		TestTrue(*FString::Printf(TEXT("H4 %d tracks ledger memory"), TotalPopulation),
 			Run.V17TrackedMemory.LedgerBytes > 0);
 
@@ -529,10 +536,10 @@ bool FAILODPhase6GB5DStressLiteTest::RunTest(const FString& Parameters)
 		}
 		TestEqual(*FString::Printf(TEXT("B5D-Lite %d writes Schema 1.2"), TotalPopulation),
 			Manifest->GetStringField(TEXT("schema_version")), FString(TEXT("1.2")));
-		TestEqual(*FString::Printf(TEXT("B5D-Lite %d writes Spec 1.7"), TotalPopulation),
-			Manifest->GetStringField(TEXT("spec_version")), FString(TEXT("1.7")));
-		TestEqual(*FString::Printf(TEXT("B5D-Lite %d records the v1.7 authority"), TotalPopulation),
-			Manifest->GetStringField(TEXT("authority_mode")), FString(TEXT("v1.7_authoritative")));
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d writes Spec 1.9"), TotalPopulation),
+			Manifest->GetStringField(TEXT("spec_version")), FString(TEXT("1.9")));
+		TestEqual(*FString::Printf(TEXT("B5D-Lite %d records the v1.9 authority"), TotalPopulation),
+			Manifest->GetStringField(TEXT("authority_mode")), FString(TEXT("v1.9_home_continuity")));
 		TestFalse(*FString::Printf(TEXT("B5D-Lite %d keeps formal validity closed"), TotalPopulation),
 			Manifest->GetBoolField(TEXT("valid_for_formal_experiment")));
 		const TSharedPtr<FJsonObject>* HardErrors = nullptr;
@@ -646,7 +653,7 @@ bool FAILODPhase6GB5EFinalEngineeringGateTest::RunTest(const FString& Parameters
 
 	constexpr int32 PairCount = 4;
 	constexpr double RequiredSpeedup = 3.0;
-	const FString ExpectedProposedDigest = TEXT("213A183F0394E50E0FB079FAD4FB38BCD6C2D381");
+	const FString ExpectedProposedDigest = TEXT("D681CF97BCF47AC6E7B0E44C2BE413594EF19CE9");
 	const FString TestRoot = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AILOD/Phase6GB5ECheckpoint"));
 	IFileManager::Get().DeleteDirectory(*TestRoot, false, true);
 	TArray<double> PairSpeedups;

@@ -818,6 +818,9 @@ bool FAILODPhase6EExperimentRunnerAndMetricsTest::RunTest(const FString& Paramet
 	TestTrue(TEXT("Summary contains behavior TVD"), FirstSummary.Contains(TEXT("Behavior.TVD")));
 	TestTrue(TEXT("Summary contains continuity mismatch rates"), FirstSummary.Contains(TEXT("Continuity.MoneyMismatchRate")));
 	TestTrue(TEXT("Summary contains continuity magnitude metrics"), FirstSummary.Contains(TEXT("Continuity.MoneyMAE")));
+	TestTrue(TEXT("Summary separates important housing commitment timing"),
+		FirstSummary.Contains(TEXT("Continuity.CommitmentTaskActiveStatusMismatchRate"))
+		&& FirstSummary.Contains(TEXT("Continuity.CommitmentTaskRemainingHoursMAE")));
 	TestTrue(TEXT("Summary separates internal event identifiers from player-facing continuity"), FirstSummary.Contains(TEXT("Continuity.Diagnostic.EventIDExactMismatchRate")));
 	TestTrue(TEXT("Summary contains hard-error counts"), FirstSummary.Contains(TEXT("HardError.wood_residual")));
 	TestFalse(TEXT("Accuracy summary does not fabricate performance samples"), FirstSummary.Contains(TEXT("Performance.SampleCount")));

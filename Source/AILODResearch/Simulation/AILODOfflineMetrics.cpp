@@ -444,6 +444,10 @@ namespace AILOD
 			int32 TaskActiveStatusMismatches = 0;
 			int32 ComparableActiveTasks = 0;
 			double TaskRemainingHoursAbsoluteError = 0.0;
+			int32 CommitmentSnapshots = 0;
+			int32 CommitmentTaskActiveStatusMismatches = 0;
+			int32 ComparableCommitmentTasks = 0;
+			double CommitmentTaskRemainingHoursAbsoluteError = 0.0;
 			for (const TPair<FString, TArray<FString>>& Pair : Run.NPCSnapshots)
 			{
 				if (const TArray<FString>* OracleValues = Oracle.NPCSnapshots.Find(Pair.Key))
@@ -476,6 +480,19 @@ namespace AILOD
 						TaskRemainingHoursAbsoluteError += FMath::Abs(RemainingHours - OracleRemainingHours);
 						++ComparableActiveTasks;
 					}
+					const bool bCommitmentGoal = Pair.Value[11] == TEXT("RestoreHome");
+					const bool bOracleCommitmentGoal = (*OracleValues)[11] == TEXT("RestoreHome");
+					if (bCommitmentGoal || bOracleCommitmentGoal)
+					{
+						++CommitmentSnapshots;
+						if (bTaskActive != bOracleTaskActive) ++CommitmentTaskActiveStatusMismatches;
+						if (bCommitmentGoal && bOracleCommitmentGoal && bTaskActive && bOracleTaskActive)
+						{
+							CommitmentTaskRemainingHoursAbsoluteError += FMath::Abs(
+								RemainingHours - OracleRemainingHours);
+							++ComparableCommitmentTasks;
+						}
+					}
 				}
 			}
 			for (int32 Index = 0; Index < UE_ARRAY_COUNT(Names); ++Index)
@@ -504,6 +521,8 @@ namespace AILOD
 			OutRows.Add({ &Run, TEXT("Continuity.InventoryWoodNormalizedMAE"), InventoryWoodNormalizedError / Denominator, TEXT("abs_error_div_max_1_abs_oracle"), Oracle.RunID });
 			OutRows.Add({ &Run, TEXT("Continuity.TaskActiveStatusMismatchRate"), Compared > 0 ? static_cast<double>(TaskActiveStatusMismatches) / Compared : 0.0, FString::Printf(TEXT("paired_snapshots=%d"), Compared), Oracle.RunID });
 			OutRows.Add({ &Run, TEXT("Continuity.TaskRemainingHoursMAE"), ComparableActiveTasks > 0 ? TaskRemainingHoursAbsoluteError / ComparableActiveTasks : 0.0, FString::Printf(TEXT("hours;paired_same_goal_active_snapshots=%d"), ComparableActiveTasks), Oracle.RunID });
+			OutRows.Add({ &Run, TEXT("Continuity.CommitmentTaskActiveStatusMismatchRate"), CommitmentSnapshots > 0 ? static_cast<double>(CommitmentTaskActiveStatusMismatches) / CommitmentSnapshots : 0.0, FString::Printf(TEXT("restore_home_relevant_paired_snapshots=%d"), CommitmentSnapshots), Oracle.RunID });
+			OutRows.Add({ &Run, TEXT("Continuity.CommitmentTaskRemainingHoursMAE"), ComparableCommitmentTasks > 0 ? CommitmentTaskRemainingHoursAbsoluteError / ComparableCommitmentTasks : 0.0, FString::Printf(TEXT("hours;paired_restore_home_active_snapshots=%d"), ComparableCommitmentTasks), Oracle.RunID });
 		}
 
 		void AddHardErrors(const FOfflineRun& Run, TArray<FMetricRow>& OutRows)

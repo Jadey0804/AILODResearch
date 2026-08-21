@@ -340,6 +340,14 @@ namespace AILOD
 				return false;
 			}
 		}
+		TArray<FResidentID> DamagedResidentIDs;
+		DamagedResidentIDs.Reserve(DamageList.DamagedResidents.Num());
+		for (const FEarthquakeDamageRecord& Damage : DamageList.DamagedResidents)
+		{
+			DamagedResidentIDs.Add(Damage.ResidentID);
+		}
+		DamagedResidentIDs.Sort();
+		if (!Authority->ApplyEarthquakeHomeDamage(DamagedResidentIDs, OutError)) return false;
 		bEarthquakeApplied = true;
 		return Authority->CreateInstantSystemEvent(
 			TEXT("EarthquakeDamage"), DamageList.DamagedResidents.Num(), 0, OutError);
@@ -1117,9 +1125,19 @@ namespace AILOD
 		{
 			const double AuditStart = FPlatformTime::Seconds();
 			++Diagnostics.FullAuditCount;
-			if (!Authority->BuildAudit().IsHardErrorFree())
+			const FV17AuthoritativeAudit Audit = Authority->BuildAudit();
+			if (!Audit.IsHardErrorFree())
 			{
-				OutError = TEXT("The v1.7 hourly hard-error check failed.");
+				OutError = FString::Printf(
+					TEXT("The v1.9 hourly hard-error check failed at minute %lld: population=%lld identity=%d home_continuity=%d split_merge=%d lift_restrict=%d pending=%d reservation=%d."),
+					End.Minutes,
+					Audit.PopulationResidual,
+					Audit.IdentityMismatchCount,
+					Audit.HomeContinuityResidualCount,
+					Audit.BatchSplitMergeResidualCount,
+					Audit.LiftRestrictResidueCount,
+					Audit.PendingEventResidualCount,
+					Audit.ReservationResidualCount);
 				return false;
 			}
 			LastStepMeasurement.AuditCpuMs = (FPlatformTime::Seconds() - AuditStart) * 1000.0;
@@ -1171,13 +1189,13 @@ namespace AILOD
 		OutResult.bVerifyCohortApproximation = Options.bVerifyCohortApproximation;
 		OutResult.bEnableMacroProfiling = Options.bEnableMacroProfiling;
 		OutResult.ProposedModelVersion = EProposedModelVersion::V17Authoritative;
-		OutResult.ModelSpecVersion = TEXT("1.7");
+		OutResult.ModelSpecVersion = TEXT("1.9");
 		OutResult.LogSchemaVersion = TEXT("1.2");
-		OutResult.AuthorityMode = TEXT("v1.7_authoritative");
-		OutResult.JointStateVersion = TEXT("1.7");
+		OutResult.AuthorityMode = TEXT("v1.9_home_continuity");
+		OutResult.JointStateVersion = TEXT("1.9");
 		OutResult.ClaimAllocationVersion = TEXT("1.7");
 		OutResult.CapsuleVersion = TEXT("1");
-		OutResult.DeterministicDigestVersion = TEXT("1.7-domain-v2");
+		OutResult.DeterministicDigestVersion = TEXT("1.9-domain-v1");
 		OutResult.bFormalModelEligible = false;
 		OutResult.ConfigHash = PopulationManifest.ConfigHash;
 		OutResult.FinalTime = Authority->GetCurrentTime();
@@ -1253,6 +1271,7 @@ namespace AILOD
 		}
 		OutDiagnostics.V17CapsuleCount = Authority->GetCapsules().Num();
 		OutDiagnostics.V17ParticipantRefCount = Authority->GetParticipantRefs().Num();
+		OutDiagnostics.V19HomeStateUpdateCount = Authority->GetHomeStateUpdateCount();
 		for (const FV17LODTransitionRecord& Transition : Authority->GetLODTransitions())
 		{
 			if (Transition.Result != EV17LODTransitionResult::Committed) continue;

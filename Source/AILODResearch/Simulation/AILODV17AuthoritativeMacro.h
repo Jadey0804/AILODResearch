@@ -76,6 +76,7 @@ namespace AILOD
 		EKingdom InitialKingdom = EKingdom::A;
 		EProfession Profession = EProfession::Worker;
 		EIncomeBand IncomeBand = EIncomeBand::Low;
+		uint32 HomeStateIndex = MAX_uint32;
 		uint32 IdentityVersion = 1;
 	};
 
@@ -186,6 +187,7 @@ namespace AILOD
 		FResidentID ActiveResidentID = 0;
 		FIndividualActionState FrozenState;
 		TArray<FTargetFlow> TargetFlows;
+		TArray<uint32> AssignedHomeStateIndices;
 	};
 
 	struct FV17SystemImportEvent
@@ -240,6 +242,7 @@ namespace AILOD
 		int32 BatchSplitMergeResidualCount = 0;
 		int32 LiftRestrictResidueCount = 0;
 		int32 TaskResetCount = 0;
+		int32 HomeContinuityResidualCount = 0;
 
 		bool IsHardErrorFree() const;
 	};
@@ -248,6 +251,7 @@ namespace AILOD
 	{
 		uint64 AuthorityFixedBytes = 0;
 		uint64 IdentityRegistryBytes = 0;
+		uint64 HomeContinuityBytes = 0;
 		uint64 JointStateBytes = 0;
 		uint64 ActiveStateBytes = 0;
 		uint64 CapsuleBytes = 0;
@@ -266,6 +270,7 @@ namespace AILOD
 		{
 			return AuthorityFixedBytes
 				+ IdentityRegistryBytes
+				+ HomeContinuityBytes
 				+ JointStateBytes
 				+ ActiveStateBytes
 				+ CapsuleBytes
@@ -354,6 +359,9 @@ namespace AILOD
 			FPolicyID PolicyID,
 			FV17AuthoritativeCellID& OutTargetCellID,
 			FString& OutError);
+		bool ApplyEarthquakeHomeDamage(
+			const TArray<FResidentID>& DamagedResidentIDs,
+			FString& OutError);
 		bool SetJointCellAidEligibility(
 			FV17AuthoritativeCellID SourceCellID,
 			bool bEligible,
@@ -409,6 +417,8 @@ namespace AILOD
 		const FV17IdentityRecord* FindIdentity(FResidentID ResidentID) const;
 		const FV17ContinuityCapsule* FindCapsule(FResidentID ResidentID) const;
 		const FV17ParticipantRef* FindParticipantRef(FResidentID ResidentID) const;
+		bool GetResidentHomeState(FResidentID ResidentID, EHomeState& OutHomeState) const;
+		int64 GetHomeStateUpdateCount() const { return HomeStateUpdateCount; }
 
 		const TMap<FV17AuthoritativeClaimID, FV17AuthoritativeClaim>& GetClaims() const { return Claims; }
 		const TMap<FEventID, FV17AuthoritativeBatchEvent>& GetBatchEvents() const { return BatchEvents; }
@@ -433,6 +443,13 @@ namespace AILOD
 		FString BuildDeterministicDigest() const;
 
 	private:
+		struct FHomeRepairQueue
+		{
+			TArray<uint32> CandidateHomeStateIndices;
+			TArray<uint32> DeferredActiveHomeStateIndices;
+			int32 NextCandidate = 0;
+		};
+
 		struct FActiveState
 		{
 			FV17AuthoritativeActiveConfig Definition;
@@ -514,6 +531,15 @@ namespace AILOD
 			bool bRejectedWait,
 			FString& OutError);
 		bool CompleteEvent(FV17AuthoritativeBatchEvent& Event, const FScheduledEvent& Due, bool& bWroteResource, FString& OutError);
+		bool AssignRepairHomes(
+			const FV17AuthoritativeClaim& Claim,
+			FEventID EventID,
+			int32 ParticipantCount,
+			FV17AuthoritativeBatchEvent& Event,
+			FString& OutError);
+		bool CompleteRepairHomes(FV17AuthoritativeBatchEvent& Event, FString& OutError);
+		void RebuildHomeRepairQueues();
+		static uint32 BuildHomeOuterKey(EKingdom Kingdom, EProfession Profession, EIncomeBand IncomeBand);
 		bool CompleteSystemImport(FV17SystemImportEvent& Event, const FScheduledEvent& Due, FString& OutError);
 		void BuildNormalizedTargetFlows(
 			const FV17AuthoritativeJointKey& BaseKey,
@@ -602,6 +628,10 @@ namespace AILOD
 		TMap<FV17AuthoritativeJointKey, FV17AuthoritativeCellID> CellIDsByKey;
 		TMap<FResidentID, FActiveState> ActiveStates;
 		TMap<FResidentID, FV17IdentityRecord> IdentityRegistry;
+		TArray<uint8> HomeStatesByIndex;
+		TArray<FResidentID> ResidentIDsByHomeStateIndex;
+		TMap<uint32, FHomeRepairQueue> HomeRepairQueues;
+		TMap<uint32, FEventID> PendingRepairEventByHomeStateIndex;
 		TMap<FResidentID, FV17ContinuityCapsule> Capsules;
 		TMap<FResidentID, FV17ParticipantRef> ParticipantRefs;
 		TArray<FV17LODTransitionRecord> LODTransitions;
@@ -619,5 +649,6 @@ namespace AILOD
 		int32 LiftRestrictResidueCount = 0;
 		int32 BatchSplitMergeResidualCount = 0;
 		int32 TaskResetCount = 0;
+		int64 HomeStateUpdateCount = 0;
 	};
 }

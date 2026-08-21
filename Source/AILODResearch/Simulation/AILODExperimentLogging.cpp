@@ -350,8 +350,8 @@ namespace AILOD
 		Manifest->SetBoolField(TEXT("run_order_randomized"), Metadata.bRunOrderRandomized);
 		if (Result.ProposedModelVersion == EProposedModelVersion::V17Authoritative)
 		{
-			Manifest->SetStringField(TEXT("proposed_model_version"), TEXT("1.7"));
-			Manifest->SetStringField(TEXT("authoritative_model_version"), TEXT("1.7"));
+			Manifest->SetStringField(TEXT("proposed_model_version"), Result.ModelSpecVersion);
+			Manifest->SetStringField(TEXT("authoritative_model_version"), Result.ModelSpecVersion);
 			Manifest->SetStringField(TEXT("authority_mode"), Result.AuthorityMode);
 			Manifest->SetStringField(TEXT("joint_state_version"), Result.JointStateVersion);
 			Manifest->SetStringField(TEXT("claim_allocation_version"), Result.ClaimAllocationVersion);
@@ -392,6 +392,7 @@ namespace AILOD
 				TEXT("joint_cell_resource_band_mismatch"),
 				Result.V17Audit.JointCellResourceBandMismatchCount);
 			HardErrors->SetNumberField(TEXT("batch_split_merge_residual"), Result.V17Audit.BatchSplitMergeResidualCount);
+			HardErrors->SetNumberField(TEXT("home_continuity_residual"), Result.V17Audit.HomeContinuityResidualCount);
 		}
 		else
 		{
@@ -445,6 +446,7 @@ namespace AILOD
 			Diagnostics->SetNumberField(TEXT("lift_count"), Result.Diagnostics.V17LiftCount);
 			Diagnostics->SetNumberField(TEXT("restrict_count"), Result.Diagnostics.V17RestrictCount);
 			Diagnostics->SetNumberField(TEXT("max_active"), Result.Diagnostics.MaxActiveMicro);
+			Diagnostics->SetNumberField(TEXT("home_state_update_count"), Result.Diagnostics.V19HomeStateUpdateCount);
 			Measurements->SetObjectField(TEXT("v1_7_diagnostics"), Diagnostics);
 
 			const FV17TrackedAuthorityMemory& Memory = Result.V17TrackedMemory;
@@ -454,6 +456,7 @@ namespace AILOD
 				TEXT("authority_object_plus_container_allocations_and_nested_string_array_allocations; excludes_process_runtime_inputs_outputs_and_allocator_overhead"));
 			TrackedMemory->SetNumberField(TEXT("authority_fixed_bytes"), static_cast<double>(Memory.AuthorityFixedBytes));
 			TrackedMemory->SetNumberField(TEXT("identity_registry_bytes"), static_cast<double>(Memory.IdentityRegistryBytes));
+			TrackedMemory->SetNumberField(TEXT("home_continuity_bytes"), static_cast<double>(Memory.HomeContinuityBytes));
 			TrackedMemory->SetNumberField(TEXT("joint_state_bytes"), static_cast<double>(Memory.JointStateBytes));
 			TrackedMemory->SetNumberField(TEXT("active_state_bytes"), static_cast<double>(Memory.ActiveStateBytes));
 			TrackedMemory->SetNumberField(TEXT("continuity_capsule_bytes"), static_cast<double>(Memory.CapsuleBytes));

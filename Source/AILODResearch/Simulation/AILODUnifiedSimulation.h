@@ -126,6 +126,7 @@ namespace AILOD
 		int32 V17ParticipantRefCount = 0;
 		int32 V17LiftCount = 0;
 		int32 V17RestrictCount = 0;
+		int64 V19HomeStateUpdateCount = 0;
 	};
 
 	struct FUnifiedStepMeasurement

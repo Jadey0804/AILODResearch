@@ -36,6 +36,16 @@ namespace AILOD
 		}
 	}
 
+	uint32 FV17AuthoritativeMacroSession::BuildHomeOuterKey(
+		const EKingdom Kingdom,
+		const EProfession Profession,
+		const EIncomeBand IncomeBand)
+	{
+		return static_cast<uint32>(static_cast<uint8>(Kingdom))
+			| (static_cast<uint32>(static_cast<uint8>(Profession)) << 8)
+			| (static_cast<uint32>(static_cast<uint8>(IncomeBand)) << 16);
+	}
+
 	bool FV17AuthoritativeMacroSession::InitializeWithIdentity(
 		const TArray<FV17AuthoritativeCellConfig>& InCells,
 		const TArray<FV17IdentityRecord>& Identities,
@@ -66,6 +76,7 @@ namespace AILOD
 		TMap<FString, int32> IdentityOuterCounts;
 		TSet<FPersistentID> PersistentIDs;
 		TSet<FHomeID> HomeIDs;
+		uint32 HomeStateIndex = 0;
 		for (const FV17IdentityRecord& Identity : Identities)
 		{
 			if (Identity.ResidentID <= 0
@@ -81,7 +92,12 @@ namespace AILOD
 				Restore();
 				return false;
 			}
-			IdentityRegistry.Add(Identity.ResidentID, Identity);
+			FV17IdentityRecord StoredIdentity = Identity;
+			StoredIdentity.HomeStateIndex = HomeStateIndex;
+			IdentityRegistry.Add(Identity.ResidentID, StoredIdentity);
+			HomeStatesByIndex.Add(static_cast<uint8>(EHomeState::Healthy));
+			ResidentIDsByHomeStateIndex.Add(Identity.ResidentID);
+			++HomeStateIndex;
 			PersistentIDs.Add(Identity.PersistentID);
 			HomeIDs.Add(Identity.HomeID);
 			IdentityOuterCounts.FindOrAdd(OuterKey(
@@ -95,6 +111,47 @@ namespace AILOD
 			Restore();
 			return false;
 		}
+
+		TMap<uint32, TArray<FResidentID>> ResidentIDsByOuter;
+		for (const TPair<FResidentID, FV17IdentityRecord>& Pair : IdentityRegistry)
+		{
+			const FV17IdentityRecord& Identity = Pair.Value;
+			ResidentIDsByOuter.FindOrAdd(BuildHomeOuterKey(
+				Identity.InitialKingdom,
+				Identity.Profession,
+				Identity.IncomeBand)).Add(Identity.ResidentID);
+		}
+		for (TPair<uint32, TArray<FResidentID>>& Pair : ResidentIDsByOuter)
+		{
+			Pair.Value.Sort();
+		}
+		TMap<uint32, int32> NextIdentityByOuter;
+		TArray<FV17AuthoritativeCellID> CellIDs;
+		Cells.GetKeys(CellIDs);
+		CellIDs.Sort();
+		for (const FV17AuthoritativeCellID CellID : CellIDs)
+		{
+			const FV17AuthoritativeCellConfig& Cell = Cells.FindChecked(CellID);
+			const uint32 Outer = BuildHomeOuterKey(
+				Cell.Key.Kingdom,
+				Cell.Key.Profession,
+				Cell.Key.IncomeBand);
+			const TArray<FResidentID>* ResidentIDs = ResidentIDsByOuter.Find(Outer);
+			int32& NextIdentity = NextIdentityByOuter.FindOrAdd(Outer);
+			if (ResidentIDs == nullptr || NextIdentity + Cell.Count > ResidentIDs->Num())
+			{
+				OutError = TEXT("Initial Home Continuity assignment does not match the Joint Cell population.");
+				Restore();
+				return false;
+			}
+			for (int32 Offset = 0; Offset < Cell.Count; ++Offset)
+			{
+				const FV17IdentityRecord& AssignedIdentity = IdentityRegistry.FindChecked((*ResidentIDs)[NextIdentity + Offset]);
+				HomeStatesByIndex[AssignedIdentity.HomeStateIndex] = static_cast<uint8>(Cell.Key.HomeState);
+			}
+			NextIdentity += Cell.Count;
+		}
+		RebuildHomeRepairQueues();
 
 		bDynamicLODEnabled = true;
 		OutError.Reset();
@@ -114,6 +171,68 @@ namespace AILOD
 	const FV17ParticipantRef* FV17AuthoritativeMacroSession::FindParticipantRef(const FResidentID ResidentID) const
 	{
 		return ParticipantRefs.Find(ResidentID);
+	}
+
+	bool FV17AuthoritativeMacroSession::GetResidentHomeState(
+		const FResidentID ResidentID,
+		EHomeState& OutHomeState) const
+	{
+		const FV17IdentityRecord* Identity = IdentityRegistry.Find(ResidentID);
+		if (Identity == nullptr || !HomeStatesByIndex.IsValidIndex(Identity->HomeStateIndex)) return false;
+		OutHomeState = static_cast<EHomeState>(HomeStatesByIndex[Identity->HomeStateIndex]);
+		return true;
+	}
+
+	void FV17AuthoritativeMacroSession::RebuildHomeRepairQueues()
+	{
+		HomeRepairQueues.Reset();
+		TArray<FResidentID> ResidentIDs;
+		IdentityRegistry.GetKeys(ResidentIDs);
+		ResidentIDs.Sort();
+		for (const FResidentID ResidentID : ResidentIDs)
+		{
+			const FV17IdentityRecord& Identity = IdentityRegistry.FindChecked(ResidentID);
+			if (HomeStatesByIndex.IsValidIndex(Identity.HomeStateIndex)
+				&& static_cast<EHomeState>(HomeStatesByIndex[Identity.HomeStateIndex]) == EHomeState::DamagedWaiting)
+			{
+				HomeRepairQueues.FindOrAdd(BuildHomeOuterKey(
+					Identity.InitialKingdom,
+					Identity.Profession,
+					Identity.IncomeBand)).CandidateHomeStateIndices.Add(Identity.HomeStateIndex);
+			}
+		}
+	}
+
+	bool FV17AuthoritativeMacroSession::ApplyEarthquakeHomeDamage(
+		const TArray<FResidentID>& DamagedResidentIDs,
+		FString& OutError)
+	{
+		if (!bInitialized || !bDynamicLODEnabled)
+		{
+			OutError = TEXT("Earthquake Home Continuity updates require an initialized dynamic authority.");
+			return false;
+		}
+		const FV17AuthoritativeMacroSession Before = *this;
+		TSet<FResidentID> Seen;
+		for (const FResidentID ResidentID : DamagedResidentIDs)
+		{
+			const FV17IdentityRecord* Identity = IdentityRegistry.Find(ResidentID);
+			if (Identity == nullptr
+				|| Seen.Contains(ResidentID)
+				|| !HomeStatesByIndex.IsValidIndex(Identity->HomeStateIndex)
+				|| static_cast<EHomeState>(HomeStatesByIndex[Identity->HomeStateIndex]) != EHomeState::Healthy)
+			{
+				OutError = TEXT("The earthquake Home Continuity list must contain unique Healthy residents.");
+				*this = Before;
+				return false;
+			}
+			Seen.Add(ResidentID);
+			HomeStatesByIndex[Identity->HomeStateIndex] = static_cast<uint8>(EHomeState::DamagedWaiting);
+			++HomeStateUpdateCount;
+		}
+		RebuildHomeRepairQueues();
+		OutError.Reset();
+		return true;
 	}
 
 	int64 FV17AuthoritativeMacroSession::GetRemainingWorkMinutes(const FResidentID ResidentID) const
@@ -152,6 +271,12 @@ namespace AILOD
 	{
 		OutCellID = 0;
 		bOutUsedFallback = false;
+		if (!HomeStatesByIndex.IsValidIndex(Identity.HomeStateIndex))
+		{
+			OutError = TEXT("The resident has no valid Home Continuity state.");
+			return false;
+		}
+		const EHomeState ExactHomeState = static_cast<EHomeState>(HomeStatesByIndex[Identity.HomeStateIndex]);
 		TArray<FV17AuthoritativeCellID> Candidates;
 		for (const TPair<FV17AuthoritativeCellID, FV17AuthoritativeCellConfig>& Pair : Cells)
 		{
@@ -159,7 +284,8 @@ namespace AILOD
 			if (Pair.Value.Count > 0
 				&& Key.Kingdom == Identity.InitialKingdom
 				&& Key.Profession == Identity.Profession
-				&& Key.IncomeBand == Identity.IncomeBand)
+				&& Key.IncomeBand == Identity.IncomeBand
+				&& Key.HomeState == ExactHomeState)
 			{
 				Candidates.Add(Pair.Key);
 			}
@@ -167,7 +293,7 @@ namespace AILOD
 		Candidates.Sort();
 		if (Candidates.IsEmpty())
 		{
-			OutError = TEXT("The resident's outer Cohort has no non-empty Joint Cell available for Lift.");
+			OutError = TEXT("The resident's exact HomeState has no non-empty Joint Cell available for Lift.");
 			return false;
 		}
 
@@ -427,6 +553,14 @@ namespace AILOD
 			OutError = TEXT("ParticipantRef Batch Event is missing from the event store.");
 			return false;
 		}
+		const bool bRepairEvent = Parent->Action == EIndividualAction::ContinueRepair;
+		if (bRepairEvent
+			&& (!Parent->AssignedHomeStateIndices.Contains(Identity.HomeStateIndex)
+				|| PendingRepairEventByHomeStateIndex.FindRef(Identity.HomeStateIndex) != Parent->BatchEventID))
+		{
+			OutError = TEXT("The resident's HomeID is not owned by the pending Repair Batch Event.");
+			return false;
+		}
 
 		FEventID ActiveEventID = Parent->BatchEventID;
 		if (Parent->ParticipantCount == 1)
@@ -504,6 +638,11 @@ namespace AILOD
 				}
 			}
 
+			if (bRepairEvent && Parent->AssignedHomeStateIndices.RemoveSingle(Identity.HomeStateIndex) != 1)
+			{
+				OutError = TEXT("Repair Batch split could not move the resident's exact HomeID.");
+				return false;
+			}
 			--Parent->ParticipantCount;
 			if (!EventStore.SetPendingParticipantCount(
 				Parent->BatchEventID, Parent->ParticipantCount, OutError))
@@ -518,6 +657,12 @@ namespace AILOD
 			Child.ActiveResidentID = Identity.ResidentID;
 			Child.InheritedOrderKey = ParticipantRef.InheritedOrderKey;
 			Child.RemainingWorkMinutes = FMath::Max<int64>(0, Child.EndTime.Minutes - Clock.Now().Minutes);
+			if (bRepairEvent)
+			{
+				Child.AssignedHomeStateIndices.Reset(1);
+				Child.AssignedHomeStateIndices.Add(Identity.HomeStateIndex);
+				PendingRepairEventByHomeStateIndex.FindChecked(Identity.HomeStateIndex) = ChildEventID;
+			}
 			BatchEvents.Add(ChildEventID, Child);
 			ActiveEventID = ChildEventID;
 			ParticipantRef.BatchEventID = ChildEventID;
@@ -606,6 +751,30 @@ namespace AILOD
 		FV17AuthoritativeCellID SelectedCellID = 0;
 		bool bUsedFallback = false;
 		FV17ParticipantRef* ParticipantRef = ParticipantRefs.Find(ResidentID);
+		if (ParticipantRef == nullptr)
+		{
+			if (const FEventID* RepairEventID = PendingRepairEventByHomeStateIndex.Find(Identity->HomeStateIndex))
+			{
+				const FV17AuthoritativeBatchEvent* RepairEvent = BatchEvents.Find(*RepairEventID);
+				if (RepairEvent == nullptr
+					|| RepairEvent->Status != ESimulationEventState::Pending
+					|| RepairEvent->Action != EIndividualAction::ContinueRepair)
+				{
+					Transition.Result = EV17LODTransitionResult::EventSplitFailed;
+					OutError = TEXT("The resident's HomeID points to a missing pending Repair Batch Event.");
+					Restore();
+					return false;
+				}
+				FV17ParticipantRef NewRef;
+				NewRef.ParticipantRefID = BuildParticipantRefID(ResidentID, *RepairEventID);
+				NewRef.ResidentID = ResidentID;
+				NewRef.BatchEventID = *RepairEventID;
+				NewRef.ParentBatchEventID = RepairEvent->ParentBatchEventID;
+				NewRef.ReservationID = RepairEvent->BatchReservationID;
+				NewRef.InheritedOrderKey = RepairEvent->InheritedOrderKey;
+				ParticipantRef = &ParticipantRefs.Add(ResidentID, NewRef);
+			}
+		}
 		if (ParticipantRef != nullptr)
 		{
 			SelectedCellID = BatchEvents.FindChecked(ParticipantRef->BatchEventID).SourceCellID;
@@ -637,6 +806,8 @@ namespace AILOD
 			}
 			else
 			{
+				const EHomeState ExactHomeState = static_cast<EHomeState>(
+					HomeStatesByIndex[Identity->HomeStateIndex]);
 				TArray<FEventID> PendingCandidates;
 				for (const TPair<FEventID, FV17AuthoritativeBatchEvent>& Pair : BatchEvents)
 				{
@@ -648,7 +819,10 @@ namespace AILOD
 						&& SourceCell != nullptr
 						&& SourceCell->Key.Kingdom == Identity->InitialKingdom
 						&& SourceCell->Key.Profession == Identity->Profession
-						&& SourceCell->Key.IncomeBand == Identity->IncomeBand)
+						&& SourceCell->Key.IncomeBand == Identity->IncomeBand
+						&& (Event.Action == EIndividualAction::ContinueRepair
+							? EHomeState::UnderRepair
+							: SourceCell->Key.HomeState) == ExactHomeState)
 					{
 						PendingCandidates.Add(Event.BatchEventID);
 					}
@@ -934,6 +1108,21 @@ namespace AILOD
 			{
 				return false;
 			}
+			if (ActiveEvent->Action == EIndividualAction::ContinueRepair)
+			{
+				const FV17IdentityRecord* Identity = IdentityRegistry.Find(ResidentID);
+				if (Identity == nullptr
+					|| ActiveEvent->AssignedHomeStateIndices.Num() != 1
+					|| ActiveEvent->AssignedHomeStateIndices[0] != Identity->HomeStateIndex
+					|| PendingRepairEventByHomeStateIndex.FindRef(Identity->HomeStateIndex) != ActiveEventID)
+				{
+					OutError = TEXT("Repair Batch merge could not find the resident's exact HomeID ownership.");
+					return false;
+				}
+				Target.AssignedHomeStateIndices.Add(Identity->HomeStateIndex);
+				Target.AssignedHomeStateIndices.Sort();
+				PendingRepairEventByHomeStateIndex.FindChecked(Identity->HomeStateIndex) = MergeTargetID;
+			}
 			++Target.ParticipantCount;
 			if (!EventStore.SetPendingParticipantCount(MergeTargetID, Target.ParticipantCount, OutError))
 			{
@@ -1017,6 +1206,14 @@ namespace AILOD
 				OutError = TEXT("Restrict cannot run while the resident has an uncommitted Count=1 Claim.");
 				return false;
 			}
+		}
+		const FV17IdentityRecord* Identity = IdentityRegistry.Find(ResidentID);
+		if (Identity == nullptr
+			|| !HomeStatesByIndex.IsValidIndex(Identity->HomeStateIndex)
+			|| static_cast<EHomeState>(HomeStatesByIndex[Identity->HomeStateIndex]) != Active->Definition.Key.HomeState)
+		{
+			OutError = TEXT("Restrict requires the Active HomeState to match the resident's HomeID state.");
+			return false;
 		}
 
 		const FV17AuthoritativeMacroSession Before = *this;

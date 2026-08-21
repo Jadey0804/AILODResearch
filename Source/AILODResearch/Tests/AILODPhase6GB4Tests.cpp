@@ -278,7 +278,7 @@ bool FAILODPhase6GB4DynamicTraceAndCapTest::RunTest(const FString& Parameters)
 	}
 	const FString FixedTraceDigest = TraceA.BuildDeterministicDigest();
 	TestEqual(TEXT("The fixed B4 trace has the frozen digest"), FixedTraceDigest,
-		FString(TEXT("038664D6C8E9BE0608E249FB6955C31A6A194F67")));
+		FString(TEXT("EC735B18390C50437E52BF77B5C79D3BDB3D1903")));
 	TestEqual(TEXT("The same Seed and fixed trace replay exactly"), TraceB.BuildDeterministicDigest(), FixedTraceDigest);
 	TestEqual(TEXT("The fixed trace creates exactly sixty Lift records"),
 		TraceA.GetLODTransitions().FilterByPredicate([](const FV17LODTransitionRecord& Record)
@@ -365,7 +365,7 @@ bool FAILODPhase6GB4DynamicTraceAndCapTest::RunTest(const FString& Parameters)
 
 	const FString ContinuityDigest = ContinuityRun.BuildDeterministicDigest();
 	TestEqual(TEXT("The zero-time, rollback and cap checks have the frozen digest"), ContinuityDigest,
-		FString(TEXT("B4B9EF82BC633F1754E1849B4E8AFB3FBEFCC074")));
+		FString(TEXT("E90151525DC4525270BC22091D6ED0BC5E96CE00")));
 	AddInfo(FString::Printf(
 		TEXT("Phase6GB4 fixed_trace=%s continuity=%s max_active=%d identities=%d capsules=%d transitions=%d"),
 		*FixedTraceDigest,
@@ -431,6 +431,16 @@ bool FAILODPhase6GB4RepairSplitMergeTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("The nearby resident requests repair through the same competition"), Session.QueueActiveAction(
 		1, EIndividualAction::StartRepair, 0, ActiveClaimID, Error));
 	TestTrue(TEXT("All six repairs are committed together"), Session.ResolveAndCommitClaims(Error));
+	for (FResidentID ResidentID = 1; ResidentID <= 6; ++ResidentID)
+	{
+		EHomeState ExactHomeState = EHomeState::Healthy;
+		TestTrue(*FString::Printf(TEXT("Repair resident %lld keeps an exact HomeID state"), ResidentID),
+			Session.GetResidentHomeState(ResidentID, ExactHomeState));
+		TestEqual(*FString::Printf(TEXT("Repair resident %lld is marked UnderRepair"), ResidentID),
+			ExactHomeState, EHomeState::UnderRepair);
+	}
+	TestEqual(TEXT("Repair start updates exactly six concrete homes"),
+		Session.GetHomeStateUpdateCount(), int64(6));
 	TestEqual(TEXT("The two repair requests represent six pending residents"), Session.GetPendingParticipantCount(), 6);
 	TestEqual(TEXT("Before Restrict there is one macro event and one personal event"), Session.GetBatchEvents().Num(), 2);
 	TestEqual(TEXT("Repair Wood is deducted exactly once at action start"),
@@ -499,6 +509,16 @@ bool FAILODPhase6GB4RepairSplitMergeTest::RunTest(const FString& Parameters)
 		Session.GetKingdomBalance(EKingdom::A, ESimulationResource::Wood, TEXT("WoodEmbeddedInRepairs")), int64(0));
 	TestEqual(TEXT("Exactly twenty-four Wood reaches repaired homes"),
 		Session.GetKingdomBalance(EKingdom::A, ESimulationResource::Wood, TEXT("WoodInRepairedHomes")), int64(24));
+	for (FResidentID ResidentID = 1; ResidentID <= 6; ++ResidentID)
+	{
+		EHomeState ExactHomeState = EHomeState::Healthy;
+		TestTrue(*FString::Printf(TEXT("Completed resident %lld still has a HomeID state"), ResidentID),
+			Session.GetResidentHomeState(ResidentID, ExactHomeState));
+		TestEqual(*FString::Printf(TEXT("Completed resident %lld is marked Repaired"), ResidentID),
+			ExactHomeState, EHomeState::Repaired);
+	}
+	TestEqual(TEXT("Repair start and completion perform twelve concrete home updates"),
+		Session.GetHomeStateUpdateCount(), int64(12));
 	TestTrue(TEXT("The completed resident no longer needs a pending-batch reference"), Session.FindParticipantRef(1) == nullptr);
 	const FV17ContinuityCapsule* CompletedCapsule = Session.FindCapsule(1);
 	TestTrue(TEXT("The resident's small memory records the completed repair"),
@@ -523,7 +543,7 @@ bool FAILODPhase6GB4RepairSplitMergeTest::RunTest(const FString& Parameters)
 
 	const FString CompletedDigest = Session.BuildDeterministicDigest();
 	TestEqual(TEXT("The repair split and merge run has the frozen digest"), CompletedDigest,
-		FString(TEXT("13E9892812BEEDDF16B8B4C39CDB143CE9FBE843")));
+		FString(TEXT("40DA98D3CA9439791664A301BCF607CB6D43C5E1")));
 	AddInfo(FString::Printf(
 		TEXT("Phase6GB4 repair=%s events=%d transactions=%d capsules=%d refs=%d"),
 		*CompletedDigest,
@@ -653,7 +673,7 @@ bool FAILODPhase6GB4ReservationSplitMergeTest::RunTest(const FString& Parameters
 
 	const FString CompletedDigest = Session.BuildDeterministicDigest();
 	TestEqual(TEXT("The reservation split and merge run has the frozen digest"), CompletedDigest,
-		FString(TEXT("54F95B3A708F612F12203632B5BA97A289BA4624")));
+		FString(TEXT("2DD02271B46A37AFC5545CB78A0053A89BBDA9C6")));
 	AddInfo(FString::Printf(
 		TEXT("Phase6GB4 reservation=%s reservations=%d transactions=%d events=%d"),
 		*CompletedDigest,
