@@ -2,8 +2,8 @@
 
 **日期：2026-08-22**<br>
 **原交接分支：`phase-6i-home-continuity`**<br>
-**当前 Phase 7 分支：`phase-7-visual-demo`（2026-08-23 从 `a9385b2` 创建）**<br>
-**当前 HEAD：`a9385b2`（Phase 6I H6-F：批准 v1.9 用于后续正式实验）**<br>
+**Phase 7 起点分支：`phase-7-visual-demo`（2026-08-23 从 `a9385b2` 创建）**<br>
+**Phase 7 基线 HEAD：`a9385b2`（Phase 6I H6-F：批准 v1.9 用于后续正式实验）**<br>
 **原交接工作区：除本交接文档当时尚未跟踪外，无其他未提交文件；原分支没有上游跟踪分支**<br>
 **交接目标：让新的 Codex 会话在不破坏 v1.9 模拟核心和实验边界的前提下，按检查点推进 Phase 7 UE5.4 可视化演示。**<br>
 **文档性质：本文件是现状导航和下一阶段实施交接，不新增模型规则，不替代 v1.1—v1.9 正式规格。**
@@ -40,7 +40,7 @@
 ### 2.1 Git 现场
 
 - 分支：`phase-6i-home-continuity`；
-- HEAD：`a9385b2 Phase 6I H6-F: approve v1.9 for formal runs`；
+- 交接核对时 HEAD：`a9385b2 Phase 6I H6-F: approve v1.9 for formal runs`；
 - H6 实现提交：`5d087eb Phase 6I H6: preserve per-home continuity`；
 - H6 规则冻结提交：`65ba234 Phase 6I H6-0: freeze home continuity rules`；
 - 当前分支没有配置远端上游；现有检查点记录所有阶段提交均未推送；

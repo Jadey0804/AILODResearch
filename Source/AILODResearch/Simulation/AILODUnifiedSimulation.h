@@ -33,7 +33,23 @@ namespace AILOD
 	{
 		Validation,
 		Accuracy,
-		Performance
+		Performance,
+		Demo
+	};
+
+	struct FUnifiedDemoObservationRequest
+	{
+		TArray<FResidentID> DesiredActiveResidentIDs;
+		FResidentID TrackedResidentID = 0;
+	};
+
+	struct FUnifiedDemoObservationRecord
+	{
+		int64 Sequence = 0;
+		FSimulationTime GameTime;
+		FUnifiedDemoObservationRequest Request;
+		bool bCommitted = false;
+		FString Message;
 	};
 
 	enum class EUnifiedFaultInjectionPoint : uint8
@@ -142,6 +158,47 @@ namespace AILOD
 		double ObserverCpuMs = 0.0;
 		int32 ActiveCount = 0;
 		int32 QueueLength = 0;
+	};
+
+	struct FUnifiedDemoResidentSnapshot
+	{
+		FResidentID ResidentID = 0;
+		FPersistentID PersistentID = 0;
+		FHomeID HomeID = 0;
+		FString Name;
+		uint32 NameSeed = 0;
+		uint32 AppearanceSeed = 0;
+		EKingdom Kingdom = EKingdom::A;
+		EProfession Profession = EProfession::Worker;
+		EIncomeBand IncomeBand = EIncomeBand::Low;
+		int32 Cash = 0;
+		int32 RepairCredit = 0;
+		int32 InventoryWood = 0;
+		EHomeState HomeState = EHomeState::Healthy;
+		EIndividualAction CurrentAction = EIndividualAction::None;
+		FEventID ActiveEventID = 0;
+		int64 RemainingWorkMinutes = 0;
+		bool bReady = false;
+		bool bTracked = false;
+	};
+
+	struct FUnifiedDemoSnapshot
+	{
+		FString DemoProtocolVersion = TEXT("2.0");
+		FString ModelSpecVersion = TEXT("1.9");
+		FString AuthorityMode = TEXT("v1.9_home_continuity");
+		FString DeterministicDigestVersion = TEXT("1.9-domain-v1");
+		bool bFormalRun = false;
+		EUnifiedSimulationMethod Method = EUnifiedSimulationMethod::Proposed;
+		EStage2Scenario Scenario = EStage2Scenario::StateImport;
+		int32 PopulationPerKingdom = 0;
+		FSimulationTime GameTime;
+		FKingdomSnapshot KingdomA;
+		FKingdomSnapshot KingdomB;
+		FResidentID TrackedResidentID = 0;
+		int32 ActiveCount = 0;
+		FUnifiedStepMeasurement LastStepMeasurement;
+		TArray<FUnifiedDemoResidentSnapshot> ActiveResidents;
 	};
 
 	struct FUnifiedCostBreakdown
@@ -350,6 +407,16 @@ namespace AILOD
 		bool Initialize(FString& OutError);
 		bool StepHour(FString& OutError);
 		bool Finalize(FUnifiedRunResult& OutResult, FString& OutError);
+		bool SubmitDemoObservationRequest(
+			const FUnifiedDemoObservationRequest& Request,
+			FString& OutError);
+		bool ReplayDemoObservationRecord(
+			const FUnifiedDemoObservationRecord& Record,
+			FString& OutError);
+		bool BuildDemoSnapshot(FUnifiedDemoSnapshot& OutSnapshot, FString& OutError) const;
+		bool CopyDemoObservationLog(
+			TArray<FUnifiedDemoObservationRecord>& OutRecords,
+			FString& OutError) const;
 
 		bool IsComplete() const;
 		FSimulationTime GetCurrentTime() const;

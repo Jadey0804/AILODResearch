@@ -18,6 +18,17 @@ namespace AILOD
 		bool Initialize(FString& OutError);
 		bool StepHour(FString& OutError);
 		bool Finalize(FUnifiedRunResult& OutResult, FString& OutError);
+		bool SubmitDemoObservationRequest(
+			const FUnifiedDemoObservationRequest& Request,
+			FString& OutError);
+		bool ReplayDemoObservationRecord(
+			const FUnifiedDemoObservationRecord& Record,
+			FString& OutError);
+		bool BuildDemoSnapshot(FUnifiedDemoSnapshot& OutSnapshot, FString& OutError) const;
+		void CopyDemoObservationLog(TArray<FUnifiedDemoObservationRecord>& OutRecords) const
+		{
+			OutRecords = DemoObservationRecords;
+		}
 		bool IsComplete() const;
 		FSimulationTime GetCurrentTime() const;
 		const FUnifiedStepMeasurement& GetLastStepMeasurement() const { return LastStepMeasurement; }
@@ -48,6 +59,10 @@ namespace AILOD
 		bool IsHarvestCapActive(EKingdom Kingdom, FSimulationTime Time) const;
 		void EnsureHarvestDay(EKingdom Kingdom, FSimulationTime Time);
 		void FillDiagnostics(FUnifiedRunResult& OutResult) const;
+		void RecordDemoObservation(
+			const FUnifiedDemoObservationRequest& Request,
+			bool bCommitted,
+			const FString& Message);
 
 		FPhase0Config Config;
 		EStage2Scenario Scenario = EStage2Scenario::None;
@@ -62,6 +77,9 @@ namespace AILOD
 		FUnifiedRunDiagnostics Diagnostics;
 		TArray<FUnifiedActivationObservation> ActivationObservations;
 		TMap<FResidentID, int32> PendingFirstActions;
+		TArray<FUnifiedDemoObservationRecord> DemoObservationRecords;
+		FResidentID DemoTrackedResidentID = 0;
+		int64 NextDemoObservationSequence = 1;
 		bool bEarthquakeApplied = false;
 		int64 ImportBudgetRemaining = 0;
 		double WoodPrices[2] = { 1.0, 1.0 };

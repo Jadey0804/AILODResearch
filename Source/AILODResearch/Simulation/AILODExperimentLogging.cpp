@@ -146,6 +146,7 @@ namespace AILOD
 			case EUnifiedRunMode::Validation: return TEXT("Validation");
 			case EUnifiedRunMode::Accuracy: return TEXT("Accuracy");
 			case EUnifiedRunMode::Performance: return TEXT("Performance");
+			case EUnifiedRunMode::Demo: return TEXT("Demo");
 			default: return TEXT("Unknown");
 			}
 		}
@@ -276,6 +277,11 @@ namespace AILOD
 		FString& OutError) const
 	{
 		const double SerializationStart = FPlatformTime::Seconds();
+		if (Result.Mode == EUnifiedRunMode::Demo)
+		{
+			OutError = TEXT("Interactive Demo records are excluded from the experiment run log writer.");
+			return false;
+		}
 		if (!HasRequiredMetadata(Metadata))
 		{
 			OutError = TEXT("Run logging requires complete output, identity, input-hash, build, hardware, log-mode, and time metadata.");

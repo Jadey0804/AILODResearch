@@ -3819,6 +3819,7 @@ namespace AILOD
 			const EStage2Scenario Scenario,
 			const FUnifiedRunOptions& Options)
 		{
+			bDemoModeRequested = Options.Mode == EUnifiedRunMode::Demo;
 			if (Method == EUnifiedSimulationMethod::Proposed
 				&& Options.ProposedModelVersion == EProposedModelVersion::V17Authoritative)
 			{
@@ -3837,6 +3838,12 @@ namespace AILOD
 				OutError = TEXT("Unified simulation session can only initialize once.");
 				return false;
 			}
+			if (bDemoModeRequested && !V17Runtime)
+			{
+				State = EState::Failed;
+				OutError = TEXT("Interactive Demo mode requires Proposed with the explicit v1.9 authoritative runtime.");
+				return false;
+			}
 			const bool bInitialized = V17Runtime
 				? V17Runtime->Initialize(OutError)
 				: V16Runtime->Initialize(OutError);
@@ -3846,6 +3853,56 @@ namespace AILOD
 				return false;
 			}
 			State = EState::Running;
+			OutError.Reset();
+			return true;
+		}
+
+		bool SubmitDemoObservationRequest(
+			const FUnifiedDemoObservationRequest& Request,
+			FString& OutError)
+		{
+			if (State != EState::Running || !V17Runtime)
+			{
+				OutError = TEXT("Demo observation requests require a running interactive v1.9 session.");
+				return false;
+			}
+			return V17Runtime->SubmitDemoObservationRequest(Request, OutError);
+		}
+
+		bool ReplayDemoObservationRecord(
+			const FUnifiedDemoObservationRecord& Record,
+			FString& OutError)
+		{
+			if (State != EState::Running || !V17Runtime)
+			{
+				OutError = TEXT("Demo observation replay requires a running interactive v1.9 session.");
+				return false;
+			}
+			return V17Runtime->ReplayDemoObservationRecord(Record, OutError);
+		}
+
+		bool BuildDemoSnapshot(FUnifiedDemoSnapshot& OutSnapshot, FString& OutError) const
+		{
+			if ((State != EState::Running && State != EState::Complete && State != EState::Finalized)
+				|| !V17Runtime)
+			{
+				OutError = TEXT("Demo snapshots require an initialized interactive v1.9 session.");
+				return false;
+			}
+			return V17Runtime->BuildDemoSnapshot(OutSnapshot, OutError);
+		}
+
+		bool CopyDemoObservationLog(
+			TArray<FUnifiedDemoObservationRecord>& OutRecords,
+			FString& OutError) const
+		{
+			if ((State != EState::Running && State != EState::Complete && State != EState::Finalized)
+				|| !V17Runtime)
+			{
+				OutError = TEXT("Demo observation logs require an initialized interactive v1.9 session.");
+				return false;
+			}
+			V17Runtime->CopyDemoObservationLog(OutRecords);
 			OutError.Reset();
 			return true;
 		}
@@ -3928,6 +3985,7 @@ namespace AILOD
 		TUniquePtr<FV17UnifiedRuntime> V17Runtime;
 		EState State = EState::Created;
 		int32 CompletedHourSteps = 0;
+		bool bDemoModeRequested = false;
 	};
 
 	FUnifiedSimulationSession::FUnifiedSimulationSession(
@@ -3954,6 +4012,34 @@ namespace AILOD
 	bool FUnifiedSimulationSession::Finalize(FUnifiedRunResult& OutResult, FString& OutError)
 	{
 		return Impl->Finalize(OutResult, OutError);
+	}
+
+	bool FUnifiedSimulationSession::SubmitDemoObservationRequest(
+		const FUnifiedDemoObservationRequest& Request,
+		FString& OutError)
+	{
+		return Impl->SubmitDemoObservationRequest(Request, OutError);
+	}
+
+	bool FUnifiedSimulationSession::ReplayDemoObservationRecord(
+		const FUnifiedDemoObservationRecord& Record,
+		FString& OutError)
+	{
+		return Impl->ReplayDemoObservationRecord(Record, OutError);
+	}
+
+	bool FUnifiedSimulationSession::BuildDemoSnapshot(
+		FUnifiedDemoSnapshot& OutSnapshot,
+		FString& OutError) const
+	{
+		return Impl->BuildDemoSnapshot(OutSnapshot, OutError);
+	}
+
+	bool FUnifiedSimulationSession::CopyDemoObservationLog(
+		TArray<FUnifiedDemoObservationRecord>& OutRecords,
+		FString& OutError) const
+	{
+		return Impl->CopyDemoObservationLog(OutRecords, OutError);
 	}
 
 	bool FUnifiedSimulationSession::IsComplete() const

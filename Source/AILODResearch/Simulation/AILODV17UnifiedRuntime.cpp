@@ -89,6 +89,11 @@ namespace AILOD
 	bool FV17UnifiedRuntime::Initialize(FString& OutError)
 	{
 		const double Start = FPlatformTime::Seconds();
+		if (Options.Mode == EUnifiedRunMode::Demo && Scenario != EStage2Scenario::StateImport)
+		{
+			OutError = TEXT("The first interactive Demo supports only the Proposed v1.9 StateImport scenario.");
+			return false;
+		}
 		if (Config.PopulationPerKingdom <= 0)
 		{
 			OutError = TEXT("The v1.7 unified runtime requires a positive per-kingdom population.");
@@ -134,6 +139,198 @@ namespace AILOD
 		CostBreakdown.InitializeCpuMs = FMath::Max(
 			0.0,
 			(FPlatformTime::Seconds() - Start) * 1000.0 - CostBreakdown.AuditCpuMs);
+		OutError.Reset();
+		return true;
+	}
+
+	void FV17UnifiedRuntime::RecordDemoObservation(
+		const FUnifiedDemoObservationRequest& Request,
+		const bool bCommitted,
+		const FString& Message)
+	{
+		FUnifiedDemoObservationRecord& Record = DemoObservationRecords.AddDefaulted_GetRef();
+		Record.Sequence = NextDemoObservationSequence++;
+		Record.GameTime = Authority ? Authority->GetCurrentTime() : FSimulationTime{};
+		Record.Request = Request;
+		Record.bCommitted = bCommitted;
+		Record.Message = Message;
+	}
+
+	bool FV17UnifiedRuntime::SubmitDemoObservationRequest(
+		const FUnifiedDemoObservationRequest& Request,
+		FString& OutError)
+	{
+		if (Options.Mode != EUnifiedRunMode::Demo || !Authority || IsComplete())
+		{
+			OutError = TEXT("Demo observation requests require a running interactive v1.9 Demo session.");
+			return false;
+		}
+
+		FUnifiedDemoObservationRequest Canonical;
+		Canonical.TrackedResidentID = Request.TrackedResidentID;
+		TSet<FResidentID> UniqueResidentIDs;
+		for (const FResidentID ResidentID : Request.DesiredActiveResidentIDs)
+		{
+			if (ResidentID <= 0)
+			{
+				OutError = TEXT("Demo observation requests require positive ResidentIDs.");
+				RecordDemoObservation(Canonical, false, OutError);
+				return false;
+			}
+			UniqueResidentIDs.Add(ResidentID);
+		}
+		for (const FResidentID ResidentID : UniqueResidentIDs)
+		{
+			Canonical.DesiredActiveResidentIDs.Add(ResidentID);
+		}
+		Canonical.DesiredActiveResidentIDs.Sort();
+
+		auto Reject = [this, &Canonical, &OutError](const TCHAR* Message)
+		{
+			OutError = Message;
+			RecordDemoObservation(Canonical, false, OutError);
+			return false;
+		};
+		if (Canonical.DesiredActiveResidentIDs.Num() > ActiveMicroCap)
+		{
+			return Reject(TEXT("Demo observation requests cannot exceed the global Active cap of 50."));
+		}
+		if (Canonical.TrackedResidentID != 0
+			&& !Canonical.DesiredActiveResidentIDs.Contains(Canonical.TrackedResidentID))
+		{
+			return Reject(TEXT("The tracked resident must be included in the desired Active set."));
+		}
+		for (const FResidentID ResidentID : Canonical.DesiredActiveResidentIDs)
+		{
+			if (Authority->FindIdentity(ResidentID) == nullptr)
+			{
+				return Reject(TEXT("A requested ResidentID does not exist in the v1.9 Identity Registry."));
+			}
+		}
+
+		TArray<FResidentID> CurrentResidentIDs;
+		Authority->GetActiveResidentIDs(CurrentResidentIDs);
+		if (CurrentResidentIDs == Canonical.DesiredActiveResidentIDs
+			&& DemoTrackedResidentID == Canonical.TrackedResidentID)
+		{
+			RecordDemoObservation(Canonical, true, TEXT("Committed"));
+			OutError.Reset();
+			return true;
+		}
+
+		FV17AuthoritativeMacroSession Candidate = *Authority;
+		const FSimulationTime Time = Authority->GetCurrentTime();
+		for (const FResidentID ResidentID : CurrentResidentIDs)
+		{
+			if (!Canonical.DesiredActiveResidentIDs.Contains(ResidentID)
+				&& !Candidate.RestrictResident(ResidentID, Time, OutError))
+			{
+				RecordDemoObservation(Canonical, false, OutError);
+				return false;
+			}
+		}
+		for (const FResidentID ResidentID : Canonical.DesiredActiveResidentIDs)
+		{
+			if (!CurrentResidentIDs.Contains(ResidentID)
+				&& !Candidate.LiftResident(ResidentID, Time, OutError))
+			{
+				RecordDemoObservation(Canonical, false, OutError);
+				return false;
+			}
+		}
+		if (!Candidate.BuildAudit().IsHardErrorFree())
+		{
+			return Reject(TEXT("The interactive Active-set replacement failed the v1.9 hard-error audit."));
+		}
+
+		*Authority = MoveTemp(Candidate);
+		DemoTrackedResidentID = Canonical.TrackedResidentID;
+		MaxActiveCount = FMath::Max(MaxActiveCount, Authority->GetActiveMicroCount());
+		RecordDemoObservation(Canonical, true, TEXT("Committed"));
+		OutError.Reset();
+		return true;
+	}
+
+	bool FV17UnifiedRuntime::ReplayDemoObservationRecord(
+		const FUnifiedDemoObservationRecord& Record,
+		FString& OutError)
+	{
+		if (!Record.bCommitted)
+		{
+			OutError = TEXT("Only committed Demo observation records can be replayed.");
+			return false;
+		}
+		if (!Authority || Record.GameTime.Minutes != Authority->GetCurrentTime().Minutes)
+		{
+			OutError = TEXT("A Demo observation record must be replayed at its original authoritative game time.");
+			return false;
+		}
+		return SubmitDemoObservationRequest(Record.Request, OutError);
+	}
+
+	bool FV17UnifiedRuntime::BuildDemoSnapshot(
+		FUnifiedDemoSnapshot& OutSnapshot,
+		FString& OutError) const
+	{
+		OutSnapshot = {};
+		if (Options.Mode != EUnifiedRunMode::Demo || !Authority)
+		{
+			OutError = TEXT("Demo snapshots require an initialized interactive v1.9 Demo session.");
+			return false;
+		}
+
+		OutSnapshot.DemoProtocolVersion = TEXT("2.0");
+		OutSnapshot.ModelSpecVersion = TEXT("1.9");
+		OutSnapshot.AuthorityMode = TEXT("v1.9_home_continuity");
+		OutSnapshot.DeterministicDigestVersion = TEXT("1.9-domain-v1");
+		OutSnapshot.bFormalRun = false;
+		OutSnapshot.Method = EUnifiedSimulationMethod::Proposed;
+		OutSnapshot.Scenario = Scenario;
+		OutSnapshot.PopulationPerKingdom = Config.PopulationPerKingdom;
+		OutSnapshot.GameTime = Authority->GetCurrentTime();
+		OutSnapshot.KingdomA = BuildKingdomSnapshot(OutSnapshot.GameTime, EKingdom::A);
+		OutSnapshot.KingdomB = BuildKingdomSnapshot(OutSnapshot.GameTime, EKingdom::B);
+		OutSnapshot.TrackedResidentID = DemoTrackedResidentID;
+		OutSnapshot.LastStepMeasurement = LastStepMeasurement;
+
+		TArray<FResidentID> ActiveResidentIDs;
+		Authority->GetActiveResidentIDs(ActiveResidentIDs);
+		OutSnapshot.ActiveCount = ActiveResidentIDs.Num();
+		OutSnapshot.ActiveResidents.Reserve(ActiveResidentIDs.Num());
+		for (const FResidentID ResidentID : ActiveResidentIDs)
+		{
+			const FV17IdentityRecord* Identity = Authority->FindIdentity(ResidentID);
+			FIndividualActionState State;
+			EIndividualAction Action = EIndividualAction::None;
+			FEventID EventID = 0;
+			if (Identity == nullptr || !Authority->GetActiveSnapshot(ResidentID, State, Action, EventID))
+			{
+				OutSnapshot = {};
+				OutError = TEXT("An Active resident could not be copied into the Demo snapshot.");
+				return false;
+			}
+
+			FUnifiedDemoResidentSnapshot& Resident = OutSnapshot.ActiveResidents.AddDefaulted_GetRef();
+			Resident.ResidentID = ResidentID;
+			Resident.PersistentID = Identity->PersistentID;
+			Resident.HomeID = Identity->HomeID;
+			Resident.Name = MakeStableResidentName(ResidentID);
+			Resident.NameSeed = Identity->NameSeed;
+			Resident.AppearanceSeed = Identity->AppearanceSeed;
+			Resident.Kingdom = Identity->InitialKingdom;
+			Resident.Profession = Identity->Profession;
+			Resident.IncomeBand = Identity->IncomeBand;
+			Resident.Cash = State.Cash;
+			Resident.RepairCredit = State.RepairCredit;
+			Resident.InventoryWood = State.Wood;
+			Resident.HomeState = State.HomeState;
+			Resident.CurrentAction = Action;
+			Resident.ActiveEventID = EventID;
+			Resident.RemainingWorkMinutes = Authority->GetRemainingWorkMinutes(ResidentID);
+			Resident.bReady = Authority->IsActiveReady(ResidentID);
+			Resident.bTracked = ResidentID == DemoTrackedResidentID;
+		}
+
 		OutError.Reset();
 		return true;
 	}
@@ -1117,7 +1314,7 @@ namespace AILOD
 			Authority->GetCurrentTime().Minutes + MinutesPerHour);
 		if (!Authority->AdvanceTo(End, OutError)) return false;
 		const double TransitionStart = FPlatformTime::Seconds();
-		if (!ApplyActivationTrace(End, OutError)) return false;
+		if (Options.Mode != EUnifiedRunMode::Demo && !ApplyActivationTrace(End, OutError)) return false;
 		LastStepMeasurement.TransitionCpuMs = (FPlatformTime::Seconds() - TransitionStart) * 1000.0;
 		PublishObservations(End, Time);
 

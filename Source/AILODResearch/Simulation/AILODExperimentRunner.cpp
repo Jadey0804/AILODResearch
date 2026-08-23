@@ -481,6 +481,11 @@ namespace AILOD
 		FString& OutError)
 	{
 		OutRuns.Reset();
+		if (Request.Mode == EUnifiedRunMode::Demo)
+		{
+			OutError = TEXT("Interactive Demo runs are excluded from the formal experiment runner and its output directories.");
+			return false;
+		}
 		if (Request.OutputRoot.IsEmpty() || Request.ExperimentID.IsEmpty()
 			|| Request.GitCommit.IsEmpty() || Request.UEVersion.IsEmpty() || Request.BuildType.IsEmpty()
 			|| Request.Hardware.IsEmpty())
