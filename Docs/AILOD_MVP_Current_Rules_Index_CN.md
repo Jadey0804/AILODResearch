@@ -1,7 +1,7 @@
 # AILOD MVP 当前有效规则索引
 
-**索引版本：4.9**<br>
-**日期：2026-08-21**<br>
+**索引版本：5.0**<br>
+**日期：2026-08-23**<br>
 **用途：说明当前规则的读取顺序、冲突优先级和各文档职责。**<br>
 **性质：本文件只做导航，不新增模型规则、不替代原规格，也不构成阶段验收。**
 
@@ -17,14 +17,16 @@
 6. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.6.md`；
 7. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.7.md`；
 8. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.8.md`；
-9. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.9.md`。
+9. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v1.9.md`；
+10. `AILOD_MVP_Prototype_Phase_Acceptance_Spec_CN_v2.0.md`（只覆盖可视化/互动 Demo 协议，不升级模型行为）。
 
 冲突处理规则：
 
 - 后一版本只覆盖其中明确写出的冲突项；
 - 没有被后续版本明确覆盖的内容，继续继承较早版本；
-- v1.9 是当前最高版本，只覆盖每栋房的状态连续性、批量维修到具体 HomeID 的对应、Lift 读取顺序和住房承诺计时；其余 v1.7 模拟行为与 v1.8 加固规则仍然有效；
-- v1.1 中“单一事实源”的表述应理解为“基准事实源”。当前完整事实源是 v1.1 加 v1.2—v1.9 的累计覆盖链；
+- v1.9 仍是当前 `[FROZEN]` 模型最高版本，只覆盖每栋房的状态连续性、批量维修到具体 HomeID 的对应、Lift 读取顺序和住房承诺计时；其余 v1.7 模拟行为与 v1.8 加固规则仍然有效；
+- v2.0 是当前最高的可视化/互动 Demo 协议，只规定模式隔离、只读接口、空间、代理、Actor、PCG、地图、UI 和验收顺序；它不得覆盖 v1.9 的领域模型，也不得改变 `1.9-domain-v1`；
+- v1.1 中“单一事实源”的表述应理解为“基准事实源”。当前模型事实源是 v1.1 加 v1.2—v1.9 的累计覆盖链；Phase 7 展示边界再叠加 v2.0；
 - 不得根据摘要、旧状态表或旧交接说明，反向覆盖正式规格中的较新规则。
 
 ## 2. 每份文档负责什么
@@ -40,6 +42,9 @@
 | v1.7 Cohort Batch Spec | Identity Registry、权威 Joint State、Action Flow、Batch Claim/Event、聚合 Ledger、Capsule、Dynamic Lift/Restrict、新 Digest/Schema 和 6G-B0—B5 | 是 6G-B 及最终 Proposed 的最高优先级规则；B1/B2 仍由 v1.6 运行，B3 才一次性切换 Macro 权威，B4 接入完整动态 LOD；各检查点必须标明 authority mode，不得长期双写或形成混合真相 |
 | v1.8 Pre-Formal Hardening Spec | 正式资格与领域摘要分离、连续性大小误差、批量运行顺序/续跑、分项内存和 5 Seed 预检查 | H0—H5 的证据和实验工具规则继续有效；“不修改 v1.7 行为模型”的阶段边界已完成，后续住房定向修正以 v1.9 为准 |
 | v1.9 Home Continuity Spec | 每栋房紧凑状态、批量维修对应具体 HomeID、Lift 优先读取房屋状态、住房承诺任务计时和 H6 验收 | 只修住房连续性，不改变 Cohort 规划、批量竞争、资源公式、Active=50 或其他方法；是 H6 的最高优先级规则 |
+| v2.0 Visual Demo Spec | 正式/互动模式互斥、只读展示接口、真实 ResidentID 代理、空间布局、PCG/World Partition/HLOD、望远镜追踪、Dear ImGui、Phase 7-0—7F 验收 | 只是 Demo/Presentation 协议；模型仍为 v1.9，不能把空间、UI、Actor 或互动记录写回领域状态或正式实验 |
+| Phase 7 Visual Demo Handoff v1.0 | Phase 7 开始前的 Git、源码、UE 内容、既有证据、风险和实施导航 | 是导航文档，不新增规则；2026-08-23 的确认项已转入 v2.0，冲突时以 v2.0 为准 |
+| Phase 7-0 Checkpoint | Phase 7 分支、v2.0、索引、交接补充和作者/Codex 后续职责 | 是文档阶段验收记录，不代表 Phase 7A 代码、PCG、地图、UI 或 Actor 已实现；必须经作者确认后才能进入 7A |
 | Phase 5 Handoff v1.0 | Phase 5 开始前的导航、源码位置、历史现场和验证方法 | 生成时间早于 v1.6；不是模型事实源，涉及当前 Phase 5.1 时必须回到 v1.6 和检查点核对 |
 | Phase 5.1 Checkpoint | Phase 5.1 实现证据、Hash、Digest、自动验收结果、已知边界和待完成项 | 是验收记录，不新增或覆盖模型规则 |
 | Phase 6 Incremental Plan | 将既有 Phase 6 范围拆成 6A—6F 检查点并记录逐步验收状态 | 是实施导航与检查点，不新增或覆盖模型规则；每一步必须经作者确认后才能进入下一步 |
@@ -93,6 +98,12 @@
 | 住房连续性 | Joint State 继续负责离屏社会总量和决策；另为每个 HomeID 保存一个紧凑房屋状态，维修中的房屋临时指向对应 Batch Event；Lift 必须先读这份状态 | v1.9 §3—§6 |
 | 房屋变化成本 | 只允许在实际发生地震、维修开始或完成时按变化房屋数更新；不得每小时扫描全部 Identity，也不得为批量维修生成逐人事件或交易 | v1.9 §3、§5 |
 | 住房承诺计时 | 原通用任务指标继续保留；RestoreHome 的进行中状态和剩余时间另行报告，不能让 Routine 周期差异掩盖维修承诺 | v1.9 §8 |
+| 模型版本与 Demo 版本 | UI 必须把模型显示为 v1.9、领域摘要显示为 `1.9-domain-v1`；v2.0 只显示为 Demo 协议，不能冒充模型升级 | v2.0 §1—§2 |
+| 正式/互动模式 | 正式模式只运行冻结固定轨迹；互动 Demo 只运行镜头/望远镜选择，两者初始化后互斥且不能运行中切换 | v2.0 §3 |
+| UI/Actor 权限 | UI、Actor、动画、Blueprint 和 ImGui 只读取复制快照；暂停、倍率、选择和追踪只能作为有类型请求交给 Controller，不能直接写领域容器 | v2.0 §4、§11 |
+| 可见居民 | Cohort 轻量代理必须绑定真实 ResidentID，但不承诺精确个人行为；完整 NPC Actor 必须绑定真实 Active ResidentID；无身份假人群禁止 | v2.0 §5—§6 |
+| 展示空间与 PCG | 固定 Visual World Layout 是 NPC 空间目录与 PCG 的共同来源；NPC 不扫描 PCG Actor 判断房屋/道路；PCG 第一版编辑器生成并保存，World Partition/HLOD 负责加载和远景 | v2.0 §7—§8 |
+| 互动 Demo 时间与规模 | 初始 1x=每真实秒 1 游戏小时且每帧最多一个 StepHour；2k 开发、20k 默认 Demo、100k 可选压力；Day 0 进入、Day 60 停止 | v2.0 §10 |
 
 ## 4. 当前阶段边界
 
@@ -113,7 +124,7 @@ Phase 6A—6F 已经实现以下内容：
 
 以上 Phase 6A—6F 历史边界以 v1.6 §8 和 Phase 5.1 Checkpoint §8 为准；6G-B 的新 Proposed 规则以 v1.7 为准。
 
-当前位于 `phase-6i-home-continuity`。B5E、H0、H1、H2、H3、H4、H5、H6-0、H6-A—H6-E 已分别封板。项目作者已于 2026-08-21 接受 v1.9 剩余维修排期差异并确认 H6-F；v1.9 正式模型资格已经开放，但既有 Pilot 不会追认为正式实验。所有提交均未推送。
+当前位于 `phase-7-visual-demo`，HEAD 仍为 `a9385b2`。该分支于 2026-08-23 从已封板的 H6-F 基准创建。项目作者已确认 Phase 7-0 的体验与架构选择；当前只编写 v2.0、更新索引、补充交接并生成 Phase 7-0 检查点，尚未开始 Phase 7A 功能代码、地图、PCG、UI 或 Actor。Phase 7-0 检查点再次经作者确认前不得进入 7A。所有提交均未推送。
 
 ## 5. 后续修改规则
 
