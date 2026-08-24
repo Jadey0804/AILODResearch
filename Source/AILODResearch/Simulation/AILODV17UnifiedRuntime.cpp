@@ -465,6 +465,15 @@ namespace AILOD
 
 	bool FV17UnifiedRuntime::ApplyEarthquake(FString& OutError)
 	{
+		TArray<FResidentID> ActiveResidentIDs;
+		Authority->GetActiveResidentIDs(ActiveResidentIDs);
+		TSet<FResidentID> ActiveResidentSet;
+		ActiveResidentSet.Reserve(ActiveResidentIDs.Num());
+		for (const FResidentID ResidentID : ActiveResidentIDs)
+		{
+			ActiveResidentSet.Add(ResidentID);
+		}
+
 		TMap<FString, int32> DamagedByOuterCohort;
 		for (const FEarthquakeDamageRecord& Damage : DamageList.DamagedResidents)
 		{
@@ -478,7 +487,10 @@ namespace AILOD
 			Outer.Kingdom = Identity->InitialKingdom;
 			Outer.Profession = Identity->Profession;
 			Outer.IncomeBand = Identity->IncomeBand;
-			++DamagedByOuterCohort.FindOrAdd(OuterKeyString(Outer));
+			if (!ActiveResidentSet.Contains(Damage.ResidentID))
+			{
+				++DamagedByOuterCohort.FindOrAdd(OuterKeyString(Outer));
+			}
 		}
 
 		TArray<FString> OuterKeys;

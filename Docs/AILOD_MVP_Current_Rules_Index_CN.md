@@ -1,7 +1,7 @@
 # AILOD MVP 当前有效规则索引
 
-**索引版本：5.2**<br>
-**日期：2026-08-23**<br>
+**索引版本：5.5**<br>
+**日期：2026-08-24**<br>
 **用途：说明当前规则的读取顺序、冲突优先级和各文档职责。**<br>
 **性质：本文件只做导航，不新增模型规则、不替代原规格，也不构成阶段验收。**
 
@@ -46,7 +46,8 @@
 | Phase 7 Visual Demo Handoff v1.0 | Phase 7 开始前的 Git、源码、UE 内容、既有证据、风险和实施导航 | 是导航文档，不新增规则；2026-08-23 的确认项已转入 v2.0，冲突时以 v2.0 为准 |
 | Phase 7-0 Checkpoint | Phase 7 分支、v2.0、索引、交接补充和作者/Codex 后续职责 | 是文档阶段验收记录；已于 2026-08-23 经作者确认并以 `a092164` 封板，不代表地图、PCG、UI 或 Actor 已实现 |
 | Phase 7A Checkpoint | 无画面 Demo 模式、原子观察集合、一个追踪居民、只读值快照、命令记录/回放和正式数据隔离 | 是无地图连接层验收记录；已于 2026-08-23 经作者确认并以 `4f642a9` 封板，不代表地图、PCG、UI、代理或 Actor 已实现 |
-| Phase 7B Checkpoint | 固定 Visual World Layout、HomeID/ResidentID 空间映射、道路/住宅槽位/工作点、格子查询、滞回、望远镜候选和 20k/100k 无画面测量 | 是无画面空间层验收记录，不代表 UE 地图、运行时移动、PCG、World Partition、ImGui、代理或 NPC Actor 已实现；必须经作者确认后才能进入 7C |
+| Phase 7B Checkpoint | 固定 Visual World Layout、HomeID/ResidentID 空间映射、道路/住宅槽位/工作点、格子查询、滞回、望远镜候选和 20k/100k 无画面测量 | 是无画面空间层验收记录；已于 2026-08-23 经作者确认并以 `5621303` 封板，不代表 UE 地图、运行时移动、PCG、World Partition、ImGui、代理或 NPC Actor 已实现 |
+| Phase 7C Checkpoint | 独立 UE Demo Controller、固定 PCG 输出、World Partition 地图、分区导航、相机/移动、功能型 Dear ImGui 和 HLOD 远景 | 代码、UE Content、PIE、PCG/World Partition/NavMesh/HLOD 和有画面验收均已完成，最终 5/5 与 58/58 通过；等待作者最终确认，未提交，不代表 Phase 7D NPC Actor、Phase 7E 望远镜或 Phase 7F 性能验收已实现 |
 | Phase 5 Handoff v1.0 | Phase 5 开始前的导航、源码位置、历史现场和验证方法 | 生成时间早于 v1.6；不是模型事实源，涉及当前 Phase 5.1 时必须回到 v1.6 和检查点核对 |
 | Phase 5.1 Checkpoint | Phase 5.1 实现证据、Hash、Digest、自动验收结果、已知边界和待完成项 | 是验收记录，不新增或覆盖模型规则 |
 | Phase 6 Incremental Plan | 将既有 Phase 6 范围拆成 6A—6F 检查点并记录逐步验收状态 | 是实施导航与检查点，不新增或覆盖模型规则；每一步必须经作者确认后才能进入下一步 |
@@ -105,6 +106,7 @@
 | UI/Actor 权限 | UI、Actor、动画、Blueprint 和 ImGui 只读取复制快照；暂停、倍率、选择和追踪只能作为有类型请求交给 Controller，不能直接写领域容器 | v2.0 §4、§11 |
 | 可见居民 | Cohort 轻量代理必须绑定真实 ResidentID，但不承诺精确个人行为；完整 NPC Actor 必须绑定真实 Active ResidentID；无身份假人群禁止 | v2.0 §5—§6 |
 | 展示空间与 PCG | 固定 Visual World Layout 是 NPC 空间目录与 PCG 的共同来源；NPC 不扫描 PCG Actor 判断房屋/道路；PCG 第一版编辑器生成并保存，World Partition/HLOD 负责加载和远景 | v2.0 §7—§8 |
+| 互动相机操作 | 左键移动只让相机跟随玩家位置，不继承玩家转身；Q/E 独立旋转镜头；WASD 按当前镜头方向平移；F 回到玩家并保留镜头朝向 | v2.0 §9 |
 | 互动 Demo 时间与规模 | 初始 1x=每真实秒 1 游戏小时且每帧最多一个 StepHour；2k 开发、20k 默认 Demo、100k 可选压力；Day 0 进入、Day 60 停止 | v2.0 §10 |
 
 ## 4. 当前阶段边界
@@ -126,7 +128,7 @@ Phase 6A—6F 已经实现以下内容：
 
 以上 Phase 6A—6F 历史边界以 v1.6 §8 和 Phase 5.1 Checkpoint §8 为准；6G-B 的新 Proposed 规则以 v1.7 为准。
 
-当前位于 `phase-7-visual-demo`，已提交 HEAD 为 `4f642a9`（Phase 7A 无画面互动连接层封板）。该分支于 2026-08-23 从已封板的 H6-F 基准 `a9385b2` 创建。项目作者已确认 Phase 7A 并授权进入 Phase 7B；Phase 7B 的固定布局、空间格子、普通镜头/望远镜候选、滞回、追踪和规模测量已经完成，当前改动尚未提交，等待作者检查点确认。尚未开始 Phase 7C、UE 地图、PCG、World Partition、Dear ImGui、代理或 NPC Actor。作者确认前不得提交 Phase 7B 或进入 7C；所有提交均未推送。
+当前位于 `phase-7-visual-demo`，已提交 HEAD 为 `5621303`（Phase 7B 固定布局与无画面空间查询封板）。该分支于 2026-08-23 从已封板的 H6-F 基准 `a9385b2` 创建。Phase 7C 已完成独立 Demo Controller、固定布局 PCG 节点、Dear ImGui、灰盒 World Partition 地图、分区 NavMesh、左键移动与 Q/E/WASD/F 相机、PCG 分区生成和 HLOD。Day 0 Active+地震连续性修复保持冻结 Digest；最终 Editor/Game Development、Phase 7C 5/5 和完整 58/58 回归通过；项目作者已在 PIE 中确认 20k/UI/控制、碰撞、导航分块和远处地面/房屋 HLOD 连续性。Phase 7C 仍待作者最终确认，尚未提交；Phase 7D 的代理和 NPC Actor 尚未开始；所有提交均未推送。
 
 ## 5. 后续修改规则
 

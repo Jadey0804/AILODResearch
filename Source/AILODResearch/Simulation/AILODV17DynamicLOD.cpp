@@ -228,6 +228,33 @@ namespace AILOD
 			}
 			Seen.Add(ResidentID);
 			HomeStatesByIndex[Identity->HomeStateIndex] = static_cast<uint8>(EHomeState::DamagedWaiting);
+			if (FActiveState* Active = ActiveStates.Find(ResidentID))
+			{
+				FV17AuthoritativeBatchEvent* ActiveEvent = nullptr;
+				if (Active->ActiveEventID > 0)
+				{
+					ActiveEvent = BatchEvents.Find(Active->ActiveEventID);
+					if (ActiveEvent == nullptr
+						|| ActiveEvent->Status != ESimulationEventState::Pending
+						|| ActiveEvent->ActiveResidentID != ResidentID)
+					{
+						OutError = TEXT("An earthquake could not update the damaged Active resident's pending event.");
+						*this = Before;
+						return false;
+					}
+				}
+				Active->Definition.Key.HomeState = EHomeState::DamagedWaiting;
+				if (ActiveEvent == nullptr)
+				{
+					Active->Definition.Key.Intent = EMacroIntent::Wait;
+				}
+				Active->Definition.SourceCellID = FindOrCreateCellByKey(Active->Definition.Key);
+				if (ActiveEvent != nullptr)
+				{
+					ActiveEvent->SourceCellID = Active->Definition.SourceCellID;
+					ActiveEvent->FrozenState.HomeState = EHomeState::DamagedWaiting;
+				}
+			}
 			++HomeStateUpdateCount;
 		}
 		RebuildHomeRepairQueues();
