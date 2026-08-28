@@ -364,6 +364,68 @@ namespace AILOD
 		return true;
 	}
 
+	bool FVisualWorldLayout::QueryRadius(
+		const FVisualRadiusQuery& Query,
+		TArray<FVisualSpatialCandidate>& OutCandidates,
+		FVisualSpatialQueryDiagnostics& OutDiagnostics,
+		FString& OutError) const
+	{
+		OutCandidates.Reset();
+		OutDiagnostics = {};
+		OutDiagnostics.CatalogResidentCount = Residents.Num();
+		if (!bBuilt || Query.MaxDistance <= 0.0 || Query.MaxResults <= 0)
+		{
+			OutError = TEXT("Visual radius queries require a built layout and positive distance and result budget.");
+			return false;
+		}
+
+		const FVector2D Extent(Query.MaxDistance, Query.MaxDistance);
+		const FIntPoint MinCell = ToCell(Query.Origin - Extent);
+		const FIntPoint MaxCell = ToCell(Query.Origin + Extent);
+		const double MaxDistanceSquared = Query.MaxDistance * Query.MaxDistance;
+		for (int32 CellX = MinCell.X; CellX <= MaxCell.X; ++CellX)
+		{
+			for (int32 CellY = MinCell.Y; CellY <= MaxCell.Y; ++CellY)
+			{
+				++OutDiagnostics.VisitedCellCount;
+				const TArray<int32>* CellResidents = SpatialGrid.Find(FIntPoint(CellX, CellY));
+				if (CellResidents == nullptr) continue;
+				OutDiagnostics.VisitedResidentEntryCount += CellResidents->Num();
+				for (const int32 ResidentArrayIndex : *CellResidents)
+				{
+					const FVisualResidentPlacement& Resident = Residents[ResidentArrayIndex];
+					const double DistanceSquared = FVector2D::DistSquared(
+						Resident.ProxyPosition,
+						Query.Origin);
+					if (DistanceSquared > MaxDistanceSquared) continue;
+					FVisualSpatialCandidate& Candidate = OutCandidates.AddDefaulted_GetRef();
+					Candidate.ResidentID = Resident.ResidentID;
+					Candidate.Position = Resident.ProxyPosition;
+					Candidate.Distance = FMath::Sqrt(DistanceSquared);
+					Candidate.ForwardAlignment = 1.0;
+				}
+			}
+		}
+
+		OutDiagnostics.MatchingResidentCount = OutCandidates.Num();
+		OutCandidates.Sort([](
+			const FVisualSpatialCandidate& Left,
+			const FVisualSpatialCandidate& Right)
+		{
+			return Left.Distance == Right.Distance
+				? Left.ResidentID < Right.ResidentID
+				: Left.Distance < Right.Distance;
+		});
+		if (OutCandidates.Num() > Query.MaxResults)
+		{
+			OutCandidates.SetNum(Query.MaxResults, EAllowShrinking::No);
+			OutDiagnostics.bResultTruncated = true;
+		}
+		OutDiagnostics.ReturnedCandidateCount = OutCandidates.Num();
+		OutError.Reset();
+		return true;
+	}
+
 	const FVisualResidentPlacement* FVisualWorldLayout::FindResident(const FResidentID ResidentID) const
 	{
 		const int32* Index = ResidentIndex.Find(ResidentID);
@@ -396,6 +458,21 @@ namespace AILOD
 	{
 		const int32* Index = WorkAnchorIndex.Find(WorkAnchorID);
 		return Index != nullptr ? &WorkAnchors[*Index] : nullptr;
+	}
+
+	const FVisualWorkAnchorRecord* FVisualWorldLayout::FindWorkAnchor(
+		const FVisualDistrictID DistrictID,
+		const EVisualWorkAnchorType Type) const
+	{
+		const int32 TypeOffset = Type == EVisualWorkAnchorType::LumberCamp
+			? 0
+			: Type == EVisualWorkAnchorType::TimberPurchase ? 1 : 2;
+		const int32 Index = (DistrictID - 1) * 3 + TypeOffset;
+		return WorkAnchors.IsValidIndex(Index)
+			&& WorkAnchors[Index].DistrictID == DistrictID
+			&& WorkAnchors[Index].Type == Type
+			? &WorkAnchors[Index]
+			: nullptr;
 	}
 
 	FString FVisualWorldLayout::BuildDeterministicDigest() const

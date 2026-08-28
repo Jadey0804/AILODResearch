@@ -2,6 +2,8 @@
 
 #include "AILODVisualDemoCharacter.h"
 
+#include "AILODVisualDemoWorldSubsystem.h"
+
 #include "Blueprint/AIBlueprintHelperLibrary.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -140,6 +142,14 @@ void AAILODVisualDemoCharacter::HandlePrimaryClick()
 	FHitResult Hit;
 	if (PlayerController && PlayerController->GetHitResultUnderCursor(ECC_Visibility, true, Hit))
 	{
+		if (UWorld* World = GetWorld())
+		{
+			if (UAILODVisualDemoWorldSubsystem* DemoSubsystem = World->GetSubsystem<UAILODVisualDemoWorldSubsystem>();
+				DemoSubsystem != nullptr && DemoSubsystem->HandleResidentClick(Hit))
+			{
+				return;
+			}
+		}
 		UAIBlueprintHelperLibrary::SimpleMoveToLocation(PlayerController, Hit.Location);
 	}
 }

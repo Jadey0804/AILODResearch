@@ -593,6 +593,7 @@ namespace AILOD
 			FArriveID ArriveID,
 			FPolicyID PolicyID,
 			FString& OutError);
+		FString BuildUniqueLODTransferKey(const FString& BaseKey) const;
 		bool TransferParticipantStateToEvent(
 			const FV17AuthoritativeClaim& Claim,
 			FEventID EventID,

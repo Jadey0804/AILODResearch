@@ -97,6 +97,13 @@ namespace AILOD
 		EResultOrder ResultOrder = EResultOrder::Distance;
 	};
 
+	struct FVisualRadiusQuery
+	{
+		FVector2D Origin = FVector2D::ZeroVector;
+		double MaxDistance = 20000.0;
+		int32 MaxResults = 512;
+	};
+
 	struct FVisualSpatialCandidate
 	{
 		FResidentID ResidentID = 0;
@@ -129,12 +136,20 @@ namespace AILOD
 			TArray<FVisualSpatialCandidate>& OutCandidates,
 			FVisualSpatialQueryDiagnostics& OutDiagnostics,
 			FString& OutError) const;
+		bool QueryRadius(
+			const FVisualRadiusQuery& Query,
+			TArray<FVisualSpatialCandidate>& OutCandidates,
+			FVisualSpatialQueryDiagnostics& OutDiagnostics,
+			FString& OutError) const;
 
 		const FVisualResidentPlacement* FindResident(FResidentID ResidentID) const;
 		bool FindVisualHomeSlotForHome(FHomeID HomeID, FVisualHomeSlotID& OutVisualHomeSlotID) const;
 		const FVisualRoadRecord* FindRoad(FVisualRoadID RoadID) const;
 		const FVisualHomeSlotRecord* FindHomeSlot(FVisualHomeSlotID VisualHomeSlotID) const;
 		const FVisualWorkAnchorRecord* FindWorkAnchor(FVisualWorkAnchorID WorkAnchorID) const;
+		const FVisualWorkAnchorRecord* FindWorkAnchor(
+			FVisualDistrictID DistrictID,
+			EVisualWorkAnchorType Type) const;
 
 		bool IsBuilt() const { return bBuilt; }
 		const FVisualWorldLayoutConfig& GetConfig() const { return LayoutConfig; }

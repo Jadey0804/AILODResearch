@@ -116,6 +116,10 @@ namespace AILOD
 		double ComputeResidual(ESimulationResource Resource) const;
 		int32 CountNegativeStocks() const;
 		int32 GetDuplicateTransactionCount() const { return DuplicateTransactionCount; }
+		bool HasCommittedIdempotencyKey(const FIdempotencyKey& Key) const
+		{
+			return CommittedIdempotencyKeys.Contains(Key);
+		}
 		const TArray<FLedgerTransaction>& GetTransactions() const { return Transactions; }
 		const TMap<FResourceAccountKey, double>& GetBalances() const { return Balances; }
 		uint64 GetTrackedAllocatedSize() const;

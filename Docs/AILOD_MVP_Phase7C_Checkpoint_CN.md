@@ -3,7 +3,7 @@
 **日期：2026-08-23；最后更新：2026-08-24**<br>
 **分支：`phase-7-visual-demo`**<br>
 **本阶段开始 HEAD：`5621303`（Phase 7B 固定布局与空间查询封板）**<br>
-**当前状态：Phase 7C 的代码、插件、独立 World Partition 地图、固定 PCG、分区导航、相机/UI、PCG/HLOD 构建与有画面验收均已完成；最终 Editor/Game Development 编译、Phase 7C 5/5 和完整 58/58 回归通过；等待项目作者最终确认后提交，尚未进入 Phase 7D。**<br>
+**当前状态：Phase 7C 已由项目作者确认并以 `611534a` 封板；没有 push。Phase 7D 作为后续独立检查点继续实施。**<br>
 **模型版本：`[FROZEN] v1.9`**<br>
 **Demo 协议：v2.0**<br>
 **布局版本：`phase7b-layout-v1`**<br>
@@ -17,7 +17,7 @@ Phase 7C 的整条灰盒链路已经接通：独立互动 Demo 从 Day -7 预热
 
 第一次 PIE 暴露出的 Day 0 Active+地震连续性缺口已经做了最小修复，并由专项测试、完整回归和真实 PIE 共同保护。最终回归保持冻结 Digest、Active 上限和零身份全扫描不变。
 
-因此 Phase 7C 的实现与证据已经完成，当前只等待项目作者做一次简单的最终检查点确认。确认前不提交；确认后只提交 Phase 7C，不 push，然后才进入 Phase 7D。
+因此 Phase 7C 的实现与证据已经完成。项目作者随后确认本检查点，Codex 只提交 Phase 7C 为 `611534a`，没有 push，然后才进入 Phase 7D。
 
 ## 2. 当前代码实际完成了什么
 
@@ -276,7 +276,7 @@ bool UAILODVisualDemoWorldSubsystem::RequestRestart(FString& OutError);
 - 没有低层代理、NPC Actor 池、NPC 选择、动画或行为；
 - 没有望远镜观察计时、临时 Streaming Source 或远处 NPC 提升；
 - `GameDefaultMap` 仍是原 `ThirdPersonMap`，正式游戏默认入口未改；为方便本阶段工作，`EditorStartupMap` 指向独立的 `L_Phase7_VisualDemo`；
-- 没有 commit，也没有 push。
+- Phase 7C 已以 `611534a` 提交；没有 push。
 
 ## 8. 对抗性审查后的已知风险
 
@@ -489,18 +489,11 @@ Epic 的 UE 5.4 参考：
 7. 地图：PCG 道路在 PIE 中正确加载，PCG 碰撞正常；卸载 Landscape Region 后，玩家附近地块与导航分块仍能按运行时加载；
 8. 远景：低视角下远处地面不空白，房屋轮廓持续可见；
 9. 本阶段没有收集可作为论文结论的正式渲染性能数据。正式帧时间、Draw Call、流送尖峰和内存/显存统一留到 Phase 7F；
-10. 当前只差项目作者最终确认。未获确认不提交，不进入 Phase 7D。
+10. 项目作者已确认本阶段，Phase 7C 已以 `611534a` 封板；后续工作按独立 Phase 7D 检查点进行。
 
 ## 12. Codex 和项目作者下一步要做什么
 
-Codex 已完成最终编译、5/5 专项、58/58 完整回归、HLOD 日志、运行配置、UE 资产和 Git 范围核对，并把结果写入本检查点。项目作者不需要再打开 UE 或阅读长日志，只需检查第 14 节的大白话结论。
-
-若项目作者确认，Codex 下一步只会：
-
-1. 再次核对待提交清单只包含 Phase 7C 范围；
-2. 提交 Phase 7C，绝不 push；
-3. 输出 Phase 7D 的最小实施计划和双方职责；
-4. 等待项目作者明确允许后再开始 Phase 7D，不会一口气实现后续阶段。
+Codex 已完成最终编译、5/5 专项、58/58 完整回归、HLOD 日志、运行配置、UE 资产和 Git 范围核对，并把结果写入本检查点。项目作者已确认，Phase 7C 已以 `611534a` 提交且没有 push。后续代理与 NPC Actor 工作记录在独立 Phase 7D 检查点，不反写本阶段验收结论。
 
 ## 13. v1.9 和 Git 保护结论
 
@@ -515,17 +508,17 @@ Codex 已完成最终编译、5/5 专项、58/58 完整回归、HLOD 日志、�
 - 单帧多步追赶：自动测试证明每帧最多一个 `StepHour`；
 - Demo 混入正式实验：互动模式保持 `formal_run=false`；
 - 完整 NPC Actor：Phase 7C 未创建；
-- Git：分支仍为 `phase-7-visual-demo`，HEAD 仍为 Phase 7B 的 `5621303`；Phase 7C 改动尚未提交；
+- Git：分支仍为 `phase-7-visual-demo`，Phase 7C 封板提交为 `611534a`；
 - push：未执行，也未获得授权；
-- 下一阶段：Phase 7C 实现与证据已完成，等待项目作者最终确认；未获确认不得提交或进入 Phase 7D。
+- 下一阶段：项目作者已经确认 Phase 7C；Phase 7D 必须使用自己的检查点和确认门。
 
 ## 14. 给项目作者的最小最终检查点
 
-你只需要确认下面四句话符合刚才实际看到的结果，不需要重跑 UE：
+项目作者已经确认下面四句话符合实际看到的结果，不需要重跑 Phase 7C：
 
 1. UI、时间按钮、左键移动、Q/E、WASD 和 F 都能正常使用；
 2. PCG 道路/建筑会加载，碰撞和当前 NavMesh 范围内移动正常；
 3. 压低视角后，远处地面和房屋没有变空白；
 4. 接受当前仍是功能灰盒，NPC Actor、望远镜和正式渲染性能测量留到 7D、7E、7F。
 
-若都同意，回复：`确认 Phase 7C，提交并进入 Phase 7D`。在收到这句话前，Codex 不提交、不 push，也不进入 Phase 7D。
+本确认已收到，Phase 7C 已以 `611534a` 提交；没有 push。后续结论以 Phase 7D 检查点为准。

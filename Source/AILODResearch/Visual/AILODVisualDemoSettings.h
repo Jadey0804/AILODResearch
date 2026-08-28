@@ -7,12 +7,15 @@
 #include "../Presentation/AILODVisualDemoRuntime.h"
 #include "AILODVisualDemoSettings.generated.h"
 
+class UStaticMesh;
+
 UCLASS(Config=Game, DefaultConfig, meta=(DisplayName="AILOD Visual Demo"))
 class AILODRESEARCH_API UAILODVisualDemoSettings : public UDeveloperSettings
 {
 	GENERATED_BODY()
 
 public:
+	UAILODVisualDemoSettings();
 	virtual FName GetCategoryName() const override { return TEXT("AILOD"); }
 	AILOD::FVisualDemoRuntimeConfig MakeRuntimeConfig() const;
 
@@ -48,6 +51,36 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, Category="Observation", meta=(ClampMin="1.0", ClampMax="90.0"))
 	double NormalObservationHalfAngleDegrees = 60.0;
+
+	UPROPERTY(Config, EditAnywhere, Category="Observation")
+	bool bUseRadialNormalObservation = true;
+
+	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation", meta=(ClampMin="1", ClampMax="512"))
+	int32 LowLevelProxyBudget = 128;
+
+	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation", meta=(ClampMin="0", ClampMax="44"))
+	int32 NormalActiveActorBudget = 35;
+
+	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation", meta=(ClampMin="1.0", ClampMax="50.0"))
+	double PlaceholderWalkRadiusMeters = 8.0;
+
+	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation", meta=(ClampMin="0.1", ClampMax="10.0"))
+	double PlaceholderWalkSpeedMetersPerSecond = 1.5;
+
+	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation")
+	double NPCGroundZCentimeters = 100.0;
+
+	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation")
+	bool bShowResidentDebugLabels = true;
+
+	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation")
+	TSoftObjectPtr<UStaticMesh> LowLevelProxyMesh;
+
+	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation")
+	TSoftObjectPtr<UStaticMesh> FullActorBodyMesh;
+
+	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation")
+	TSoftObjectPtr<UStaticMesh> FullActorHeadMesh;
 
 	UPROPERTY(Config, EditAnywhere, Category="PCG", meta=(ClampMin="0", ClampMax="4096"))
 	int32 TreesPerDistrict = 128;

@@ -31,6 +31,7 @@ namespace AILOD
 	struct FVisualObservationFrameInput
 	{
 		bool bNormalViewEnabled = true;
+		bool bNormalViewUsesRadius = false;
 		FVisualObservationView NormalView;
 		bool bTelescopeEnabled = false;
 		FVisualObservationView TelescopeView;
@@ -84,6 +85,7 @@ namespace AILOD
 			const FVisualObservationFrameInput& Input,
 			FVisualObservationPlan& OutPlan,
 			FString& OutError);
+		void CommitProxyHistoryFrom(const FVisualObservationPlanner& PlannedCandidate);
 
 	private:
 		bool ValidateConfig(FString& OutError) const;

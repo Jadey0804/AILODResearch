@@ -139,13 +139,23 @@ namespace AILOD
 		TArray<FVisualProxyCandidate> NormalActiveCandidates;
 		if (Input.bNormalViewEnabled)
 		{
-			if (!QueryView(
-				Input.NormalView,
-				Config.NormalQueryCandidateLimit,
-				false,
-				NormalCandidates,
-				OutPlan.Diagnostics.NormalQuery,
-				OutError))
+			const bool bQuerySucceeded = Input.bNormalViewUsesRadius
+				? Layout.QueryRadius(
+					FVisualRadiusQuery{
+						Input.NormalView.Origin,
+						Input.NormalView.EnterDistance * Config.ExitDistanceMultiplier,
+						Config.NormalQueryCandidateLimit },
+					NormalCandidates,
+					OutPlan.Diagnostics.NormalQuery,
+					OutError)
+				: QueryView(
+					Input.NormalView,
+					Config.NormalQueryCandidateLimit,
+					false,
+					NormalCandidates,
+					OutPlan.Diagnostics.NormalQuery,
+					OutError);
+			if (!bQuerySucceeded)
 			{
 				return false;
 			}
@@ -284,5 +294,12 @@ namespace AILOD
 		PreviousTrackedResidentID = TrackedResidentID;
 		OutError.Reset();
 		return true;
+	}
+
+	void FVisualObservationPlanner::CommitProxyHistoryFrom(
+		const FVisualObservationPlanner& PlannedCandidate)
+	{
+		PreviousNormalProxyIDs = PlannedCandidate.PreviousNormalProxyIDs;
+		PreviousTelescopeProxyIDs = PlannedCandidate.PreviousTelescopeProxyIDs;
 	}
 }

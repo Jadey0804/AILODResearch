@@ -493,6 +493,23 @@ namespace AILOD
 		return Result == 0 ? 1 : Result;
 	}
 
+	FString FV17AuthoritativeMacroSession::BuildUniqueLODTransferKey(
+		const FString& BaseKey) const
+	{
+		if (!Ledger.HasCommittedIdempotencyKey(BaseKey))
+		{
+			return BaseKey;
+		}
+		for (int32 Revisit = 2; ; ++Revisit)
+		{
+			const FString Candidate = FString::Printf(TEXT("%s-REVISIT-%d"), *BaseKey, Revisit);
+			if (!Ledger.HasCommittedIdempotencyKey(Candidate))
+			{
+				return Candidate;
+			}
+		}
+	}
+
 	bool FV17AuthoritativeMacroSession::LiftFromJointCell(
 		const FV17IdentityRecord& Identity,
 		const FV17AuthoritativeCellID CellID,
@@ -514,17 +531,20 @@ namespace AILOD
 		if (!Transfer(
 			Clock.Now(), ESimulationResource::Coin,
 			CellAccount(CellID, TEXT("Cash")), CashAccount, State.Cash, false,
-			FString::Printf(TEXT("V17-LIFT-%lld-%lld-CASH"), Identity.ResidentID, Clock.Now().Minutes),
+			BuildUniqueLODTransferKey(FString::Printf(
+				TEXT("V17-LIFT-%lld-%lld-CASH"), Identity.ResidentID, Clock.Now().Minutes)),
 			0, 0, 0, OutError)
 			|| !Transfer(
 				Clock.Now(), ESimulationResource::Coin,
 				CellAccount(CellID, TEXT("RepairCredit")), CreditAccount, State.RepairCredit, false,
-				FString::Printf(TEXT("V17-LIFT-%lld-%lld-CREDIT"), Identity.ResidentID, Clock.Now().Minutes),
+				BuildUniqueLODTransferKey(FString::Printf(
+					TEXT("V17-LIFT-%lld-%lld-CREDIT"), Identity.ResidentID, Clock.Now().Minutes)),
 				0, 0, 0, OutError)
 			|| !Transfer(
 				Clock.Now(), ESimulationResource::Wood,
 				CellAccount(CellID, TEXT("Wood")), WoodAccount, State.Wood, false,
-				FString::Printf(TEXT("V17-LIFT-%lld-%lld-WOOD"), Identity.ResidentID, Clock.Now().Minutes),
+				BuildUniqueLODTransferKey(FString::Printf(
+					TEXT("V17-LIFT-%lld-%lld-WOOD"), Identity.ResidentID, Clock.Now().Minutes)),
 				0, 0, 0, OutError))
 		{
 			return false;
@@ -970,7 +990,8 @@ namespace AILOD
 				Clock.Now(), Stock.Resource,
 				ActiveAccount(ResidentID, Stock.Stock), CellAccount(OutTargetCellID, Stock.Stock),
 				Quantity, false,
-				FString::Printf(TEXT("V17-RESTRICT-%lld-%lld-%s"), ResidentID, Clock.Now().Minutes, Stock.Stock),
+				BuildUniqueLODTransferKey(FString::Printf(
+					TEXT("V17-RESTRICT-%lld-%lld-%s"), ResidentID, Clock.Now().Minutes, Stock.Stock)),
 				0, 0, 0, OutError))
 			{
 				return false;

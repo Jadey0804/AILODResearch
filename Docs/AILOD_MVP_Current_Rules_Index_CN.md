@@ -1,6 +1,6 @@
 # AILOD MVP 当前有效规则索引
 
-**索引版本：5.5**<br>
+**索引版本：5.6**<br>
 **日期：2026-08-24**<br>
 **用途：说明当前规则的读取顺序、冲突优先级和各文档职责。**<br>
 **性质：本文件只做导航，不新增模型规则、不替代原规格，也不构成阶段验收。**
@@ -47,7 +47,8 @@
 | Phase 7-0 Checkpoint | Phase 7 分支、v2.0、索引、交接补充和作者/Codex 后续职责 | 是文档阶段验收记录；已于 2026-08-23 经作者确认并以 `a092164` 封板，不代表地图、PCG、UI 或 Actor 已实现 |
 | Phase 7A Checkpoint | 无画面 Demo 模式、原子观察集合、一个追踪居民、只读值快照、命令记录/回放和正式数据隔离 | 是无地图连接层验收记录；已于 2026-08-23 经作者确认并以 `4f642a9` 封板，不代表地图、PCG、UI、代理或 Actor 已实现 |
 | Phase 7B Checkpoint | 固定 Visual World Layout、HomeID/ResidentID 空间映射、道路/住宅槽位/工作点、格子查询、滞回、望远镜候选和 20k/100k 无画面测量 | 是无画面空间层验收记录；已于 2026-08-23 经作者确认并以 `5621303` 封板，不代表 UE 地图、运行时移动、PCG、World Partition、ImGui、代理或 NPC Actor 已实现 |
-| Phase 7C Checkpoint | 独立 UE Demo Controller、固定 PCG 输出、World Partition 地图、分区导航、相机/移动、功能型 Dear ImGui 和 HLOD 远景 | 代码、UE Content、PIE、PCG/World Partition/NavMesh/HLOD 和有画面验收均已完成，最终 5/5 与 58/58 通过；等待作者最终确认，未提交，不代表 Phase 7D NPC Actor、Phase 7E 望远镜或 Phase 7F 性能验收已实现 |
+| Phase 7C Checkpoint | 独立 UE Demo Controller、固定 PCG 输出、World Partition 地图、分区导航、相机/移动、功能型 Dear ImGui 和 HLOD 远景 | 已由项目作者确认并以 `611534a` 封板；不代表 Phase 7D NPC Actor、Phase 7E 望远镜或 Phase 7F 性能验收已实现 |
+| Phase 7D Checkpoint | 真实 ResidentID 低层代理、固定 50 槽完整 NPC Actor 池、只读 NPC 选择、基础地点映射、短距离占位动画、PIE 连续性修复和合法 revisit 唯一 LOD 事务键 | 8 月 24 日版本通过 Editor/Game Development、8/8 专项和 66/66 完整回归；8 月 26 日唯一键修复通过 Editor Development 编译，主地图 PIE revisit 由项目作者确认，但未重跑完整自动回归。Phase 7D 已本地封板且未 push；不代表 Phase 7E 或 Phase 7F 已实现 |
 | Phase 5 Handoff v1.0 | Phase 5 开始前的导航、源码位置、历史现场和验证方法 | 生成时间早于 v1.6；不是模型事实源，涉及当前 Phase 5.1 时必须回到 v1.6 和检查点核对 |
 | Phase 5.1 Checkpoint | Phase 5.1 实现证据、Hash、Digest、自动验收结果、已知边界和待完成项 | 是验收记录，不新增或覆盖模型规则 |
 | Phase 6 Incremental Plan | 将既有 Phase 6 范围拆成 6A—6F 检查点并记录逐步验收状态 | 是实施导航与检查点，不新增或覆盖模型规则；每一步必须经作者确认后才能进入下一步 |
@@ -128,7 +129,7 @@ Phase 6A—6F 已经实现以下内容：
 
 以上 Phase 6A—6F 历史边界以 v1.6 §8 和 Phase 5.1 Checkpoint §8 为准；6G-B 的新 Proposed 规则以 v1.7 为准。
 
-当前位于 `phase-7-visual-demo`，已提交 HEAD 为 `5621303`（Phase 7B 固定布局与无画面空间查询封板）。该分支于 2026-08-23 从已封板的 H6-F 基准 `a9385b2` 创建。Phase 7C 已完成独立 Demo Controller、固定布局 PCG 节点、Dear ImGui、灰盒 World Partition 地图、分区 NavMesh、左键移动与 Q/E/WASD/F 相机、PCG 分区生成和 HLOD。Day 0 Active+地震连续性修复保持冻结 Digest；最终 Editor/Game Development、Phase 7C 5/5 和完整 58/58 回归通过；项目作者已在 PIE 中确认 20k/UI/控制、碰撞、导航分块和远处地面/房屋 HLOD 连续性。Phase 7C 仍待作者最终确认，尚未提交；Phase 7D 的代理和 NPC Actor 尚未开始；所有提交均未推送。
+当前位于 `phase-7-visual-demo`，当前 HEAD 为 Phase 7D 本地封板提交；Phase 7C 基线为 `611534a`。该分支于 2026-08-23 从已封板的 H6-F 基准 `a9385b2` 创建。Phase 7D 已实现真实 ResidentID 的 HISM 低层代理、固定 50 槽完整 NPC Actor 池、只读点击选择、基础地点映射和短距离占位动画，并修复 8 小时动作跳位、倍率不同步、代理整批闪烁、观察替换拒绝导致 `Failed`、拒绝后当前镜头整片空白，以及 Pause 下同一分钟合法 revisit 事务键碰撞。Simulation 改动只增加已提交键查询和唯一 LOD 事务键，不改变领域公式、资源数量、事件顺序或时钟。8 月 24 日版本通过 Editor/Game Development、Phase 7D 8/8 和完整 66/66 回归；8 月 26 日唯一键修复按作者要求只重新编译 Editor，8 月 29 日主地图 PIE revisit 通过，未重跑完整自动回归。Phase 7D 已由项目作者确认并本地封板，未 push；Phase 7E 尚未开始，最新 HEAD 的完整回归留到 Phase 7F 关闭。
 
 ## 5. 后续修改规则
 

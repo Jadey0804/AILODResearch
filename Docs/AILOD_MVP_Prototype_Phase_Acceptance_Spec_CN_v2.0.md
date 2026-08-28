@@ -6,7 +6,7 @@
 **日期：2026-08-23**<br>
 **分支：`phase-7-visual-demo`**<br>
 **基线提交：`a9385b2`（Phase 6I H6-F）**<br>
-**状态：Phase 7B 已由项目作者确认并以 `5621303` 封板；Phase 7C 的代码、插件、UE Content、PIE、固定 PCG、World Partition、分区导航、HLOD 与有画面人工验收均已完成，最终 5/5 专项和 58/58 完整回归通过；等待项目作者最终确认，未提交、未进入 Phase 7D。**<br>
+**状态：Phase 7C 已由项目作者确认并以 `611534a` 封板；Phase 7D 的真实 ResidentID 低层代理、固定 50 槽完整 NPC Actor 池、只读选择、基础展示路线、PIE 连续性修复和同一分钟合法 revisit 唯一 LOD 事务键已实现。权威 Active 替换被拒绝时，旧完整 Actor 保持不变，当前镜头仍刷新真实低层代理。8 月 24 日版本通过 Editor/Game Development、8/8 专项和 66/66 完整回归；8 月 26 日唯一键修复通过 Editor Development 编译，8 月 29 日主地图 PIE revisit 由项目作者确认，但没有重跑完整自动回归。Phase 7D 已本地封板且未 push，Phase 7E 尚未开始；最新 HEAD 的完整回归留到 Phase 7F 总验收。**<br>
 **用途：规定 v1.9 后台模拟怎样安全接入地图、空间选择、NPC 表现、望远镜和功能型 UI。**
 
 ## 1. 先用大白话说明 v2.0 是什么

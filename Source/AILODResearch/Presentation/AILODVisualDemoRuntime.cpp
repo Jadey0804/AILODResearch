@@ -14,13 +14,19 @@ namespace AILOD
 		Session.Reset();
 		Snapshot = FUnifiedDemoSnapshot();
 		LastObservationPlan = FVisualObservationPlan();
+		CurrentPresentationObservationPlan = FVisualObservationPlan();
+		PresentationFrame = FVisualResidentPresentationFrame();
+		SelectedResidentID = 0;
 		State = EVisualDemoRuntimeState::Uninitialized;
 		LastError.Reset();
+		LastObservationWarning.Reset();
 		PendingHourSteps = 0.0;
+		ObservationCommitRetryCooldownSeconds = 0.0;
 		TimeScale = 1;
 		LastTickStepCount = 0;
 		bPaused = false;
 		bHasSnapshot = false;
+		bHasPresentationFrame = false;
 
 		FPhase0Config SimulationConfig;
 		SimulationConfig.Seed = Config.SimulationSeed;
@@ -38,7 +44,7 @@ namespace AILOD
 		{
 			return Fail(OutError, OutError);
 		}
-		ObservationPlanner = MakeUnique<FVisualObservationPlanner>(Layout);
+		ObservationPlanner = MakeUnique<FVisualObservationPlanner>(Layout, Config.Observation);
 
 		FUnifiedRunOptions Options;
 		Options.Mode = EUnifiedRunMode::Demo;
@@ -74,6 +80,9 @@ namespace AILOD
 	bool FVisualDemoRuntime::Tick(const double RealDeltaSeconds, FString& OutError)
 	{
 		LastTickStepCount = 0;
+		ObservationCommitRetryCooldownSeconds = FMath::Max(
+			0.0,
+			ObservationCommitRetryCooldownSeconds - FMath::Max(0.0, RealDeltaSeconds));
 		if (State == EVisualDemoRuntimeState::Failed)
 		{
 			OutError = LastError;
@@ -118,22 +127,142 @@ namespace AILOD
 			return false;
 		}
 
-		FVisualObservationPlan Plan;
-		if (!ObservationPlanner->PlanFrame(Input, Plan, OutError))
+		TUniquePtr<FVisualObservationPlanner> CandidatePlanner =
+			MakeUnique<FVisualObservationPlanner>(*ObservationPlanner);
+		FVisualObservationPlan CandidatePlan;
+		if (!CandidatePlanner->PlanFrame(Input, CandidatePlan, OutError))
 		{
 			return Fail(OutError, OutError);
 		}
-		LastObservationPlan = MoveTemp(Plan);
-		if (!LastObservationPlan.Diagnostics.bActiveSetChanged)
+		if (!CandidatePlan.Diagnostics.bActiveSetChanged)
 		{
+			FVisualResidentPresentationFrame CandidatePresentationFrame;
+			if (!FVisualResidentPresentationPlanner::BuildFrame(
+				Layout,
+				CandidatePlan,
+				Snapshot,
+				SelectedResidentID,
+				Config.Presentation,
+				CandidatePresentationFrame,
+				OutError))
+			{
+				return Fail(OutError, OutError);
+			}
+			ObservationPlanner = MoveTemp(CandidatePlanner);
+			LastObservationPlan = MoveTemp(CandidatePlan);
+			CurrentPresentationObservationPlan = LastObservationPlan;
+			PresentationFrame = MoveTemp(CandidatePresentationFrame);
+			bHasPresentationFrame = true;
+			ClearRejectedObservation();
+			return true;
+		}
+
+		if (ObservationCommitRetryCooldownSeconds > 0.0)
+		{
+			return PublishProxyOnlyCandidate(*CandidatePlanner, CandidatePlan, OutError);
+		}
+
+		FString ObservationError;
+		bool bObservationCommitted = false;
+#if WITH_DEV_AUTOMATION_TESTS
+		if (Config.bRejectNextObservationCommitForTest)
+		{
+			Config.bRejectNextObservationCommitForTest = false;
+			ObservationError = TEXT("Injected Phase 7D atomic replacement rejection.");
+		}
+		else
+#endif
+		{
+			bObservationCommitted = Session->SubmitDemoObservationRequest(
+				CandidatePlan.ActiveRequest,
+				ObservationError);
+		}
+		if (!bObservationCommitted)
+		{
+			if (!PublishProxyOnlyCandidate(*CandidatePlanner, CandidatePlan, OutError))
+			{
+				return false;
+			}
+			ObservationCommitRetryCooldownSeconds = 0.25;
+			LastObservationWarning = FString::Printf(
+				TEXT("Active-set replacement deferred; the previous authoritative set remains active. %s"),
+				*ObservationError);
 			OutError.Reset();
 			return true;
 		}
-		if (!Session->SubmitDemoObservationRequest(LastObservationPlan.ActiveRequest, OutError))
+		ObservationPlanner = MoveTemp(CandidatePlanner);
+		LastObservationPlan = MoveTemp(CandidatePlan);
+		CurrentPresentationObservationPlan = LastObservationPlan;
+		ClearRejectedObservation();
+		return RefreshSnapshot(OutError);
+	}
+
+	bool FVisualDemoRuntime::PublishProxyOnlyCandidate(
+		const FVisualObservationPlanner& CandidatePlanner,
+		const FVisualObservationPlan& CandidatePlan,
+		FString& OutError)
+	{
+		FVisualResidentPresentationFrame CandidatePresentationFrame;
+		if (!FVisualResidentPresentationPlanner::BuildFrame(
+			Layout,
+			CandidatePlan,
+			Snapshot,
+			SelectedResidentID,
+			Config.Presentation,
+			CandidatePresentationFrame,
+			OutError))
 		{
 			return Fail(OutError, OutError);
 		}
-		return RefreshSnapshot(OutError);
+
+		ObservationPlanner->CommitProxyHistoryFrom(CandidatePlanner);
+		CurrentPresentationObservationPlan = CandidatePlan;
+		PresentationFrame = MoveTemp(CandidatePresentationFrame);
+		bHasPresentationFrame = true;
+		OutError.Reset();
+		return true;
+	}
+
+	bool FVisualDemoRuntime::RequestSelectedResident(
+		const FResidentID ResidentID,
+		FString& OutError)
+	{
+		if (State != EVisualDemoRuntimeState::Running || ResidentID <= 0)
+		{
+			OutError = TEXT("Resident selection requires a running Demo and a positive ResidentID.");
+			return false;
+		}
+		bool bVisible = false;
+		for (const FVisualResidentPresentationEntry& Entry : PresentationFrame.LowLevelProxies)
+		{
+			bVisible |= Entry.ResidentID == ResidentID;
+		}
+		for (const FVisualResidentPresentationEntry& Entry : PresentationFrame.ActiveActors)
+		{
+			bVisible |= Entry.ResidentID == ResidentID;
+		}
+		if (!bVisible)
+		{
+			OutError = TEXT("Only a currently displayed proxy or full NPC Actor can be selected.");
+			return false;
+		}
+		const FResidentID PreviousSelectedResidentID = SelectedResidentID;
+		SelectedResidentID = ResidentID;
+		if (!RefreshPresentationFrame(OutError))
+		{
+			SelectedResidentID = PreviousSelectedResidentID;
+			FString RestoreError;
+			RefreshPresentationFrame(RestoreError);
+			return false;
+		}
+		return true;
+	}
+
+	void FVisualDemoRuntime::ClearSelectedResident()
+	{
+		SelectedResidentID = 0;
+		FString IgnoredError;
+		RefreshPresentationFrame(IgnoredError);
 	}
 
 	bool FVisualDemoRuntime::RequestPaused(const bool bInPaused, FString& OutError)
@@ -167,6 +296,17 @@ namespace AILOD
 			return false;
 		}
 		OutSnapshot = Snapshot;
+		return true;
+	}
+
+	bool FVisualDemoRuntime::CopyPresentationFrame(
+		FVisualResidentPresentationFrame& OutFrame) const
+	{
+		if (!bHasPresentationFrame)
+		{
+			return false;
+		}
+		OutFrame = PresentationFrame;
 		return true;
 	}
 
@@ -211,6 +351,28 @@ namespace AILOD
 			return Fail(OutError, OutError);
 		}
 		bHasSnapshot = true;
+		if (!RefreshPresentationFrame(OutError))
+		{
+			return Fail(OutError, OutError);
+		}
+		return true;
+	}
+
+	bool FVisualDemoRuntime::RefreshPresentationFrame(FString& OutError)
+	{
+		if (!bHasSnapshot || !FVisualResidentPresentationPlanner::BuildFrame(
+			Layout,
+			CurrentPresentationObservationPlan,
+			Snapshot,
+			SelectedResidentID,
+			Config.Presentation,
+			PresentationFrame,
+			OutError))
+		{
+			bHasPresentationFrame = false;
+			return false;
+		}
+		bHasPresentationFrame = true;
 		OutError.Reset();
 		return true;
 	}
@@ -221,5 +383,11 @@ namespace AILOD
 		LastError = Error.IsEmpty() ? TEXT("Visual Demo runtime failed without an error message.") : Error;
 		OutError = LastError;
 		return false;
+	}
+
+	void FVisualDemoRuntime::ClearRejectedObservation()
+	{
+		LastObservationWarning.Reset();
+		ObservationCommitRetryCooldownSeconds = 0.0;
 	}
 }
