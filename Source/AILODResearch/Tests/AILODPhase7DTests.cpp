@@ -30,6 +30,7 @@ namespace
 		View.NormalView.Forward = FVector2D(1.0, 0.0);
 		View.NormalView.EnterDistance = 250000.0;
 		View.NormalView.HalfAngleDegrees = 90.0;
+		View.RealDeltaSeconds = 1.0;
 		return Runtime.SubmitObservationFrame(View, OutError);
 	}
 
@@ -40,6 +41,7 @@ namespace
 		View.NormalView.Forward = FVector2D(1.0, 0.0);
 		View.NormalView.EnterDistance = 30000.0;
 		View.NormalView.HalfAngleDegrees = 90.0;
+		View.RealDeltaSeconds = 1.0;
 		return View;
 	}
 
@@ -246,7 +248,7 @@ bool FAILODPhase7DProxyStableSlotsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Replacing five proxies binds only five slots"), ReplacementPlan.ReboundCount, 5);
 	for (FResidentID ResidentID = 6; ResidentID <= 10; ++ResidentID)
 	{
-		TestEqual(TEXT("A retained proxy keeps its HISM instance index"),
+		TestEqual(TEXT("A retained proxy keeps its instanced-renderer slot index"),
 			ReplacementPlan.SlotResidentIDs.IndexOfByKey(ResidentID),
 			FirstSlots.IndexOfByKey(ResidentID));
 	}
@@ -266,11 +268,11 @@ bool FAILODPhase7DProxyStableSlotsTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FAILODPhase7DProxySelectionReadOnlyTest,
-	"AILODResearch.Phase7D.ProxySelectionIsReadOnly",
+	FAILODPhase7DProxySelectionLiftTest,
+	"AILODResearch.Phase7D.ProxySelectionPromotesReadOnlyView",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FAILODPhase7DProxySelectionReadOnlyTest::RunTest(const FString& Parameters)
+bool FAILODPhase7DProxySelectionLiftTest::RunTest(const FString& Parameters)
 {
 	using namespace AILOD;
 	FVisualDemoRuntimeConfig Config;
@@ -283,31 +285,25 @@ bool FAILODPhase7DProxySelectionReadOnlyTest::RunTest(const FString& Parameters)
 		|| !SubmitWideResidentView(Runtime, Error)) return false;
 
 	FVisualResidentPresentationFrame BeforeFrame;
-	FUnifiedDemoSnapshot BeforeSnapshot;
 	if (!Runtime.CopyPresentationFrame(BeforeFrame)
-		|| !Runtime.CopySnapshot(BeforeSnapshot)
 		|| BeforeFrame.LowLevelProxies.IsEmpty()) return false;
 	const FResidentID ProxyResidentID = BeforeFrame.LowLevelProxies[0].ResidentID;
-	TArray<FResidentID> BeforeActiveIDs;
-	for (const FUnifiedDemoResidentSnapshot& Resident : BeforeSnapshot.ActiveResidents)
-	{
-		BeforeActiveIDs.Add(Resident.ResidentID);
-	}
-
 	if (!Runtime.RequestSelectedResident(ProxyResidentID, Error)) return false;
+	FVisualObservationFrameInput SelectedOnlyView;
+	SelectedOnlyView.bNormalViewEnabled = false;
+	if (!Runtime.SubmitObservationFrame(SelectedOnlyView, Error)) return false;
 	FUnifiedDemoSnapshot AfterSnapshot;
 	FVisualResidentPresentationFrame AfterFrame;
 	if (!Runtime.CopySnapshot(AfterSnapshot) || !Runtime.CopyPresentationFrame(AfterFrame)) return false;
-	TArray<FResidentID> AfterActiveIDs;
-	for (const FUnifiedDemoResidentSnapshot& Resident : AfterSnapshot.ActiveResidents)
-	{
-		AfterActiveIDs.Add(Resident.ResidentID);
-	}
-	TestEqual(TEXT("Selecting a low-level proxy does not Lift it or replace the Active set"),
-		AfterActiveIDs, BeforeActiveIDs);
-	TestTrue(TEXT("The selected proxy is exposed through a copied presentation value"),
+	TestTrue(TEXT("Selecting a displayed proxy makes its next observation request Active"),
+		AfterSnapshot.ActiveResidents.ContainsByPredicate(
+			[ProxyResidentID](const FUnifiedDemoResidentSnapshot& Resident)
+			{
+				return Resident.ResidentID == ProxyResidentID;
+			}));
+	TestTrue(TEXT("The selected resident is exposed through a copied presentation value"),
 		AfterFrame.bHasSelectedResident && AfterFrame.SelectedResidentID == ProxyResidentID);
-	TestFalse(TEXT("A selected proxy still does not claim exact Active state"),
+	TestTrue(TEXT("A selected resident exposes exact state only after authoritative Lift"),
 		AfterFrame.SelectedResident.bHasActiveState);
 
 	AfterFrame.SelectedResident.HomeID = -1;
@@ -577,6 +573,11 @@ bool FAILODPhase7DSharedPresentationSettingsTest::RunTest(const FString& Paramet
 		Config.Observation.NormalActiveBudget, 35);
 	TestEqual(TEXT("The low-level proxy budget is explicit Demo configuration"),
 		Config.Observation.NormalProxyBudget, 128);
+	TestTrue(TEXT("Normal observation uses a positive real-time dwell before distant promotion"),
+		Config.Observation.NormalPromotionDwellSeconds > 0.0);
+	TestTrue(TEXT("Normal observation keeps a longer demotion grace than promotion dwell"),
+		Config.Observation.NormalDemotionGraceSeconds
+		> Config.Observation.NormalPromotionDwellSeconds);
 	TestEqual(TEXT("The full NPC Actor pool keeps the frozen capacity"),
 		Config.Presentation.ActiveActorCapacity, 50);
 	TestTrue(TEXT("The configured low-level proxy capacity covers normal and telescope candidates"),

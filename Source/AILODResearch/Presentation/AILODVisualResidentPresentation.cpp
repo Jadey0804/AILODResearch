@@ -79,6 +79,7 @@ namespace AILOD
 			OutEntry.RouteEnd = Road->Start + RoadDirection * FMath::Min(RoadLength, Along + LocalRouteHalfLength);
 			OutEntry.DestinationPosition = Placement->ProxyPosition;
 			OutEntry.FacingDegrees = FMath::RadiansToDegrees(FMath::Atan2(RoadDirection.Y, RoadDirection.X));
+			OutEntry.bPlaceholderMoves = ActiveState == nullptr;
 
 			if (ActiveState != nullptr)
 			{
@@ -258,6 +259,79 @@ namespace AILOD
 		return FVector2D::Distance(Entry.RouteStart, Entry.RouteEnd) > UE_SMALL_NUMBER
 			? FMath::Lerp(Entry.RouteStart, Entry.RouteEnd, FMath::Clamp(RouteAlpha, 0.0, 1.0))
 			: Entry.ProxyPosition;
+	}
+
+	FVisualResidentMotionState FVisualResidentPresentationPlanner::MakeInitialMotionState(
+		const FVisualResidentPresentationEntry& Entry)
+	{
+		FVisualResidentMotionState State;
+		State.ResidentID = Entry.ResidentID;
+		const uint64 ResidentSeed = static_cast<uint64>(Entry.ResidentID)
+			^ (static_cast<uint64>(Entry.ResidentID) >> 32);
+		State.RouteAlpha = static_cast<double>(ResidentSeed % 1000ull) / 999.0;
+		State.AnimationSeconds = static_cast<double>((ResidentSeed >> 10) % 628ull) / 100.0;
+		State.FacingDegrees = Entry.FacingDegrees;
+		State.RouteDirection = (ResidentSeed & 1ull) == 0ull ? 1 : -1;
+		return State;
+	}
+
+	void FVisualResidentPresentationPlanner::AdvanceMotionState(
+		const FVisualResidentPresentationEntry& Entry,
+		const double DeltaSeconds,
+		const double WalkSpeedCentimetersPerSecond,
+		FVisualResidentMotionState& InOutState)
+	{
+		const double SafeDeltaSeconds = FMath::Max(0.0, DeltaSeconds);
+		InOutState.AnimationSeconds += SafeDeltaSeconds;
+		if (Entry.bPlaceholderMoves)
+		{
+			const double RouteLength = FVector2D::Distance(Entry.RouteStart, Entry.RouteEnd);
+			if (RouteLength > UE_SMALL_NUMBER)
+			{
+				InOutState.RouteAlpha += InOutState.RouteDirection
+					* FMath::Max(0.0, WalkSpeedCentimetersPerSecond)
+					* SafeDeltaSeconds / RouteLength;
+				if (InOutState.RouteAlpha >= 1.0)
+				{
+					InOutState.RouteAlpha = 2.0 - InOutState.RouteAlpha;
+					InOutState.RouteDirection = -1;
+				}
+				else if (InOutState.RouteAlpha <= 0.0)
+				{
+					InOutState.RouteAlpha = -InOutState.RouteAlpha;
+					InOutState.RouteDirection = 1;
+				}
+			}
+		}
+
+		double TargetFacingDegrees = Entry.FacingDegrees;
+		if (Entry.bPlaceholderMoves)
+		{
+			const FVector2D Direction = (Entry.RouteEnd - Entry.RouteStart).GetSafeNormal()
+				* static_cast<double>(InOutState.RouteDirection);
+			if (!Direction.IsNearlyZero())
+			{
+				TargetFacingDegrees = FMath::RadiansToDegrees(FMath::Atan2(Direction.Y, Direction.X));
+			}
+		}
+		InOutState.FacingDegrees = FMath::FixedTurn(
+			static_cast<float>(InOutState.FacingDegrees),
+			static_cast<float>(TargetFacingDegrees),
+			static_cast<float>(180.0 * SafeDeltaSeconds));
+	}
+
+	FVisualResidentMotionPose FVisualResidentPresentationPlanner::ResolveMotionPose(
+		const FVisualResidentPresentationEntry& Entry,
+		const FVisualResidentMotionState& State)
+	{
+		FVisualResidentMotionPose Pose;
+		Pose.Position = ResolveLocalRoutePosition(Entry, State.RouteAlpha);
+		Pose.FacingDegrees = State.FacingDegrees;
+		Pose.GroundOffset = FMath::Sin(State.AnimationSeconds * 6.0) * 2.0;
+		const uint64 ResidentSeed = static_cast<uint64>(Entry.ResidentID)
+			^ (static_cast<uint64>(Entry.ResidentID) >> 32);
+		Pose.HeightScale = 0.9 + static_cast<double>((ResidentSeed >> 8) % 21ull) / 100.0;
+		return Pose;
 	}
 
 	FVisualProxySlotPlanner::FVisualProxySlotPlanner(const int32 InCapacity)

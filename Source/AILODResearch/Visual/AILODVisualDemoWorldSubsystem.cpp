@@ -14,7 +14,86 @@
 #include "Components/WorldPartitionStreamingSourceComponent.h"
 #include "Engine/StaticMesh.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Pawn.h"
 #include "imgui.h"
+
+namespace
+{
+	bool DeprojectScreenPointToGround(
+		APlayerController& PlayerController,
+		const float ScreenX,
+		const float ScreenY,
+		const double GroundZ,
+		FVector2D& OutGroundPoint)
+	{
+		FVector RayOrigin;
+		FVector RayDirection;
+		if (!PlayerController.DeprojectScreenPositionToWorld(
+			ScreenX,
+			ScreenY,
+			RayOrigin,
+			RayDirection)
+			|| RayDirection.Z >= -UE_SMALL_NUMBER)
+		{
+			return false;
+		}
+		const double Distance = (GroundZ - RayOrigin.Z) / RayDirection.Z;
+		if (Distance < 0.0)
+		{
+			return false;
+		}
+		const FVector GroundPoint = RayOrigin + RayDirection * Distance;
+		OutGroundPoint = FVector2D(GroundPoint.X, GroundPoint.Y);
+		return true;
+	}
+
+	bool BuildNormalViewGroundFootprint(
+		APlayerController& PlayerController,
+		const double GroundZ,
+		FVector2D& OutFocus,
+		TArray<FVector2D>& OutPolygon)
+	{
+		int32 ViewportWidth = 0;
+		int32 ViewportHeight = 0;
+		PlayerController.GetViewportSize(ViewportWidth, ViewportHeight);
+		if (ViewportWidth <= 0 || ViewportHeight <= 0
+			|| !DeprojectScreenPointToGround(
+				PlayerController,
+				ViewportWidth * 0.5f,
+				ViewportHeight * 0.5f,
+				GroundZ,
+				OutFocus))
+		{
+			OutPolygon.Reset();
+			return false;
+		}
+
+		const FVector2D ScreenCorners[] =
+		{
+			FVector2D(0.0, 0.0),
+			FVector2D(ViewportWidth, 0.0),
+			FVector2D(ViewportWidth, ViewportHeight),
+			FVector2D(0.0, ViewportHeight)
+		};
+		OutPolygon.Reset(UE_ARRAY_COUNT(ScreenCorners));
+		for (const FVector2D& ScreenCorner : ScreenCorners)
+		{
+			FVector2D GroundCorner;
+			if (!DeprojectScreenPointToGround(
+				PlayerController,
+				ScreenCorner.X,
+				ScreenCorner.Y,
+				GroundZ,
+				GroundCorner))
+			{
+				OutPolygon.Reset();
+				break;
+			}
+			OutPolygon.Add(GroundCorner);
+		}
+		return true;
+	}
+}
 
 bool UAILODVisualDemoWorldSubsystem::DoesSupportWorldType(const EWorldType::Type WorldType) const
 {
@@ -180,7 +259,7 @@ void UAILODVisualDemoWorldSubsystem::SetTelescopeEnabled(const bool bEnabled)
 void UAILODVisualDemoWorldSubsystem::UpdateCameraObservation(const float DeltaTime)
 {
 	const UWorld* World = GetWorld();
-	const APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
+	APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
 	if (!PlayerController || !PlayerController->PlayerCameraManager)
 	{
 		return;
@@ -193,13 +272,27 @@ void UAILODVisualDemoWorldSubsystem::UpdateCameraObservation(const float DeltaTi
 
 	AILOD::FVisualObservationFrameInput Input;
 	const UAILODVisualDemoSettings* Settings = GetDefault<UAILODVisualDemoSettings>();
+	const FVector2D CameraPosition(CameraLocation.X, CameraLocation.Y);
+	FVector2D NormalFocus = CameraPosition;
+	BuildNormalViewGroundFootprint(
+		*PlayerController,
+		Settings->NPCGroundZCentimeters,
+		NormalFocus,
+		Input.NormalVisibleGroundPolygon);
+	Input.RealDeltaSeconds = DeltaTime;
 	Input.bNormalViewUsesRadius = Settings->bUseRadialNormalObservation;
-	Input.NormalView.Origin = FVector2D(CameraLocation.X, CameraLocation.Y);
+	Input.NormalView.Origin = NormalFocus;
 	Input.NormalView.Forward = CameraForward;
 	Input.NormalView.EnterDistance = Settings->NormalObservationDistanceMeters * 100.0;
 	Input.NormalView.HalfAngleDegrees = Settings->NormalObservationHalfAngleDegrees;
+	if (const APawn* PlayerPawn = PlayerController->GetPawn())
+	{
+		const FVector PawnLocation = PlayerPawn->GetActorLocation();
+		Input.bHasNormalImmediateOrigin = true;
+		Input.NormalImmediateOrigin = FVector2D(PawnLocation.X, PawnLocation.Y);
+	}
 	Input.bTelescopeEnabled = bTelescopeEnabled;
-	Input.TelescopeView.Origin = Input.NormalView.Origin;
+	Input.TelescopeView.Origin = CameraPosition;
 	Input.TelescopeView.Forward = CameraForward;
 	Input.TelescopeView.MinimumDistance = Settings->TelescopeMinimumDistanceMeters * 100.0;
 	Input.TelescopeView.EnterDistance = Settings->TelescopeObservationDistanceMeters * 100.0;
@@ -305,7 +398,6 @@ bool UAILODVisualDemoWorldSubsystem::EnsurePopulationPresenter(FString& OutError
 	const UAILODVisualDemoSettings* Settings = GetDefault<UAILODVisualDemoSettings>();
 	const AILOD::FVisualDemoRuntimeConfig RuntimeConfig = Settings->MakeRuntimeConfig();
 	return PopulationPresenter->InitializePresentation(
-		Settings->LowLevelProxyMesh.LoadSynchronous(),
 		Settings->FullActorBodyMesh.LoadSynchronous(),
 		Settings->FullActorHeadMesh.LoadSynchronous(),
 		RuntimeConfig.Presentation.LowLevelProxyCapacity,
@@ -533,11 +625,29 @@ void UAILODVisualDemoWorldSubsystem::DrawFunctionalUI()
 		ImGui::Separator();
 		ImGui::Text("Normal query: %s",
 			GetDefault<UAILODVisualDemoSettings>()->bUseRadialNormalObservation
-				? "top-down radius"
+				? "screen-ground focus + bounded radius"
 				: "forward cone");
 		ImGui::Text("Spatial query: %d cells, %d resident entries",
 			Diagnostics.NormalQuery.VisitedCellCount,
 			Diagnostics.NormalQuery.VisitedResidentEntryCount);
+		ImGui::Text("Observed on-screen: %d | eligible: %d | dwell states: %d",
+			Diagnostics.NormalVisibleCandidateCount,
+			Diagnostics.NormalEligibleActiveCount,
+			Diagnostics.NormalObservationStateCount);
+		if (Diagnostics.bNormalImmediateBudgetOverflow)
+		{
+			ImGui::TextColored(
+				ImVec4(1.0f, 0.35f, 0.2f, 1.0f),
+				"Close/selected residents exceed the normal Active budget (%d > %d)",
+				Diagnostics.NormalImmediateCandidateCount,
+				GetDefault<UAILODVisualDemoSettings>()->NormalActiveActorBudget);
+		}
+		else if (Diagnostics.bNormalActiveBudgetSaturated)
+		{
+			ImGui::TextColored(
+				ImVec4(1.0f, 0.8f, 0.2f, 1.0f),
+				"Observation budget saturated; lower-priority visible residents remain proxies.");
+		}
 		ImGui::Text("Full population scan: %s", Diagnostics.NormalQuery.bScannedResidentCatalog ? "YES (ERROR)" : "No");
 		ImGui::Separator();
 		ImGui::TextUnformatted("Telescope: hold Right Mouse Button for ground view; aim with screen center");
@@ -583,6 +693,9 @@ void UAILODVisualDemoWorldSubsystem::DrawFunctionalUI()
 				PopulationPresenter->GetBoundActorCount(),
 				PopulationPresenter->GetTotalReboundCount(),
 				PopulationPresenter->GetTotalReleasedCount());
+			ImGui::Text("Visible motion: %d states, %d updates this frame",
+				PopulationPresenter->GetMotionStateCount(),
+				PopulationPresenter->GetLastMotionUpdateCount());
 		}
 		if (PresentationFrame.bHasSelectedResident)
 		{

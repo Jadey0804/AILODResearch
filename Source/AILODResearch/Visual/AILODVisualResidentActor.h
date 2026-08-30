@@ -22,17 +22,15 @@ public:
 	void ConfigureMeshes(UStaticMesh* BodyMesh, UStaticMesh* HeadMesh);
 	void ApplyPresentationEntry(
 		const AILOD::FVisualResidentPresentationEntry& Entry,
-		double GroundZCentimeters,
-		double WalkSpeedCentimetersPerSecond);
-	void AdvancePlaceholderAnimation(float DeltaSeconds);
+		double GroundZCentimeters);
+	void ApplyMotionState(const AILOD::FVisualResidentMotionState& MotionState);
 	void ReleaseToPool();
 
 	AILOD::FResidentID GetBoundResidentID() const { return BoundResidentID; }
+	const AILOD::FVisualResidentPresentationEntry& GetPresentationEntry() const { return PresentationEntry; }
 	bool IsBound() const { return BoundResidentID > 0; }
 
 private:
-	void ApplyPose();
-
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<USceneComponent> SceneRoot;
 
@@ -45,8 +43,4 @@ private:
 	AILOD::FVisualResidentPresentationEntry PresentationEntry;
 	AILOD::FResidentID BoundResidentID = 0;
 	double GroundZ = 0.0;
-	double WalkSpeed = 150.0;
-	double RouteAlpha = 0.0;
-	double AnimationSeconds = 0.0;
-	int32 RouteDirection = 1;
 };

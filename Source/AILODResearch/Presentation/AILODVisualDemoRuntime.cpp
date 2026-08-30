@@ -129,22 +129,27 @@ namespace AILOD
 
 		TUniquePtr<FVisualObservationPlanner> CandidatePlanner =
 			MakeUnique<FVisualObservationPlanner>(*ObservationPlanner);
-		if (Input.bClearTrackedResident && Input.TelescopePromotionResidentID != 0)
+		FVisualObservationFrameInput EffectiveInput = Input;
+		if (SelectedResidentID > 0)
+		{
+			EffectiveInput.PriorityResidentID = SelectedResidentID;
+		}
+		if (EffectiveInput.bClearTrackedResident && EffectiveInput.TelescopePromotionResidentID != 0)
 		{
 			OutError = TEXT("A visual observation frame cannot clear and replace tracking at the same time.");
 			return false;
 		}
-		if (Input.bClearTrackedResident)
+		if (EffectiveInput.bClearTrackedResident)
 		{
 			CandidatePlanner->ClearTrackedResident();
 		}
-		else if (Input.TelescopePromotionResidentID != 0
-			&& !CandidatePlanner->SetTrackedResident(Input.TelescopePromotionResidentID, OutError))
+		else if (EffectiveInput.TelescopePromotionResidentID != 0
+			&& !CandidatePlanner->SetTrackedResident(EffectiveInput.TelescopePromotionResidentID, OutError))
 		{
 			return false;
 		}
 		FVisualObservationPlan CandidatePlan;
-		if (!CandidatePlanner->PlanFrame(Input, CandidatePlan, OutError))
+		if (!CandidatePlanner->PlanFrame(EffectiveInput, CandidatePlan, OutError))
 		{
 			return Fail(OutError, OutError);
 		}

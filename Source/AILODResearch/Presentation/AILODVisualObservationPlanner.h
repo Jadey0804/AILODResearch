@@ -18,6 +18,9 @@ namespace AILOD
 		int32 NormalQueryCandidateLimit = 512;
 		int32 TelescopeQueryCandidateLimit = 256;
 		double ExitDistanceMultiplier = 1.2;
+		double NormalImmediatePromotionDistance = 3000.0;
+		double NormalPromotionDwellSeconds = 0.75;
+		double NormalDemotionGraceSeconds = 2.0;
 	};
 
 	struct FVisualObservationView
@@ -38,6 +41,11 @@ namespace AILOD
 		FVisualObservationView TelescopeView;
 		FResidentID TelescopePromotionResidentID = 0;
 		bool bClearTrackedResident = false;
+		double RealDeltaSeconds = 0.0;
+		FResidentID PriorityResidentID = 0;
+		bool bHasNormalImmediateOrigin = false;
+		FVector2D NormalImmediateOrigin = FVector2D::ZeroVector;
+		TArray<FVector2D> NormalVisibleGroundPolygon;
 	};
 
 	struct FVisualTelescopeFocusStatus
@@ -80,6 +88,12 @@ namespace AILOD
 		int32 TelescopeProxyCount = 0;
 		int32 DesiredActiveCount = 0;
 		int32 RetainedNormalActiveCount = 0;
+		int32 NormalVisibleCandidateCount = 0;
+		int32 NormalEligibleActiveCount = 0;
+		int32 NormalImmediateCandidateCount = 0;
+		int32 NormalObservationStateCount = 0;
+		bool bNormalActiveBudgetSaturated = false;
+		bool bNormalImmediateBudgetOverflow = false;
 		bool bActiveSetChanged = false;
 	};
 
@@ -127,6 +141,19 @@ namespace AILOD
 			double EnterDistance,
 			int32 Budget,
 			TArray<FVisualProxyCandidate>& OutSelected) const;
+		bool SelectNormalActiveCandidates(
+			const FVisualObservationFrameInput& Input,
+			const TArray<FVisualSpatialCandidate>& QueriedCandidates,
+			const TArray<FVisualSpatialCandidate>& VisibleCandidates,
+			TArray<FVisualProxyCandidate>& OutSelected,
+			FVisualObservationDiagnostics& OutDiagnostics,
+			FString& OutError);
+
+		struct FNormalObservationState
+		{
+			double VisibleRealSeconds = 0.0;
+			double HiddenRealSeconds = 0.0;
+		};
 
 		const FVisualWorldLayout& Layout;
 		FVisualObservationPlannerConfig Config;
@@ -136,5 +163,6 @@ namespace AILOD
 		TArray<FResidentID> PreviousTelescopeProxyIDs;
 		TArray<FResidentID> PreviousDesiredActiveIDs;
 		FResidentID PreviousTrackedResidentID = 0;
+		TMap<FResidentID, FNormalObservationState> NormalObservationStates;
 	};
 }

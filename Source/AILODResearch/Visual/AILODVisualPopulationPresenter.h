@@ -8,7 +8,7 @@
 #include "AILODVisualPopulationPresenter.generated.h"
 
 class AAILODVisualResidentActor;
-class UHierarchicalInstancedStaticMeshComponent;
+class UInstancedStaticMeshComponent;
 class USceneComponent;
 class UStaticMesh;
 
@@ -22,9 +22,8 @@ public:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	bool InitializePresentation(
-		UStaticMesh* ProxyMesh,
-		UStaticMesh* FullActorBodyMesh,
-		UStaticMesh* FullActorHeadMesh,
+		UStaticMesh* ResidentBodyMesh,
+		UStaticMesh* ResidentHeadMesh,
 		int32 LowLevelProxyCapacity,
 		double GroundZCentimeters,
 		double WalkSpeedCentimetersPerSecond,
@@ -48,19 +47,31 @@ public:
 	int32 GetLastReboundCount() const { return LastReboundCount; }
 	int64 GetTotalReleasedCount() const { return TotalReleasedCount; }
 	int64 GetTotalReboundCount() const { return TotalReboundCount; }
+	int32 GetMotionStateCount() const { return MotionStates.Num(); }
+	int32 GetLastMotionUpdateCount() const { return LastMotionUpdateCount; }
 
 private:
 	bool ApplyProxySlots(
 		const AILOD::FVisualResidentPresentationFrame& Frame,
 		const AILOD::FVisualProxySlotPlan& SlotPlan,
+		const TMap<AILOD::FResidentID, AILOD::FVisualResidentMotionState>& CandidateMotionStates,
 		FString& OutError);
+	void UpdateProxyInstanceTransform(
+		int32 SlotIndex,
+		const AILOD::FVisualResidentPresentationEntry& Entry,
+		const AILOD::FVisualResidentMotionState& MotionState,
+		bool bMarkRenderStateDirty);
+	void HideProxySlot(int32 SlotIndex, bool bMarkRenderStateDirty);
 	void HideAllProxySlots();
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<USceneComponent> SceneRoot;
 
 	UPROPERTY(VisibleAnywhere)
-	TObjectPtr<UHierarchicalInstancedStaticMeshComponent> ProxyInstances;
+	TObjectPtr<UInstancedStaticMeshComponent> ProxyBodies;
+
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<UInstancedStaticMeshComponent> ProxyHeads;
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<AAILODVisualResidentActor>> ResidentActorPool;
@@ -69,6 +80,8 @@ private:
 	TUniquePtr<AILOD::FVisualProxySlotPlanner> ProxySlotPlanner;
 	TArray<AILOD::FResidentID> ProxyResidentIDs;
 	TArray<FVector2D> ProxyPositions;
+	TArray<AILOD::FVisualResidentPresentationEntry> ProxyEntries;
+	TMap<AILOD::FResidentID, AILOD::FVisualResidentMotionState> MotionStates;
 	double GroundZ = 100.0;
 	double WalkSpeed = 150.0;
 	int32 VisibleProxyCount = 0;
@@ -77,5 +90,6 @@ private:
 	int32 LastReboundCount = 0;
 	int64 TotalReleasedCount = 0;
 	int64 TotalReboundCount = 0;
+	int32 LastMotionUpdateCount = 0;
 	bool bInitialized = false;
 };

@@ -97,13 +97,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation")
 	bool bShowResidentDebugLabels = true;
 
-	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation")
-	TSoftObjectPtr<UStaticMesh> LowLevelProxyMesh;
-
-	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation")
+	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation", meta=(DisplayName="Shared Resident Body Mesh"))
 	TSoftObjectPtr<UStaticMesh> FullActorBodyMesh;
 
-	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation")
+	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation", meta=(DisplayName="Shared Resident Head Mesh"))
 	TSoftObjectPtr<UStaticMesh> FullActorHeadMesh;
 
 	UPROPERTY(Config, EditAnywhere, Category="PCG", meta=(ClampMin="0", ClampMax="4096"))

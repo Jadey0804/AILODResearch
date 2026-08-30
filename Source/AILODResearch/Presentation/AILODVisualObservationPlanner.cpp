@@ -2,6 +2,32 @@
 
 #include "AILODVisualObservationPlanner.h"
 
+namespace
+{
+	bool IsInsideGroundPolygon(const FVector2D& Point, const TArray<FVector2D>& Polygon)
+	{
+		if (Polygon.Num() < 3)
+		{
+			return true;
+		}
+		bool bInside = false;
+		for (int32 Index = 0, Previous = Polygon.Num() - 1; Index < Polygon.Num(); Previous = Index++)
+		{
+			const FVector2D& A = Polygon[Index];
+			const FVector2D& B = Polygon[Previous];
+			const double Denominator = B.Y - A.Y;
+			const bool bCrosses = (A.Y > Point.Y) != (B.Y > Point.Y);
+			if (bCrosses
+				&& Point.X < (B.X - A.X) * (Point.Y - A.Y)
+					/ (FMath::IsNearlyZero(Denominator) ? UE_DOUBLE_SMALL_NUMBER : Denominator) + A.X)
+			{
+				bInside = !bInside;
+			}
+		}
+		return bInside;
+	}
+}
+
 namespace AILOD
 {
 	FResidentID FVisualTelescopeFocusGate::Update(
@@ -52,7 +78,10 @@ namespace AILOD
 			|| Config.NormalQueryCandidateLimit < Config.NormalProxyBudget
 			|| Config.TelescopeQueryCandidateLimit < Config.TelescopeProxyBudget
 			|| Config.NormalActiveBudget + Config.TelescopeActiveBudget + 1 > Config.ActiveHardCap
-			|| Config.ExitDistanceMultiplier < 1.0)
+			|| Config.ExitDistanceMultiplier < 1.0
+			|| Config.NormalImmediatePromotionDistance < 0.0
+			|| Config.NormalPromotionDwellSeconds < 0.0
+			|| Config.NormalDemotionGraceSeconds < 0.0)
 		{
 			OutError = TEXT("Visual observation budgets require a built layout, the frozen Active cap of 50, and room for normal, telescope, and one tracked resident.");
 			return false;
@@ -87,6 +116,7 @@ namespace AILOD
 		PreviousTelescopeProxyIDs.Reset();
 		PreviousDesiredActiveIDs.Reset();
 		PreviousTrackedResidentID = 0;
+		NormalObservationStates.Reset();
 	}
 
 	bool FVisualObservationPlanner::QueryView(
@@ -160,6 +190,181 @@ namespace AILOD
 		}
 	}
 
+	bool FVisualObservationPlanner::SelectNormalActiveCandidates(
+		const FVisualObservationFrameInput& Input,
+		const TArray<FVisualSpatialCandidate>& QueriedCandidates,
+		const TArray<FVisualSpatialCandidate>& VisibleCandidates,
+		TArray<FVisualProxyCandidate>& OutSelected,
+		FVisualObservationDiagnostics& OutDiagnostics,
+		FString& OutError)
+	{
+		OutSelected.Reset();
+		if (Input.PriorityResidentID < 0)
+		{
+			OutError = TEXT("A priority visual resident requires a non-negative ResidentID.");
+			return false;
+		}
+		const FVisualResidentPlacement* PriorityPlacement = Input.PriorityResidentID > 0
+			? Layout.FindResident(Input.PriorityResidentID)
+			: nullptr;
+		if (Input.PriorityResidentID > 0 && PriorityPlacement == nullptr)
+		{
+			OutError = TEXT("The priority visual resident must exist in the fixed Visual World Layout.");
+			return false;
+		}
+
+		const double DeltaSeconds = FMath::Max(0.0, Input.RealDeltaSeconds);
+		TMap<FResidentID, const FVisualSpatialCandidate*> QueriedByResidentID;
+		for (const FVisualSpatialCandidate& Candidate : QueriedCandidates)
+		{
+			QueriedByResidentID.Add(Candidate.ResidentID, &Candidate);
+		}
+		TSet<FResidentID> VisibleResidentIDs;
+		for (const FVisualSpatialCandidate& Candidate : VisibleCandidates)
+		{
+			if (Candidate.Distance > Input.NormalView.EnterDistance)
+			{
+				continue;
+			}
+			VisibleResidentIDs.Add(Candidate.ResidentID);
+			FNormalObservationState& State = NormalObservationStates.FindOrAdd(Candidate.ResidentID);
+			State.VisibleRealSeconds += DeltaSeconds;
+			State.HiddenRealSeconds = 0.0;
+		}
+		for (auto Iterator = NormalObservationStates.CreateIterator(); Iterator; ++Iterator)
+		{
+			if (VisibleResidentIDs.Contains(Iterator.Key()))
+			{
+				continue;
+			}
+			Iterator.Value().VisibleRealSeconds = 0.0;
+			Iterator.Value().HiddenRealSeconds += DeltaSeconds;
+			if (!QueriedByResidentID.Contains(Iterator.Key())
+				|| Iterator.Value().HiddenRealSeconds > Config.NormalDemotionGraceSeconds)
+			{
+				Iterator.RemoveCurrent();
+			}
+		}
+
+		struct FNormalRankedCandidate
+		{
+			FVisualProxyCandidate Candidate;
+			bool bPriority = false;
+			bool bImmediate = false;
+			bool bVisible = false;
+		};
+		TArray<FNormalRankedCandidate> RankedCandidates;
+		TSet<FResidentID> RankedResidentIDs;
+		auto AddRankedCandidate = [&](const FVisualSpatialCandidate& Candidate,
+			const bool bPriority,
+			const bool bImmediate,
+			const bool bVisible,
+			const bool bRetained)
+		{
+			if (RankedResidentIDs.Contains(Candidate.ResidentID))
+			{
+				return;
+			}
+			RankedResidentIDs.Add(Candidate.ResidentID);
+			FNormalRankedCandidate& Ranked = RankedCandidates.AddDefaulted_GetRef();
+			Ranked.Candidate.ResidentID = Candidate.ResidentID;
+			Ranked.Candidate.Position = Candidate.Position;
+			Ranked.Candidate.Distance = Candidate.Distance;
+			Ranked.Candidate.ForwardAlignment = Candidate.ForwardAlignment;
+			Ranked.Candidate.bRetainedByHysteresis = bRetained;
+			Ranked.bPriority = bPriority;
+			Ranked.bImmediate = bImmediate;
+			Ranked.bVisible = bVisible;
+		};
+
+		TSet<FResidentID> ImmediateResidentIDs;
+		if (PriorityPlacement != nullptr)
+		{
+			FVisualSpatialCandidate PriorityCandidate;
+			PriorityCandidate.ResidentID = Input.PriorityResidentID;
+			PriorityCandidate.Position = PriorityPlacement->ProxyPosition;
+			PriorityCandidate.Distance = FVector2D::Distance(
+				Input.NormalView.Origin,
+				PriorityPlacement->ProxyPosition);
+			PriorityCandidate.ForwardAlignment = 1.0;
+			AddRankedCandidate(PriorityCandidate, true, true, true, false);
+			ImmediateResidentIDs.Add(Input.PriorityResidentID);
+		}
+		for (const FVisualSpatialCandidate& Candidate : VisibleCandidates)
+		{
+			if (Candidate.Distance > Input.NormalView.EnterDistance)
+			{
+				continue;
+			}
+			const FNormalObservationState* State = NormalObservationStates.Find(Candidate.ResidentID);
+			const bool bImmediate = Input.bHasNormalImmediateOrigin
+				&& FVector2D::Distance(Input.NormalImmediateOrigin, Candidate.Position)
+					<= Config.NormalImmediatePromotionDistance;
+			if (bImmediate)
+			{
+				ImmediateResidentIDs.Add(Candidate.ResidentID);
+			}
+			if (!bImmediate
+				&& (State == nullptr
+					|| State->VisibleRealSeconds < Config.NormalPromotionDwellSeconds))
+			{
+				continue;
+			}
+			AddRankedCandidate(
+				Candidate,
+				Candidate.ResidentID == Input.PriorityResidentID,
+				bImmediate,
+				true,
+				false);
+		}
+		for (const FResidentID ResidentID : PreviousNormalActiveIDs)
+		{
+			if (RankedResidentIDs.Contains(ResidentID))
+			{
+				continue;
+			}
+			const FVisualSpatialCandidate* const* Candidate = QueriedByResidentID.Find(ResidentID);
+			const FNormalObservationState* State = NormalObservationStates.Find(ResidentID);
+			if (Candidate == nullptr || State == nullptr
+				|| State->HiddenRealSeconds > Config.NormalDemotionGraceSeconds)
+			{
+				continue;
+			}
+			AddRankedCandidate(**Candidate, false, false, false, true);
+		}
+
+		RankedCandidates.Sort([](
+			const FNormalRankedCandidate& Left,
+			const FNormalRankedCandidate& Right)
+		{
+			if (Left.bPriority != Right.bPriority) return Left.bPriority;
+			if (Left.bImmediate != Right.bImmediate) return Left.bImmediate;
+			if (Left.Candidate.bRetainedByHysteresis != Right.Candidate.bRetainedByHysteresis)
+			{
+				return Left.Candidate.bRetainedByHysteresis;
+			}
+			if (Left.bVisible != Right.bVisible) return Left.bVisible;
+			if (Left.Candidate.Distance != Right.Candidate.Distance)
+			{
+				return Left.Candidate.Distance < Right.Candidate.Distance;
+			}
+			return Left.Candidate.ResidentID < Right.Candidate.ResidentID;
+		});
+		OutDiagnostics.NormalVisibleCandidateCount = VisibleResidentIDs.Num();
+		OutDiagnostics.NormalEligibleActiveCount = RankedCandidates.Num();
+		OutDiagnostics.NormalImmediateCandidateCount = ImmediateResidentIDs.Num();
+		OutDiagnostics.NormalObservationStateCount = NormalObservationStates.Num();
+		OutDiagnostics.bNormalActiveBudgetSaturated = RankedCandidates.Num() > Config.NormalActiveBudget;
+		OutDiagnostics.bNormalImmediateBudgetOverflow = ImmediateResidentIDs.Num() > Config.NormalActiveBudget;
+		const int32 SelectedCount = FMath::Min(Config.NormalActiveBudget, RankedCandidates.Num());
+		for (int32 Index = 0; Index < SelectedCount; ++Index)
+		{
+			OutSelected.Add(RankedCandidates[Index].Candidate);
+		}
+		OutError.Reset();
+		return true;
+	}
+
 	bool FVisualObservationPlanner::PlanFrame(
 		const FVisualObservationFrameInput& Input,
 		FVisualObservationPlan& OutPlan,
@@ -175,6 +380,7 @@ namespace AILOD
 		}
 
 		TArray<FVisualSpatialCandidate> NormalCandidates;
+		TArray<FVisualSpatialCandidate> NormalVisibleCandidates;
 		TArray<FVisualSpatialCandidate> TelescopeCandidates;
 		TArray<FVisualProxyCandidate> NormalActiveCandidates;
 		if (Input.bNormalViewEnabled)
@@ -199,18 +405,32 @@ namespace AILOD
 			{
 				return false;
 			}
+			NormalVisibleCandidates = NormalCandidates;
+			if (Input.NormalVisibleGroundPolygon.Num() >= 3)
+			{
+				NormalVisibleCandidates.RemoveAll([&Input](const FVisualSpatialCandidate& Candidate)
+				{
+					return !IsInsideGroundPolygon(
+						Candidate.Position,
+						Input.NormalVisibleGroundPolygon);
+				});
+			}
 			SelectWithHysteresis(
-				NormalCandidates,
+				NormalVisibleCandidates,
 				PreviousNormalProxyIDs,
 				Input.NormalView.EnterDistance,
 				Config.NormalProxyBudget,
 				OutPlan.NormalProxyCandidates);
-			SelectWithHysteresis(
-				NormalCandidates,
-				PreviousNormalActiveIDs,
-				Input.NormalView.EnterDistance,
-				Config.NormalActiveBudget,
-				NormalActiveCandidates);
+		}
+		if (!SelectNormalActiveCandidates(
+			Input,
+			NormalCandidates,
+			NormalVisibleCandidates,
+			NormalActiveCandidates,
+			OutPlan.Diagnostics,
+			OutError))
+		{
+			return false;
 		}
 
 		if (Input.bTelescopeEnabled)
@@ -347,5 +567,6 @@ namespace AILOD
 	{
 		PreviousNormalProxyIDs = PlannedCandidate.PreviousNormalProxyIDs;
 		PreviousTelescopeProxyIDs = PlannedCandidate.PreviousTelescopeProxyIDs;
+		NormalObservationStates = PlannedCandidate.NormalObservationStates;
 	}
 }

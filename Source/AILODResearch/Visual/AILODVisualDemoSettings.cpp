@@ -4,8 +4,6 @@
 
 UAILODVisualDemoSettings::UAILODVisualDemoSettings()
 {
-	LowLevelProxyMesh = TSoftObjectPtr<UStaticMesh>(
-		FSoftObjectPath(TEXT("/Engine/BasicShapes/Cylinder.Cylinder")));
 	FullActorBodyMesh = TSoftObjectPtr<UStaticMesh>(
 		FSoftObjectPath(TEXT("/Engine/BasicShapes/Cylinder.Cylinder")));
 	FullActorHeadMesh = TSoftObjectPtr<UStaticMesh>(

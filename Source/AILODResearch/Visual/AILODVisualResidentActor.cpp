@@ -15,23 +15,28 @@ AAILODVisualResidentActor::AAILODVisualResidentActor()
 
 	Body = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Body"));
 	Body->SetupAttachment(SceneRoot);
-	Body->SetRelativeLocation(FVector(0.0, 0.0, 60.0));
-	Body->SetRelativeScale3D(FVector(0.45, 0.45, 1.2));
+	Body->SetRelativeLocation(FVector(0.0, 0.0, AILOD::FVisualResidentFigureGeometry::BodyCenterZ));
+	Body->SetRelativeScale3D(FVector(
+		AILOD::FVisualResidentFigureGeometry::BodyRadiusScale,
+		AILOD::FVisualResidentFigureGeometry::BodyRadiusScale,
+		AILOD::FVisualResidentFigureGeometry::BodyHeightScale));
 	Body->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	Body->SetCollisionResponseToAllChannels(ECR_Ignore);
 	Body->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	Body->SetGenerateOverlapEvents(false);
 	Body->SetCanEverAffectNavigation(false);
+	Body->SetCastShadow(false);
 
 	Head = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Head"));
 	Head->SetupAttachment(SceneRoot);
-	Head->SetRelativeLocation(FVector(0.0, 0.0, 145.0));
-	Head->SetRelativeScale3D(FVector(0.35));
+	Head->SetRelativeLocation(FVector(0.0, 0.0, AILOD::FVisualResidentFigureGeometry::HeadCenterZ));
+	Head->SetRelativeScale3D(FVector(AILOD::FVisualResidentFigureGeometry::HeadScale));
 	Head->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	Head->SetCollisionResponseToAllChannels(ECR_Ignore);
 	Head->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	Head->SetGenerateOverlapEvents(false);
 	Head->SetCanEverAffectNavigation(false);
+	Head->SetCastShadow(false);
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> BodyMesh(
 		TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
@@ -50,55 +55,29 @@ void AAILODVisualResidentActor::ConfigureMeshes(UStaticMesh* BodyMesh, UStaticMe
 
 void AAILODVisualResidentActor::ApplyPresentationEntry(
 	const AILOD::FVisualResidentPresentationEntry& Entry,
-	const double GroundZCentimeters,
-	const double WalkSpeedCentimetersPerSecond)
+	const double GroundZCentimeters)
 {
-	const bool bNewResident = BoundResidentID != Entry.ResidentID;
 	PresentationEntry = Entry;
 	BoundResidentID = Entry.ResidentID;
 	GroundZ = GroundZCentimeters;
-	WalkSpeed = WalkSpeedCentimetersPerSecond;
-	if (bNewResident)
-	{
-		const uint32 Seed = Entry.ActiveState.AppearanceSeed != 0
-			? Entry.ActiveState.AppearanceSeed
-			: static_cast<uint32>(Entry.ResidentID);
-		RouteAlpha = static_cast<double>(Seed % 1000u) / 999.0;
-		RouteDirection = (Seed & 1u) == 0 ? 1 : -1;
-		AnimationSeconds = static_cast<double>(Seed % 628u) / 100.0;
-		const double HeightScale = 0.9 + static_cast<double>((Seed >> 8) % 21u) / 100.0;
-		SetActorScale3D(FVector(1.0, 1.0, HeightScale));
-	}
 	SetActorHiddenInGame(false);
 	SetActorEnableCollision(true);
-	ApplyPose();
 }
 
-void AAILODVisualResidentActor::AdvancePlaceholderAnimation(const float DeltaSeconds)
+void AAILODVisualResidentActor::ApplyMotionState(
+	const AILOD::FVisualResidentMotionState& MotionState)
 {
-	if (!IsBound()) return;
-	AnimationSeconds += FMath::Max(0.0f, DeltaSeconds);
-	if (PresentationEntry.bPlaceholderMoves)
+	if (!IsBound() || MotionState.ResidentID != BoundResidentID)
 	{
-		const double RouteLength = FVector2D::Distance(
-			PresentationEntry.RouteStart,
-			PresentationEntry.RouteEnd);
-		if (RouteLength > UE_SMALL_NUMBER)
-		{
-			RouteAlpha += RouteDirection * WalkSpeed * DeltaSeconds / RouteLength;
-			if (RouteAlpha >= 1.0)
-			{
-				RouteAlpha = 2.0 - RouteAlpha;
-				RouteDirection = -1;
-			}
-			else if (RouteAlpha <= 0.0)
-			{
-				RouteAlpha = -RouteAlpha;
-				RouteDirection = 1;
-			}
-		}
+		return;
 	}
-	ApplyPose();
+	const AILOD::FVisualResidentMotionPose Pose =
+		AILOD::FVisualResidentPresentationPlanner::ResolveMotionPose(
+			PresentationEntry,
+			MotionState);
+	SetActorScale3D(FVector(1.0, 1.0, Pose.HeightScale));
+	SetActorLocation(FVector(Pose.Position.X, Pose.Position.Y, GroundZ + Pose.GroundOffset));
+	SetActorRotation(FRotator(0.0, Pose.FacingDegrees, 0.0));
 }
 
 void AAILODVisualResidentActor::ReleaseToPool()
@@ -107,28 +86,4 @@ void AAILODVisualResidentActor::ReleaseToPool()
 	BoundResidentID = 0;
 	SetActorHiddenInGame(true);
 	SetActorEnableCollision(false);
-}
-
-void AAILODVisualResidentActor::ApplyPose()
-{
-	const FVector2D Position = AILOD::FVisualResidentPresentationPlanner::ResolveLocalRoutePosition(
-		PresentationEntry,
-		RouteAlpha);
-	double FacingDegrees = PresentationEntry.FacingDegrees;
-	if (PresentationEntry.bPlaceholderMoves)
-	{
-		const FVector2D RouteDirection2D = (PresentationEntry.RouteEnd - PresentationEntry.RouteStart).GetSafeNormal()
-			* static_cast<double>(RouteDirection);
-		if (!RouteDirection2D.IsNearlyZero())
-		{
-			FacingDegrees = FMath::RadiansToDegrees(FMath::Atan2(
-				RouteDirection2D.Y,
-				RouteDirection2D.X));
-		}
-	}
-	const double Bob = PresentationEntry.bPlaceholderMoves
-		? FMath::Sin(AnimationSeconds * 6.0) * 3.0
-		: 0.0;
-	SetActorLocation(FVector(Position.X, Position.Y, GroundZ + Bob));
-	SetActorRotation(FRotator(0.0, FacingDegrees, 0.0));
 }

@@ -85,6 +85,7 @@ bool FAILODPhase7CReadOnlySnapshotTest::RunTest(const FString& Parameters)
 	View.NormalView.Forward = FVector2D(1.0, 0.0);
 	View.NormalView.EnterDistance = 200000.0;
 	View.NormalView.HalfAngleDegrees = 90.0;
+	View.RealDeltaSeconds = 1.0;
 	if (!Runtime.SubmitObservationFrame(View, Error)) return false;
 
 	FUnifiedDemoSnapshot UIValue;

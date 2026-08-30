@@ -3,7 +3,7 @@
 #include "AILODVisualPopulationPresenter.h"
 
 #include "AILODVisualResidentActor.h"
-#include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SceneComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -15,15 +15,25 @@ AAILODVisualPopulationPresenter::AAILODVisualPopulationPresenter()
 	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
 	SetRootComponent(SceneRoot);
 
-	ProxyInstances = CreateDefaultSubobject<UHierarchicalInstancedStaticMeshComponent>(TEXT("LowLevelProxies"));
-	ProxyInstances->SetupAttachment(SceneRoot);
-	ProxyInstances->SetMobility(EComponentMobility::Movable);
-	ProxyInstances->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	ProxyInstances->SetCollisionResponseToAllChannels(ECR_Ignore);
-	ProxyInstances->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
-	ProxyInstances->SetGenerateOverlapEvents(false);
-	ProxyInstances->SetCanEverAffectNavigation(false);
-	ProxyInstances->SetCastShadow(false);
+	ProxyBodies = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("LowLevelProxyBodies"));
+	ProxyBodies->SetupAttachment(SceneRoot);
+	ProxyBodies->SetMobility(EComponentMobility::Movable);
+	ProxyBodies->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	ProxyBodies->SetCollisionResponseToAllChannels(ECR_Ignore);
+	ProxyBodies->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+	ProxyBodies->SetGenerateOverlapEvents(false);
+	ProxyBodies->SetCanEverAffectNavigation(false);
+	ProxyBodies->SetCastShadow(false);
+
+	ProxyHeads = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("LowLevelProxyHeads"));
+	ProxyHeads->SetupAttachment(SceneRoot);
+	ProxyHeads->SetMobility(EComponentMobility::Movable);
+	ProxyHeads->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	ProxyHeads->SetCollisionResponseToAllChannels(ECR_Ignore);
+	ProxyHeads->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+	ProxyHeads->SetGenerateOverlapEvents(false);
+	ProxyHeads->SetCanEverAffectNavigation(false);
+	ProxyHeads->SetCastShadow(false);
 }
 
 void AAILODVisualPopulationPresenter::AdvancePresentation(
@@ -32,11 +42,57 @@ void AAILODVisualPopulationPresenter::AdvancePresentation(
 {
 	const float EffectiveDeltaSeconds = FMath::Max(0.0f, DeltaSeconds)
 		* static_cast<float>(FMath::Clamp(PlaybackRate, 0.0, 4.0));
+	LastMotionUpdateCount = 0;
+	if (EffectiveDeltaSeconds <= 0.0f)
+	{
+		return;
+	}
+
+	bool bUpdatedProxy = false;
+	for (int32 SlotIndex = 0; SlotIndex < ProxyResidentIDs.Num(); ++SlotIndex)
+	{
+		const AILOD::FResidentID ResidentID = ProxyResidentIDs[SlotIndex];
+		AILOD::FVisualResidentMotionState* MotionState = MotionStates.Find(ResidentID);
+		if (ResidentID <= 0 || MotionState == nullptr || !ProxyEntries.IsValidIndex(SlotIndex))
+		{
+			continue;
+		}
+		AILOD::FVisualResidentPresentationPlanner::AdvanceMotionState(
+			ProxyEntries[SlotIndex],
+			EffectiveDeltaSeconds,
+			WalkSpeed,
+			*MotionState);
+		UpdateProxyInstanceTransform(
+			SlotIndex,
+			ProxyEntries[SlotIndex],
+			*MotionState,
+			false);
+		bUpdatedProxy = true;
+		++LastMotionUpdateCount;
+	}
+	if (bUpdatedProxy)
+	{
+		ProxyBodies->MarkRenderStateDirty();
+		ProxyHeads->MarkRenderStateDirty();
+	}
+
 	for (AAILODVisualResidentActor* ResidentActor : ResidentActorPool)
 	{
 		if (IsValid(ResidentActor) && ResidentActor->IsBound())
 		{
-			ResidentActor->AdvancePlaceholderAnimation(EffectiveDeltaSeconds);
+			AILOD::FVisualResidentMotionState* MotionState = MotionStates.Find(
+				ResidentActor->GetBoundResidentID());
+			if (MotionState == nullptr)
+			{
+				continue;
+			}
+			AILOD::FVisualResidentPresentationPlanner::AdvanceMotionState(
+				ResidentActor->GetPresentationEntry(),
+				EffectiveDeltaSeconds,
+				WalkSpeed,
+				*MotionState);
+			ResidentActor->ApplyMotionState(*MotionState);
+			++LastMotionUpdateCount;
 		}
 	}
 }
@@ -52,37 +108,38 @@ void AAILODVisualPopulationPresenter::EndPlay(const EEndPlayReason::Type EndPlay
 }
 
 bool AAILODVisualPopulationPresenter::InitializePresentation(
-	UStaticMesh* ProxyMesh,
-	UStaticMesh* FullActorBodyMesh,
-	UStaticMesh* FullActorHeadMesh,
+	UStaticMesh* ResidentBodyMesh,
+	UStaticMesh* ResidentHeadMesh,
 	const int32 LowLevelProxyCapacity,
 	const double GroundZCentimeters,
 	const double WalkSpeedCentimetersPerSecond,
 	FString& OutError)
 {
-	if (ProxyMesh == nullptr
-		|| FullActorBodyMesh == nullptr
-		|| FullActorHeadMesh == nullptr
+	if (ResidentBodyMesh == nullptr
+		|| ResidentHeadMesh == nullptr
 		|| LowLevelProxyCapacity <= 0
 		|| WalkSpeedCentimetersPerSecond <= 0.0
 		|| GetWorld() == nullptr)
 	{
-		OutError = TEXT("The resident presenter requires three valid meshes, a World, and a positive placeholder speed.");
+		OutError = TEXT("The resident presenter requires shared body/head meshes, a World, and a positive placeholder speed.");
 		return false;
 	}
 	GroundZ = GroundZCentimeters;
 	WalkSpeed = WalkSpeedCentimetersPerSecond;
-	ProxyInstances->SetStaticMesh(ProxyMesh);
+	ProxyBodies->SetStaticMesh(ResidentBodyMesh);
+	ProxyHeads->SetStaticMesh(ResidentHeadMesh);
 	ProxySlotPlanner = MakeUnique<AILOD::FVisualProxySlotPlanner>(LowLevelProxyCapacity);
 	ProxyResidentIDs.Init(0, LowLevelProxyCapacity);
 	ProxyPositions.Init(FVector2D::ZeroVector, LowLevelProxyCapacity);
+	ProxyEntries.SetNum(LowLevelProxyCapacity);
 	const FTransform HiddenTransform(
 		FRotator::ZeroRotator,
 		FVector(0.0, 0.0, GroundZ),
 		FVector::ZeroVector);
 	for (int32 SlotIndex = 0; SlotIndex < LowLevelProxyCapacity; ++SlotIndex)
 	{
-		ProxyInstances->AddInstance(HiddenTransform, true);
+		ProxyBodies->AddInstance(HiddenTransform, true);
+		ProxyHeads->AddInstance(HiddenTransform, true);
 	}
 
 	if (ResidentActorPool.IsEmpty())
@@ -103,7 +160,7 @@ bool AAILODVisualPopulationPresenter::InitializePresentation(
 				OutError = TEXT("The resident presenter could not allocate all 50 full NPC Actor slots.");
 				return false;
 			}
-			ResidentActor->ConfigureMeshes(FullActorBodyMesh, FullActorHeadMesh);
+			ResidentActor->ConfigureMeshes(ResidentBodyMesh, ResidentHeadMesh);
 			ResidentActorPool.Add(ResidentActor);
 		}
 	}
@@ -157,7 +214,38 @@ bool AAILODVisualPopulationPresenter::ApplyPresentationFrame(
 			return false;
 		}
 	}
-	if (!ApplyProxySlots(Frame, ProxySlotPlan, OutError))
+
+	TMap<AILOD::FResidentID, AILOD::FVisualResidentMotionState> CandidateMotionStates = MotionStates;
+	TSet<AILOD::FResidentID> DesiredResidentIDs;
+	for (const AILOD::FVisualResidentPresentationEntry& Entry : Frame.LowLevelProxies)
+	{
+		DesiredResidentIDs.Add(Entry.ResidentID);
+		if (!CandidateMotionStates.Contains(Entry.ResidentID))
+		{
+			CandidateMotionStates.Add(
+				Entry.ResidentID,
+				AILOD::FVisualResidentPresentationPlanner::MakeInitialMotionState(Entry));
+		}
+	}
+	for (const AILOD::FVisualResidentPresentationEntry& Entry : Frame.ActiveActors)
+	{
+		DesiredResidentIDs.Add(Entry.ResidentID);
+		if (!CandidateMotionStates.Contains(Entry.ResidentID))
+		{
+			CandidateMotionStates.Add(
+				Entry.ResidentID,
+				AILOD::FVisualResidentPresentationPlanner::MakeInitialMotionState(Entry));
+		}
+	}
+	for (auto Iterator = CandidateMotionStates.CreateIterator(); Iterator; ++Iterator)
+	{
+		if (!DesiredResidentIDs.Contains(Iterator.Key()))
+		{
+			Iterator.RemoveCurrent();
+		}
+	}
+
+	if (!ApplyProxySlots(Frame, ProxySlotPlan, CandidateMotionStates, OutError))
 	{
 		return false;
 	}
@@ -176,8 +264,16 @@ bool AAILODVisualPopulationPresenter::ApplyPresentationFrame(
 			OutError = TEXT("An Actor-pool slot could not resolve its copied presentation entry.");
 			return false;
 		}
-		ResidentActor->ApplyPresentationEntry(**Entry, GroundZ, WalkSpeed);
+		const AILOD::FVisualResidentMotionState* MotionState = CandidateMotionStates.Find(ResidentID);
+		if (MotionState == nullptr)
+		{
+			OutError = TEXT("An Actor-pool slot could not resolve its bounded presentation motion state.");
+			return false;
+		}
+		ResidentActor->ApplyPresentationEntry(**Entry, GroundZ);
+		ResidentActor->ApplyMotionState(*MotionState);
 	}
+	MotionStates = MoveTemp(CandidateMotionStates);
 	*ProxySlotPlanner = MoveTemp(CandidateProxyPlanner);
 	PoolPlanner = MoveTemp(CandidatePoolPlanner);
 	BoundActorCount = PoolPlan.BoundCount;
@@ -207,12 +303,14 @@ void AAILODVisualPopulationPresenter::ResetPresentation()
 	LastReboundCount = 0;
 	TotalReleasedCount = 0;
 	TotalReboundCount = 0;
+	LastMotionUpdateCount = 0;
+	MotionStates.Reset();
 }
 
 AILOD::FResidentID AAILODVisualPopulationPresenter::ResolveProxyResidentID(const FHitResult& Hit) const
 {
 	return Hit.GetActor() == this
-		&& Hit.GetComponent() == ProxyInstances
+		&& (Hit.GetComponent() == ProxyBodies || Hit.GetComponent() == ProxyHeads)
 		? ResolveProxyResidentIDByInstanceIndex(Hit.Item)
 		: 0;
 }
@@ -267,11 +365,14 @@ bool AAILODVisualPopulationPresenter::FindResidentLabelLocation(
 bool AAILODVisualPopulationPresenter::ApplyProxySlots(
 	const AILOD::FVisualResidentPresentationFrame& Frame,
 	const AILOD::FVisualProxySlotPlan& SlotPlan,
+	const TMap<AILOD::FResidentID, AILOD::FVisualResidentMotionState>& CandidateMotionStates,
 	FString& OutError)
 {
 	if (!ProxySlotPlanner
 		|| ProxyResidentIDs.Num() != ProxySlotPlanner->GetCapacity()
-		|| ProxyInstances->GetInstanceCount() != ProxySlotPlanner->GetCapacity())
+		|| ProxyEntries.Num() != ProxySlotPlanner->GetCapacity()
+		|| ProxyBodies->GetInstanceCount() != ProxySlotPlanner->GetCapacity()
+		|| ProxyHeads->GetInstanceCount() != ProxySlotPlanner->GetCapacity())
 	{
 		OutError = TEXT("The low-level proxy presenter requires its fixed visual slot allocation.");
 		return false;
@@ -286,64 +387,96 @@ bool AAILODVisualPopulationPresenter::ApplyProxySlots(
 	for (int32 SlotIndex = 0; SlotIndex < SlotPlan.SlotResidentIDs.Num(); ++SlotIndex)
 	{
 		const AILOD::FResidentID ResidentID = SlotPlan.SlotResidentIDs[SlotIndex];
-		FTransform Transform(
-			FRotator::ZeroRotator,
-			FVector(0.0, 0.0, GroundZ),
-			FVector::ZeroVector);
-		FVector2D Position = FVector2D::ZeroVector;
-		if (ResidentID != 0)
+		if (ResidentID == 0)
 		{
-			const AILOD::FVisualResidentPresentationEntry* const* Entry = EntriesByResidentID.Find(ResidentID);
-			if (Entry == nullptr)
+			if (ProxyResidentIDs[SlotIndex] != 0)
 			{
-				OutError = TEXT("A low-level proxy slot could not resolve its copied presentation entry.");
-				return false;
+				HideProxySlot(SlotIndex, false);
+				bAnyTransformChanged = true;
 			}
-			Position = (*Entry)->ProxyPosition;
-			Transform = FTransform(
-				FRotator(0.0, (*Entry)->FacingDegrees, 0.0),
-				FVector(Position.X, Position.Y, GroundZ + 70.0),
-				FVector(0.25, 0.25, 1.4));
+			continue;
 		}
-		if (ProxyResidentIDs[SlotIndex] != ResidentID
-			|| ProxyPositions[SlotIndex] != Position)
+
+		const AILOD::FVisualResidentPresentationEntry* const* Entry = EntriesByResidentID.Find(ResidentID);
+		const AILOD::FVisualResidentMotionState* MotionState = CandidateMotionStates.Find(ResidentID);
+		if (Entry == nullptr || MotionState == nullptr)
 		{
-			ProxyInstances->UpdateInstanceTransform(
-				SlotIndex,
-				Transform,
-				true,
-				false,
-				true);
+			OutError = TEXT("A low-level proxy slot could not resolve its presentation entry and motion state.");
+			return false;
+		}
+		ProxyEntries[SlotIndex] = **Entry;
+		if (ProxyResidentIDs[SlotIndex] != ResidentID)
+		{
 			ProxyResidentIDs[SlotIndex] = ResidentID;
-			ProxyPositions[SlotIndex] = Position;
+			UpdateProxyInstanceTransform(SlotIndex, **Entry, *MotionState, false);
 			bAnyTransformChanged = true;
 		}
 	}
 	if (bAnyTransformChanged)
 	{
-		ProxyInstances->MarkRenderStateDirty();
+		ProxyBodies->MarkRenderStateDirty();
+		ProxyHeads->MarkRenderStateDirty();
 	}
 	VisibleProxyCount = SlotPlan.VisibleCount;
 	OutError.Reset();
 	return true;
 }
 
-void AAILODVisualPopulationPresenter::HideAllProxySlots()
+void AAILODVisualPopulationPresenter::UpdateProxyInstanceTransform(
+	const int32 SlotIndex,
+	const AILOD::FVisualResidentPresentationEntry& Entry,
+	const AILOD::FVisualResidentMotionState& MotionState,
+	const bool bMarkRenderStateDirty)
+{
+	const AILOD::FVisualResidentMotionPose Pose =
+		AILOD::FVisualResidentPresentationPlanner::ResolveMotionPose(Entry, MotionState);
+	const double RootZ = GroundZ + Pose.GroundOffset;
+	const FTransform BodyTransform(
+		FRotator(0.0, Pose.FacingDegrees, 0.0),
+		FVector(
+			Pose.Position.X,
+			Pose.Position.Y,
+			RootZ + AILOD::FVisualResidentFigureGeometry::BodyCenterZ * Pose.HeightScale),
+		FVector(
+			AILOD::FVisualResidentFigureGeometry::BodyRadiusScale,
+			AILOD::FVisualResidentFigureGeometry::BodyRadiusScale,
+			AILOD::FVisualResidentFigureGeometry::BodyHeightScale * Pose.HeightScale));
+	const FTransform HeadTransform(
+		FRotator(0.0, Pose.FacingDegrees, 0.0),
+		FVector(
+			Pose.Position.X,
+			Pose.Position.Y,
+			RootZ + AILOD::FVisualResidentFigureGeometry::HeadCenterZ * Pose.HeightScale),
+		FVector(
+			AILOD::FVisualResidentFigureGeometry::HeadScale,
+			AILOD::FVisualResidentFigureGeometry::HeadScale,
+			AILOD::FVisualResidentFigureGeometry::HeadScale * Pose.HeightScale));
+	ProxyBodies->UpdateInstanceTransform(SlotIndex, BodyTransform, true, bMarkRenderStateDirty, true);
+	ProxyHeads->UpdateInstanceTransform(SlotIndex, HeadTransform, true, bMarkRenderStateDirty, true);
+	ProxyPositions[SlotIndex] = Pose.Position;
+}
+
+void AAILODVisualPopulationPresenter::HideProxySlot(
+	const int32 SlotIndex,
+	const bool bMarkRenderStateDirty)
 {
 	const FTransform HiddenTransform(
 		FRotator::ZeroRotator,
 		FVector(0.0, 0.0, GroundZ),
 		FVector::ZeroVector);
+	ProxyBodies->UpdateInstanceTransform(SlotIndex, HiddenTransform, true, bMarkRenderStateDirty, true);
+	ProxyHeads->UpdateInstanceTransform(SlotIndex, HiddenTransform, true, bMarkRenderStateDirty, true);
+	ProxyResidentIDs[SlotIndex] = 0;
+	ProxyPositions[SlotIndex] = FVector2D::ZeroVector;
+	ProxyEntries[SlotIndex] = {};
+}
+
+void AAILODVisualPopulationPresenter::HideAllProxySlots()
+{
 	for (int32 SlotIndex = 0; SlotIndex < ProxyResidentIDs.Num(); ++SlotIndex)
 	{
-		ProxyInstances->UpdateInstanceTransform(
-			SlotIndex,
-			HiddenTransform,
-			true,
-			false,
-			true);
-		ProxyResidentIDs[SlotIndex] = 0;
-		ProxyPositions[SlotIndex] = FVector2D::ZeroVector;
+		HideProxySlot(SlotIndex, false);
 	}
-	ProxyInstances->MarkRenderStateDirty();
+	ProxyBodies->MarkRenderStateDirty();
+	ProxyHeads->MarkRenderStateDirty();
 }

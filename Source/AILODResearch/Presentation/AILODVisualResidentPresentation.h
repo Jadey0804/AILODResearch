@@ -7,6 +7,15 @@
 
 namespace AILOD
 {
+	struct FVisualResidentFigureGeometry
+	{
+		static constexpr double BodyCenterZ = 60.0;
+		static constexpr double BodyRadiusScale = 0.45;
+		static constexpr double BodyHeightScale = 1.2;
+		static constexpr double HeadCenterZ = 145.0;
+		static constexpr double HeadScale = 0.35;
+	};
+
 	enum class EVisualResidentAnchor : uint8
 	{
 		ProxyRoad,
@@ -39,6 +48,23 @@ namespace AILOD
 		bool bPlaceholderMoves = false;
 		bool bHasActiveState = false;
 		FUnifiedDemoResidentSnapshot ActiveState;
+	};
+
+	struct FVisualResidentMotionState
+	{
+		FResidentID ResidentID = 0;
+		double RouteAlpha = 0.0;
+		double AnimationSeconds = 0.0;
+		double FacingDegrees = 0.0;
+		int32 RouteDirection = 1;
+	};
+
+	struct FVisualResidentMotionPose
+	{
+		FVector2D Position = FVector2D::ZeroVector;
+		double FacingDegrees = 0.0;
+		double GroundOffset = 0.0;
+		double HeightScale = 1.0;
 	};
 
 	struct FVisualResidentPresentationDiagnostics
@@ -76,6 +102,17 @@ namespace AILOD
 		static FVector2D ResolveLocalRoutePosition(
 			const FVisualResidentPresentationEntry& Entry,
 			double RouteAlpha);
+
+		static FVisualResidentMotionState MakeInitialMotionState(
+			const FVisualResidentPresentationEntry& Entry);
+		static void AdvanceMotionState(
+			const FVisualResidentPresentationEntry& Entry,
+			double DeltaSeconds,
+			double WalkSpeedCentimetersPerSecond,
+			FVisualResidentMotionState& InOutState);
+		static FVisualResidentMotionPose ResolveMotionPose(
+			const FVisualResidentPresentationEntry& Entry,
+			const FVisualResidentMotionState& State);
 	};
 
 	struct FVisualProxySlotPlan

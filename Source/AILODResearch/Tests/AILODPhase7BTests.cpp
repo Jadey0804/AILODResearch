@@ -123,6 +123,7 @@ bool FAILODPhase7BSpatialHysteresisTest::RunTest(const FString& Parameters)
 	Input.NormalView.Forward = FVector2D(1.0, 0.0);
 	Input.NormalView.EnterDistance = 10000.0;
 	Input.NormalView.HalfAngleDegrees = 0.25;
+	Input.RealDeltaSeconds = 1.0;
 	FVisualObservationPlan First;
 	if (!Planner.PlanFrame(Input, First, Error)) return false;
 	TestEqual(TEXT("The one-person normal Active budget returns one real resident"),
@@ -348,6 +349,7 @@ bool FAILODPhase7BObservationCommitCostTest::RunTest(const FString& Parameters)
 		Input.NormalView.Forward = FVector2D(1.0, 0.0);
 		Input.NormalView.EnterDistance = 20000.0;
 		Input.NormalView.HalfAngleDegrees = 45.0;
+		Input.RealDeltaSeconds = 1.0;
 		FVisualObservationPlan Plan;
 		if (!Planner.PlanFrame(Input, Plan, Error) || Plan.ActiveRequest.DesiredActiveResidentIDs.IsEmpty())
 		{
