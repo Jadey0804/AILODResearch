@@ -43,6 +43,9 @@ namespace AILOD
 
 		bool CopySnapshot(FUnifiedDemoSnapshot& OutSnapshot) const;
 		bool CopyPresentationFrame(FVisualResidentPresentationFrame& OutFrame) const;
+		bool CopyObservationLog(
+			TArray<FUnifiedDemoObservationRecord>& OutRecords,
+			FString& OutError) const;
 		EVisualDemoRuntimeState GetState() const { return State; }
 		const TCHAR* GetStateName() const;
 		bool IsPaused() const { return bPaused; }

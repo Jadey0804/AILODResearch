@@ -26,6 +26,8 @@ private:
 	void SetCameraRight(float Value);
 	void SetCameraYaw(float Value);
 	void HandlePrimaryClick();
+	void EnableTelescope();
+	void DisableTelescope();
 	void ReturnCameraToPlayer();
 	void BeginFreeCamera();
 	bool UIWantsMouse() const;
@@ -48,6 +50,11 @@ private:
 	float CameraYawInput = 0.0f;
 	float FreeCameraSpeed = 3000.0f;
 	float CameraYawSpeedDegrees = 90.0f;
+	float SavedCameraBoomLength = 0.0f;
+	float SavedCameraFieldOfView = 0.0f;
+	FVector SavedCameraBoomRelativeLocation = FVector::ZeroVector;
+	FRotator SavedCameraBoomRelativeRotation = FRotator::ZeroRotator;
 	bool bCameraFollowsPlayer = true;
 	bool bCameraReturning = false;
+	bool bTelescopeViewActive = false;
 };

@@ -24,6 +24,7 @@ namespace AILOD
 	{
 		FVector2D Origin = FVector2D::ZeroVector;
 		FVector2D Forward = FVector2D(1.0, 0.0);
+		double MinimumDistance = 0.0;
 		double EnterDistance = 20000.0;
 		double HalfAngleDegrees = 60.0;
 	};
@@ -36,6 +37,30 @@ namespace AILOD
 		bool bTelescopeEnabled = false;
 		FVisualObservationView TelescopeView;
 		FResidentID TelescopePromotionResidentID = 0;
+		bool bClearTrackedResident = false;
+	};
+
+	struct FVisualTelescopeFocusStatus
+	{
+		FResidentID CenterResidentID = 0;
+		double FocusedRealSeconds = 0.0;
+		bool bStreamingReady = false;
+	};
+
+	class FVisualTelescopeFocusGate
+	{
+	public:
+		FResidentID Update(
+			bool bEnabled,
+			FResidentID CenterResidentID,
+			double RealDeltaSeconds,
+			bool bStreamingReady,
+			double RequiredFocusSeconds);
+		void Reset();
+		const FVisualTelescopeFocusStatus& GetStatus() const { return Status; }
+
+	private:
+		FVisualTelescopeFocusStatus Status;
 	};
 
 	struct FVisualProxyCandidate

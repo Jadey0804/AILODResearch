@@ -4,6 +4,35 @@
 
 namespace AILOD
 {
+	FResidentID FVisualTelescopeFocusGate::Update(
+		const bool bEnabled,
+		const FResidentID CenterResidentID,
+		const double RealDeltaSeconds,
+		const bool bStreamingReady,
+		const double RequiredFocusSeconds)
+	{
+		if (!bEnabled || CenterResidentID <= 0 || RequiredFocusSeconds <= 0.0)
+		{
+			Reset();
+			return 0;
+		}
+		if (Status.CenterResidentID != CenterResidentID)
+		{
+			Status = {};
+			Status.CenterResidentID = CenterResidentID;
+		}
+		Status.FocusedRealSeconds += FMath::Max(0.0, RealDeltaSeconds);
+		Status.bStreamingReady = bStreamingReady;
+		return Status.bStreamingReady && Status.FocusedRealSeconds >= RequiredFocusSeconds
+			? Status.CenterResidentID
+			: 0;
+	}
+
+	void FVisualTelescopeFocusGate::Reset()
+	{
+		Status = {};
+	}
+
 	FVisualObservationPlanner::FVisualObservationPlanner(
 		const FVisualWorldLayout& InLayout,
 		const FVisualObservationPlannerConfig& InConfig)
@@ -77,7 +106,18 @@ namespace AILOD
 		Query.ResultOrder = bPreferCenter
 			? FVisualConeQuery::EResultOrder::CenterAlignment
 			: FVisualConeQuery::EResultOrder::Distance;
-		return Layout.QueryCone(Query, OutCandidates, OutDiagnostics, OutError);
+		if (!Layout.QueryCone(Query, OutCandidates, OutDiagnostics, OutError))
+		{
+			return false;
+		}
+		if (View.MinimumDistance > 0.0)
+		{
+			OutCandidates.RemoveAll([&View](const FVisualSpatialCandidate& Candidate)
+			{
+				return Candidate.Distance < View.MinimumDistance;
+			});
+		}
+		return true;
 	}
 
 	void FVisualObservationPlanner::SelectWithHysteresis(
@@ -247,13 +287,19 @@ namespace AILOD
 			DesiredActiveSet.Add(Candidate.ResidentID);
 			OutPlan.Diagnostics.RetainedNormalActiveCount += Candidate.bRetainedByHysteresis ? 1 : 0;
 		}
-		if (Input.TelescopePromotionResidentID != 0)
+		const bool bUseTelescopeActiveContext = Input.TelescopePromotionResidentID != 0
+			|| (TrackedResidentID != 0
+				&& TrackedResidentID == OutPlan.TelescopeCenterResidentID);
+		if (bUseTelescopeActiveContext)
 		{
-			DesiredActiveSet.Add(Input.TelescopePromotionResidentID);
+			const FResidentID TelescopeCenterResidentID = Input.TelescopePromotionResidentID != 0
+				? Input.TelescopePromotionResidentID
+				: TrackedResidentID;
+			DesiredActiveSet.Add(TelescopeCenterResidentID);
 			int32 TelescopeAdded = 1;
 			for (const FVisualProxyCandidate& Candidate : OutPlan.TelescopeProxyCandidates)
 			{
-				if (Candidate.ResidentID == Input.TelescopePromotionResidentID) continue;
+				if (Candidate.ResidentID == TelescopeCenterResidentID) continue;
 				DesiredActiveSet.Add(Candidate.ResidentID);
 				if (++TelescopeAdded >= Config.TelescopeActiveBudget) break;
 			}

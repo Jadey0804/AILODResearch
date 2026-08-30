@@ -90,3 +90,6 @@ DerivedDataCache/*
 /Docs/_build_ailod_mvp_doc.py
 /Docs/_make_contact_sheets.py
 /Docs/_render_with_word.ps1
+
+# Local scratch artifacts
+/tmp/

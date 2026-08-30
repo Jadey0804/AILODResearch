@@ -55,6 +55,30 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category="Observation")
 	bool bUseRadialNormalObservation = true;
 
+	UPROPERTY(Config, EditAnywhere, Category="Telescope", meta=(ClampMin="100.0"))
+	double TelescopeObservationDistanceMeters = 1500.0;
+
+	UPROPERTY(Config, EditAnywhere, Category="Telescope", meta=(ClampMin="1.0"))
+	double TelescopeMinimumDistanceMeters = 300.0;
+
+	UPROPERTY(Config, EditAnywhere, Category="Telescope", meta=(ClampMin="0.1", ClampMax="20.0"))
+	double TelescopeObservationHalfAngleDegrees = 2.0;
+
+	UPROPERTY(Config, EditAnywhere, Category="Telescope", meta=(ClampMin="0.1", ClampMax="10.0"))
+	double TelescopeFocusSeconds = 1.5;
+
+	UPROPERTY(Config, EditAnywhere, Category="Telescope", meta=(ClampMin="50.0"))
+	double TelescopeStreamingRadiusMeters = 300.0;
+
+	UPROPERTY(Config, EditAnywhere, Category="Telescope|Camera", meta=(ClampMin="0.5", ClampMax="20.0", UIMin="1.0", UIMax="10.0"))
+	double TelescopeCameraHeightMeters = 2.5;
+
+	UPROPERTY(Config, EditAnywhere, Category="Telescope|Camera", meta=(ClampMin="-30.0", ClampMax="30.0", UIMin="-10.0", UIMax="10.0"))
+	double TelescopeCameraPitchDegrees = 0.0;
+
+	UPROPERTY(Config, EditAnywhere, Category="Telescope|Camera", meta=(ClampMin="10.0", ClampMax="90.0", UIMin="20.0", UIMax="70.0"))
+	double TelescopeCameraFieldOfViewDegrees = 50.0;
+
 	UPROPERTY(Config, EditAnywhere, Category="NPC Presentation", meta=(ClampMin="1", ClampMax="512"))
 	int32 LowLevelProxyBudget = 128;
 

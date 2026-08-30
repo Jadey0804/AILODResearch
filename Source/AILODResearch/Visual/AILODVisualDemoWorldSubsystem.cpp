@@ -10,7 +10,10 @@
 #include "AILODVisualDemoSettings.h"
 #include "AILODVisualPopulationPresenter.h"
 #include "AILODVisualResidentActor.h"
+#include "Components/SceneComponent.h"
+#include "Components/WorldPartitionStreamingSourceComponent.h"
 #include "Engine/StaticMesh.h"
+#include "GameFramework/Actor.h"
 #include "imgui.h"
 
 bool UAILODVisualDemoWorldSubsystem::DoesSupportWorldType(const EWorldType::Type WorldType) const
@@ -29,11 +32,20 @@ void UAILODVisualDemoWorldSubsystem::Deinitialize()
 	{
 		PopulationPresenter->Destroy();
 	}
+	if (IsValid(TelescopeStreamingSourceActor))
+	{
+		TelescopeStreamingSourceActor->Destroy();
+	}
 	PopulationPresenter = nullptr;
+	TelescopeStreamingSourceActor = nullptr;
+	TelescopeStreamingSource = nullptr;
+	TelescopeFocusGate.Reset();
 	Runtime = AILOD::FVisualDemoRuntime();
 	LastUIMessage.Reset();
 	bDemoActivated = false;
 	bShowResidentDebugLabels = true;
+	bTelescopeEnabled = false;
+	bClearTrackedResidentRequested = false;
 	Super::Deinitialize();
 }
 
@@ -69,7 +81,7 @@ void UAILODVisualDemoWorldSubsystem::Tick(const float DeltaTime)
 	}
 	if (Runtime.GetState() == AILOD::EVisualDemoRuntimeState::Running)
 	{
-		UpdateCameraObservation();
+		UpdateCameraObservation(DeltaTime);
 	}
 	UpdateResidentPresentation();
 	if (IsValid(PopulationPresenter))
@@ -146,10 +158,26 @@ bool UAILODVisualDemoWorldSubsystem::RequestRestart(FString& OutError)
 	{
 		PopulationPresenter->ResetPresentation();
 	}
+	if (bRestarted)
+	{
+		TelescopeFocusGate.Reset();
+		bClearTrackedResidentRequested = false;
+		DisableTelescopeStreamingSource();
+	}
 	return bRestarted;
 }
 
-void UAILODVisualDemoWorldSubsystem::UpdateCameraObservation()
+void UAILODVisualDemoWorldSubsystem::SetTelescopeEnabled(const bool bEnabled)
+{
+	bTelescopeEnabled = bEnabled;
+	if (!bTelescopeEnabled)
+	{
+		TelescopeFocusGate.Reset();
+		DisableTelescopeStreamingSource();
+	}
+}
+
+void UAILODVisualDemoWorldSubsystem::UpdateCameraObservation(const float DeltaTime)
 {
 	const UWorld* World = GetWorld();
 	const APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
@@ -170,10 +198,81 @@ void UAILODVisualDemoWorldSubsystem::UpdateCameraObservation()
 	Input.NormalView.Forward = CameraForward;
 	Input.NormalView.EnterDistance = Settings->NormalObservationDistanceMeters * 100.0;
 	Input.NormalView.HalfAngleDegrees = Settings->NormalObservationHalfAngleDegrees;
+	Input.bTelescopeEnabled = bTelescopeEnabled;
+	Input.TelescopeView.Origin = Input.NormalView.Origin;
+	Input.TelescopeView.Forward = CameraForward;
+	Input.TelescopeView.MinimumDistance = Settings->TelescopeMinimumDistanceMeters * 100.0;
+	Input.TelescopeView.EnterDistance = Settings->TelescopeObservationDistanceMeters * 100.0;
+	Input.TelescopeView.HalfAngleDegrees = Settings->TelescopeObservationHalfAngleDegrees;
+	Input.bClearTrackedResident = bClearTrackedResidentRequested;
 	FString Error;
 	if (!Runtime.SubmitObservationFrame(Input, Error))
 	{
 		LastUIMessage = Error;
+		return;
+	}
+
+	if (bClearTrackedResidentRequested)
+	{
+		AILOD::FUnifiedDemoSnapshot Snapshot;
+		if (Runtime.CopySnapshot(Snapshot) && Snapshot.TrackedResidentID == 0)
+		{
+			bClearTrackedResidentRequested = false;
+			TelescopeFocusGate.Reset();
+			return;
+		}
+	}
+
+	if (!bTelescopeEnabled)
+	{
+		return;
+	}
+
+	const AILOD::FResidentID CenterResidentID =
+		Runtime.GetCurrentPresentationObservationPlan().TelescopeCenterResidentID;
+	bool bStreamingReady = false;
+	if (CenterResidentID > 0)
+	{
+		if (!UpdateTelescopeStreamingSource(CenterResidentID, Error))
+		{
+			LastUIMessage = Error;
+		}
+		else
+		{
+			bStreamingReady = TelescopeStreamingSource->IsStreamingCompleted();
+		}
+	}
+	else
+	{
+		DisableTelescopeStreamingSource();
+	}
+
+	const AILOD::FResidentID PromotionResidentID = TelescopeFocusGate.Update(
+		true,
+		CenterResidentID,
+		DeltaTime,
+		bStreamingReady,
+		Settings->TelescopeFocusSeconds);
+	AILOD::FUnifiedDemoSnapshot Snapshot;
+	if (PromotionResidentID <= 0
+		|| !Runtime.CopySnapshot(Snapshot)
+		|| Snapshot.TrackedResidentID == PromotionResidentID)
+	{
+		return;
+	}
+
+	Input.TelescopePromotionResidentID = PromotionResidentID;
+	if (!Runtime.SubmitObservationFrame(Input, Error))
+	{
+		LastUIMessage = Error;
+		return;
+	}
+	if (Runtime.CopySnapshot(Snapshot) && Snapshot.TrackedResidentID == PromotionResidentID)
+	{
+		Runtime.RequestSelectedResident(PromotionResidentID, Error);
+		LastUIMessage = FString::Printf(
+			TEXT("Telescope Lift committed: ResidentID %lld is now tracked."),
+			PromotionResidentID);
 	}
 }
 
@@ -215,6 +314,91 @@ bool UAILODVisualDemoWorldSubsystem::EnsurePopulationPresenter(FString& OutError
 		OutError);
 }
 
+bool UAILODVisualDemoWorldSubsystem::EnsureTelescopeStreamingSource(FString& OutError)
+{
+	if (IsValid(TelescopeStreamingSourceActor) && IsValid(TelescopeStreamingSource))
+	{
+		OutError.Reset();
+		return true;
+	}
+	UWorld* World = GetWorld();
+	if (World == nullptr)
+	{
+		OutError = TEXT("The telescope Streaming Source requires a game World.");
+		return false;
+	}
+	FActorSpawnParameters SpawnParameters;
+	SpawnParameters.ObjectFlags |= RF_Transient;
+	SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	TelescopeStreamingSourceActor = World->SpawnActor<AActor>(
+		AActor::StaticClass(),
+		FTransform::Identity,
+		SpawnParameters);
+	if (!IsValid(TelescopeStreamingSourceActor))
+	{
+		OutError = TEXT("The telescope Streaming Source Actor could not be spawned.");
+		return false;
+	}
+	TelescopeStreamingSourceActor->SetActorHiddenInGame(true);
+	USceneComponent* StreamingRoot = NewObject<USceneComponent>(
+		TelescopeStreamingSourceActor,
+		TEXT("AILODTelescopeStreamingRoot"));
+	TelescopeStreamingSourceActor->AddInstanceComponent(StreamingRoot);
+	TelescopeStreamingSourceActor->SetRootComponent(StreamingRoot);
+	StreamingRoot->RegisterComponent();
+	TelescopeStreamingSource = NewObject<UWorldPartitionStreamingSourceComponent>(
+		TelescopeStreamingSourceActor,
+		TEXT("AILODTelescopeStreamingSource"));
+	if (!IsValid(TelescopeStreamingSource))
+	{
+		OutError = TEXT("The telescope Streaming Source Component could not be created.");
+		return false;
+	}
+	FStreamingSourceShape& Shape = TelescopeStreamingSource->Shapes.AddDefaulted_GetRef();
+	Shape.bUseGridLoadingRange = false;
+	Shape.Radius = static_cast<float>(
+		GetDefault<UAILODVisualDemoSettings>()->TelescopeStreamingRadiusMeters * 100.0);
+	TelescopeStreamingSource->Priority = EStreamingSourcePriority::High;
+	TelescopeStreamingSource->DebugColor = FColor::Cyan;
+	TelescopeStreamingSource->DisableStreamingSource();
+	TelescopeStreamingSourceActor->AddInstanceComponent(TelescopeStreamingSource);
+	TelescopeStreamingSource->RegisterComponent();
+	OutError.Reset();
+	return true;
+}
+
+bool UAILODVisualDemoWorldSubsystem::UpdateTelescopeStreamingSource(
+	const AILOD::FResidentID ResidentID,
+	FString& OutError)
+{
+	if (!EnsureTelescopeStreamingSource(OutError))
+	{
+		return false;
+	}
+	const AILOD::FVisualResidentPlacement* Placement = Runtime.GetLayout().FindResident(ResidentID);
+	if (Placement == nullptr)
+	{
+		OutError = TEXT("The telescope center ResidentID has no fixed Visual World Layout placement.");
+		return false;
+	}
+	const double GroundZ = GetDefault<UAILODVisualDemoSettings>()->NPCGroundZCentimeters;
+	TelescopeStreamingSourceActor->SetActorLocation(FVector(
+		Placement->ProxyPosition.X,
+		Placement->ProxyPosition.Y,
+		GroundZ));
+	TelescopeStreamingSource->EnableStreamingSource();
+	OutError.Reset();
+	return true;
+}
+
+void UAILODVisualDemoWorldSubsystem::DisableTelescopeStreamingSource()
+{
+	if (IsValid(TelescopeStreamingSource))
+	{
+		TelescopeStreamingSource->DisableStreamingSource();
+	}
+}
+
 void UAILODVisualDemoWorldSubsystem::UpdateResidentPresentation()
 {
 	if (!IsValid(PopulationPresenter))
@@ -244,11 +428,28 @@ void UAILODVisualDemoWorldSubsystem::DrawFunctionalUI()
 	ImGuiIO& IO = ImGui::GetIO();
 	IO.ConfigFlags &= ~ImGuiConfigFlags_DockingEnable;
 	IO.ConfigFlags &= ~ImGuiConfigFlags_ViewportsEnable;
+	const auto DrawTelescopeReticle = [this]()
+	{
+		if (!bTelescopeEnabled)
+		{
+			return;
+		}
+		ImDrawList* Reticle = ImGui::GetForegroundDrawList();
+		const ImVec2 DisplaySize = ImGui::GetIO().DisplaySize;
+		const ImVec2 Center(DisplaySize.x * 0.5f, DisplaySize.y * 0.5f);
+		const ImU32 Color = IM_COL32(64, 220, 255, 230);
+		Reticle->AddCircle(Center, 12.0f, Color, 24, 2.0f);
+		Reticle->AddLine(ImVec2(Center.x - 20.0f, Center.y), ImVec2(Center.x - 5.0f, Center.y), Color, 2.0f);
+		Reticle->AddLine(ImVec2(Center.x + 5.0f, Center.y), ImVec2(Center.x + 20.0f, Center.y), Color, 2.0f);
+		Reticle->AddLine(ImVec2(Center.x, Center.y - 20.0f), ImVec2(Center.x, Center.y - 5.0f), Color, 2.0f);
+		Reticle->AddLine(ImVec2(Center.x, Center.y + 5.0f), ImVec2(Center.x, Center.y + 20.0f), Color, 2.0f);
+	};
 	ImGui::SetNextWindowPos(ImVec2(16.0f, 16.0f), ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowSize(ImVec2(460.0f, 650.0f), ImGuiCond_FirstUseEver);
 	if (!ImGui::Begin("AILOD Visual Demo", nullptr, ImGuiWindowFlags_NoDocking))
 	{
 		ImGui::End();
+		DrawTelescopeReticle();
 		return;
 	}
 
@@ -338,6 +539,32 @@ void UAILODVisualDemoWorldSubsystem::DrawFunctionalUI()
 			Diagnostics.NormalQuery.VisitedCellCount,
 			Diagnostics.NormalQuery.VisitedResidentEntryCount);
 		ImGui::Text("Full population scan: %s", Diagnostics.NormalQuery.bScannedResidentCatalog ? "YES (ERROR)" : "No");
+		ImGui::Separator();
+		ImGui::TextUnformatted("Telescope: hold Right Mouse Button for ground view; aim with screen center");
+		if (bTelescopeEnabled)
+		{
+			const AILOD::FVisualTelescopeFocusStatus& Focus = TelescopeFocusGate.GetStatus();
+			ImGui::Text("Telescope candidates: %d", Diagnostics.TelescopeProxyCount);
+			ImGui::Text("Telescope query: %d cells, %d resident entries",
+				Diagnostics.TelescopeQuery.VisitedCellCount,
+				Diagnostics.TelescopeQuery.VisitedResidentEntryCount);
+			ImGui::Text("Center ResidentID: %lld", Focus.CenterResidentID);
+			ImGui::Text("Focus: %.2f / %.2f s", Focus.FocusedRealSeconds,
+				GetDefault<UAILODVisualDemoSettings>()->TelescopeFocusSeconds);
+			ImGui::Text("Distant cell: %s", Focus.bStreamingReady ? "Ready" : "Loading...");
+		}
+		else
+		{
+			ImGui::TextUnformatted("Telescope state: Off");
+		}
+		if (Snapshot.TrackedResidentID > 0)
+		{
+			ImGui::Text("Tracked ResidentID: %lld", Snapshot.TrackedResidentID);
+			if (ImGui::Button("Clear tracked resident"))
+			{
+				bClearTrackedResidentRequested = true;
+			}
+		}
 	}
 
 	AILOD::FVisualResidentPresentationFrame PresentationFrame;
@@ -421,6 +648,7 @@ void UAILODVisualDemoWorldSubsystem::DrawFunctionalUI()
 			TCHAR_TO_UTF8(*Runtime.GetLastObservationWarning()));
 	}
 	ImGui::End();
+	DrawTelescopeReticle();
 	if (bHasPresentationFrame && bShowResidentDebugLabels)
 	{
 		DrawResidentDebugLabels(PresentationFrame);

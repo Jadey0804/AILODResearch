@@ -129,6 +129,20 @@ namespace AILOD
 
 		TUniquePtr<FVisualObservationPlanner> CandidatePlanner =
 			MakeUnique<FVisualObservationPlanner>(*ObservationPlanner);
+		if (Input.bClearTrackedResident && Input.TelescopePromotionResidentID != 0)
+		{
+			OutError = TEXT("A visual observation frame cannot clear and replace tracking at the same time.");
+			return false;
+		}
+		if (Input.bClearTrackedResident)
+		{
+			CandidatePlanner->ClearTrackedResident();
+		}
+		else if (Input.TelescopePromotionResidentID != 0
+			&& !CandidatePlanner->SetTrackedResident(Input.TelescopePromotionResidentID, OutError))
+		{
+			return false;
+		}
 		FVisualObservationPlan CandidatePlan;
 		if (!CandidatePlanner->PlanFrame(Input, CandidatePlan, OutError))
 		{
@@ -308,6 +322,18 @@ namespace AILOD
 		}
 		OutFrame = PresentationFrame;
 		return true;
+	}
+
+	bool FVisualDemoRuntime::CopyObservationLog(
+		TArray<FUnifiedDemoObservationRecord>& OutRecords,
+		FString& OutError) const
+	{
+		if (!Session)
+		{
+			OutError = TEXT("The visual Demo has no authoritative session observation log.");
+			return false;
+		}
+		return Session->CopyDemoObservationLog(OutRecords, OutError);
 	}
 
 	const TCHAR* FVisualDemoRuntime::GetStateName() const
