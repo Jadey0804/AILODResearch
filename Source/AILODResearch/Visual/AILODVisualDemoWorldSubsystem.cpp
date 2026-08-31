@@ -8,6 +8,7 @@
 #include "ImGuiConfig.h"
 #include "AILODVisualDemoGameMode.h"
 #include "AILODVisualDemoSettings.h"
+#include "AILODVisualDemoCharacter.h"
 #include "AILODVisualPopulationPresenter.h"
 #include "AILODVisualResidentActor.h"
 #include "Components/SceneComponent.h"
@@ -15,7 +16,13 @@
 #include "Engine/StaticMesh.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
+#include "ProfilingDebugging/CsvProfiler.h"
+#include "WorldPartition/WorldPartitionSubsystem.h"
 #include "imgui.h"
+
+CSV_DEFINE_CATEGORY(AILODVisual, true);
 
 namespace
 {
@@ -125,6 +132,21 @@ void UAILODVisualDemoWorldSubsystem::Deinitialize()
 	bShowResidentDebugLabels = true;
 	bTelescopeEnabled = false;
 	bClearTrackedResidentRequested = false;
+	PerformanceScenario.Reset();
+	PerformanceCaptureName.Reset();
+	PerformanceWarmupSeconds = 15.0;
+	PerformanceCaptureSeconds = 30.0;
+	PerformanceWarmupElapsedSeconds = 0.0;
+	PerformanceCaptureElapsedSeconds = 0.0;
+	PerformanceCameraStart = FVector::ZeroVector;
+	PerformanceCameraTravelEnd = FVector::ZeroVector;
+	PerformanceTimeScale = 1;
+	bPerformanceCaptureEnabled = false;
+	bPerformanceCaptureStarted = false;
+	bPerformanceCaptureFinished = false;
+	bPerformanceTimeScaleApplied = false;
+	bPerformanceViewPositionApplied = false;
+	bPerformanceScenarioTelescopeEnabled = false;
 	Super::Deinitialize();
 }
 
@@ -138,6 +160,7 @@ void UAILODVisualDemoWorldSubsystem::Tick(const float DeltaTime)
 			return;
 		}
 		bDemoActivated = true;
+		InitializePerformanceCapture();
 		const UAILODVisualDemoSettings* Settings = GetDefault<UAILODVisualDemoSettings>();
 		bShowResidentDebugLabels = Settings->bShowResidentDebugLabels;
 		FString InitializationError;
@@ -170,6 +193,8 @@ void UAILODVisualDemoWorldSubsystem::Tick(const float DeltaTime)
 			Runtime.GetPresentationPlaybackRate());
 	}
 	DrawFunctionalUI();
+	RecordPerformanceCsvStats();
+	UpdatePerformanceCapture(DeltaTime);
 }
 
 TStatId UAILODVisualDemoWorldSubsystem::GetStatId() const
@@ -509,6 +534,382 @@ void UAILODVisualDemoWorldSubsystem::UpdateResidentPresentation()
 	}
 }
 
+void UAILODVisualDemoWorldSubsystem::InitializePerformanceCapture()
+{
+	bPerformanceCaptureEnabled = FParse::Value(
+		FCommandLine::Get(),
+		TEXT("AILODPerfScenario="),
+		PerformanceScenario);
+	if (!bPerformanceCaptureEnabled)
+	{
+		return;
+	}
+#if !CSV_PROFILER
+	UE_LOG(LogTemp, Error,
+		TEXT("AILOD Phase 7F-E capture requires a build with CSV profiler support."));
+	bPerformanceCaptureEnabled = false;
+	return;
+#endif
+
+	FParse::Value(
+		FCommandLine::Get(),
+		TEXT("AILODPerfCaptureName="),
+		PerformanceCaptureName);
+	FParse::Value(
+		FCommandLine::Get(),
+		TEXT("AILODPerfWarmupSeconds="),
+		PerformanceWarmupSeconds);
+	FParse::Value(
+		FCommandLine::Get(),
+		TEXT("AILODPerfCaptureSeconds="),
+		PerformanceCaptureSeconds);
+	FParse::Value(
+		FCommandLine::Get(),
+		TEXT("AILODPerfTimeScale="),
+		PerformanceTimeScale);
+
+	PerformanceWarmupSeconds = FMath::Max(0.0, PerformanceWarmupSeconds);
+	PerformanceCaptureSeconds = FMath::Max(1.0, PerformanceCaptureSeconds);
+	if (PerformanceTimeScale != 1 && PerformanceTimeScale != 4)
+	{
+		UE_LOG(LogTemp, Error,
+			TEXT("AILOD Phase 7F-E capture rejected: time scale must be 1 or 4, got %d."),
+			PerformanceTimeScale);
+		bPerformanceCaptureEnabled = false;
+		return;
+	}
+	if (PerformanceCaptureName.IsEmpty())
+	{
+		PerformanceCaptureName = FString::Printf(
+			TEXT("Phase7F_E_%s_%dx.csv"),
+			*PerformanceScenario,
+			PerformanceTimeScale);
+	}
+
+	UE_LOG(LogTemp, Display,
+		TEXT("AILOD Phase 7F-E capture armed: scenario=%s, scale=%dx, warmup=%.1fs, capture=%.1fs, file=%s"),
+		*PerformanceScenario,
+		PerformanceTimeScale,
+		PerformanceWarmupSeconds,
+		PerformanceCaptureSeconds,
+		*PerformanceCaptureName);
+}
+
+void UAILODVisualDemoWorldSubsystem::UpdatePerformanceCapture(const float DeltaTime)
+{
+#if CSV_PROFILER
+	if (!bPerformanceCaptureEnabled || bPerformanceCaptureFinished
+		|| Runtime.GetState() != AILOD::EVisualDemoRuntimeState::Running)
+	{
+		return;
+	}
+
+	if (!bPerformanceTimeScaleApplied)
+	{
+		FString Error;
+		if (!RequestTimeScale(PerformanceTimeScale, Error))
+		{
+			LastUIMessage = Error;
+			bPerformanceCaptureFinished = true;
+			return;
+		}
+		bPerformanceTimeScaleApplied = true;
+	}
+	if (!bPerformanceViewPositionApplied)
+	{
+		UWorld* World = GetWorld();
+		APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
+		APawn* PlayerPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
+		const TArray<AILOD::FVisualDistrictRecord>& Districts = Runtime.GetLayout().GetDistricts();
+		if (!PlayerPawn || Districts.IsEmpty())
+		{
+			return;
+		}
+		const FVector2D DistrictRoadJunction = Districts[0].Bounds.Min
+			+ (Districts[0].Bounds.Max - Districts[0].Bounds.Min) / 3.0;
+		FVector TestViewLocation = PlayerPawn->GetActorLocation();
+		TestViewLocation.X = DistrictRoadJunction.X;
+		TestViewLocation.Y = DistrictRoadJunction.Y;
+		PlayerPawn->SetActorLocation(
+			TestViewLocation,
+			false,
+			nullptr,
+			ETeleportType::TeleportPhysics);
+		PerformanceCameraStart = TestViewLocation;
+		const AILOD::FVisualDistrictRecord& TravelDistrict = Districts.Last();
+		const FVector2D TravelRoadJunction = TravelDistrict.Bounds.Min
+			+ (TravelDistrict.Bounds.Max - TravelDistrict.Bounds.Min) / 3.0;
+		PerformanceCameraTravelEnd = FVector(
+			TravelRoadJunction.X,
+			TravelRoadJunction.Y,
+			TestViewLocation.Z);
+		if (AAILODVisualDemoCharacter* DemoCharacter = Cast<AAILODVisualDemoCharacter>(PlayerPawn))
+		{
+			const float BoomLength = PerformanceScenario == TEXT("DenseProxies")
+				|| PerformanceScenario == TEXT("ActorCap50") ? 5000.0f : 2500.0f;
+			const float AnchorYaw = PerformanceScenario == TEXT("TelescopeLift") ? 45.0f : 0.0f;
+			DemoCharacter->ApplyPerformanceCameraPose(
+				PerformanceCameraStart,
+				AnchorYaw,
+				BoomLength);
+		}
+		bPerformanceViewPositionApplied = true;
+		UE_LOG(LogTemp, Display,
+			TEXT("AILOD Phase 7F-E view positioned at first district road junction: X=%.1f Y=%.1f"),
+			DistrictRoadJunction.X,
+			DistrictRoadJunction.Y);
+	}
+
+	FCsvProfiler* CsvProfiler = FCsvProfiler::Get();
+	if (!bPerformanceCaptureStarted)
+	{
+		PerformanceWarmupElapsedSeconds += DeltaTime;
+		if (PerformanceWarmupElapsedSeconds < PerformanceWarmupSeconds)
+		{
+			return;
+		}
+
+		AILOD::FUnifiedDemoSnapshot Snapshot;
+		Runtime.CopySnapshot(Snapshot);
+		CSV_NON_PERSISTENT_METADATA(TEXT("AILODPhase"), TEXT("7F-E"));
+		CSV_NON_PERSISTENT_METADATA(TEXT("AILODScenario"), *PerformanceScenario);
+		CSV_NON_PERSISTENT_METADATA(
+			TEXT("AILODPopulation"),
+			*FString::FromInt(Snapshot.PopulationPerKingdom * 2));
+		CSV_NON_PERSISTENT_METADATA(
+			TEXT("AILODTimeScale"),
+			*FString::FromInt(PerformanceTimeScale));
+		CSV_NON_PERSISTENT_METADATA(
+			TEXT("AILODDebugLabels"),
+			bShowResidentDebugLabels ? TEXT("1") : TEXT("0"));
+		CSV_NON_PERSISTENT_METADATA(
+			TEXT("AILODNormalActiveBudget"),
+			*FString::FromInt(
+				GetDefault<UAILODVisualDemoSettings>()->NormalActiveActorBudget));
+		CsvProfiler->BeginCapture(-1, FString(), PerformanceCaptureName);
+		bPerformanceCaptureStarted = true;
+		UE_LOG(LogTemp, Display,
+			TEXT("AILOD Phase 7F-E capture started: %s"),
+			*PerformanceCaptureName);
+		return;
+	}
+
+	if (!CsvProfiler->IsCapturing())
+	{
+		return;
+	}
+	UpdatePerformanceScenario();
+	PerformanceCaptureElapsedSeconds += DeltaTime;
+	if (PerformanceCaptureElapsedSeconds >= PerformanceCaptureSeconds)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			APlayerController* PlayerController = World->GetFirstPlayerController();
+			if (AAILODVisualDemoCharacter* DemoCharacter = PlayerController
+				? Cast<AAILODVisualDemoCharacter>(PlayerController->GetPawn()) : nullptr)
+			{
+				DemoCharacter->SetTelescopeViewEnabled(false);
+			}
+		}
+		CsvProfiler->EndCapture();
+		bPerformanceCaptureFinished = true;
+		UE_LOG(LogTemp, Display,
+			TEXT("AILOD Phase 7F-E capture ended after %.2f seconds."),
+			PerformanceCaptureElapsedSeconds);
+	}
+#endif
+}
+
+void UAILODVisualDemoWorldSubsystem::UpdatePerformanceScenario()
+{
+	UWorld* World = GetWorld();
+	APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
+	AAILODVisualDemoCharacter* DemoCharacter = PlayerController
+		? Cast<AAILODVisualDemoCharacter>(PlayerController->GetPawn()) : nullptr;
+	if (!DemoCharacter)
+	{
+		return;
+	}
+
+	if (PerformanceScenario == TEXT("FastTraversal"))
+	{
+		const double AngleRadians = FMath::DegreesToRadians(
+			PerformanceCaptureElapsedSeconds * 90.0);
+		const double Radius = 3000.0;
+		const FVector CameraLocation = PerformanceCameraStart + FVector(
+			Radius * FMath::Sin(AngleRadians),
+			Radius * (1.0 - FMath::Cos(AngleRadians)),
+			0.0);
+		DemoCharacter->ApplyPerformanceCameraPose(
+			CameraLocation,
+			static_cast<float>(PerformanceCaptureElapsedSeconds * 90.0),
+			2500.0f);
+		return;
+	}
+
+	if (PerformanceScenario == TEXT("WorldPartitionTravel"))
+	{
+		const double Phase = PerformanceCaptureElapsedSeconds / 10.0 * UE_DOUBLE_PI;
+		const double Alpha = 0.5 - 0.5 * FMath::Cos(Phase);
+		const FVector CameraLocation = FMath::Lerp(
+			PerformanceCameraStart,
+			PerformanceCameraTravelEnd,
+			Alpha);
+		const FVector2D Direction(
+			PerformanceCameraTravelEnd.X - PerformanceCameraStart.X,
+			PerformanceCameraTravelEnd.Y - PerformanceCameraStart.Y);
+		float Yaw = static_cast<float>(FMath::RadiansToDegrees(FMath::Atan2(
+			Direction.Y,
+			Direction.X)));
+		if (FMath::Sin(Phase) < 0.0)
+		{
+			Yaw += 180.0f;
+		}
+		DemoCharacter->SetActorLocation(
+			CameraLocation,
+			false,
+			nullptr,
+			ETeleportType::TeleportPhysics);
+		DemoCharacter->ApplyPerformanceCameraPose(CameraLocation, Yaw, 2500.0f);
+		return;
+	}
+
+	if (PerformanceScenario == TEXT("TelescopeLift"))
+	{
+		const int32 CycleIndex = FMath::FloorToInt(PerformanceCaptureElapsedSeconds / 8.0);
+		const double CycleSeconds = FMath::Fmod(PerformanceCaptureElapsedSeconds, 8.0);
+		const bool bShouldEnableTelescope = CycleSeconds < 6.0;
+		const float Yaw = 45.0f + static_cast<float>((CycleIndex % 3) - 1) * 5.0f;
+		DemoCharacter->ApplyPerformanceCameraPose(PerformanceCameraStart, Yaw, 2500.0f);
+		if (bShouldEnableTelescope != bPerformanceScenarioTelescopeEnabled)
+		{
+			DemoCharacter->SetTelescopeViewEnabled(bShouldEnableTelescope);
+			bPerformanceScenarioTelescopeEnabled = bShouldEnableTelescope;
+			if (!bShouldEnableTelescope)
+			{
+				bClearTrackedResidentRequested = true;
+			}
+		}
+	}
+}
+
+void UAILODVisualDemoWorldSubsystem::RecordPerformanceCsvStats() const
+{
+#if CSV_PROFILER
+	if (!bPerformanceCaptureEnabled || !FCsvProfiler::Get()->IsCapturing())
+	{
+		return;
+	}
+
+	CSV_CUSTOM_STAT(AILODVisual, RuntimeState,
+		static_cast<int32>(Runtime.GetState()), ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, TimeScale, Runtime.GetTimeScale(), ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, Paused, Runtime.IsPaused() ? 1 : 0, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, PendingHourSteps,
+		Runtime.GetPendingHourSteps(), ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, LastTickStepCount,
+		Runtime.GetLastTickStepCount(), ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, DebugLabelsEnabled,
+		bShowResidentDebugLabels ? 1 : 0, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, TelescopeEnabled,
+		bTelescopeEnabled ? 1 : 0, ECsvCustomStatOp::Set);
+
+	AILOD::FUnifiedDemoSnapshot Snapshot;
+	if (Runtime.CopySnapshot(Snapshot))
+	{
+		CSV_CUSTOM_STAT(AILODVisual, Population,
+			Snapshot.PopulationPerKingdom * 2, ECsvCustomStatOp::Set);
+		CSV_CUSTOM_STAT(AILODVisual, GameMinutes,
+			static_cast<double>(Snapshot.GameTime.Minutes), ECsvCustomStatOp::Set);
+		CSV_CUSTOM_STAT(AILODVisual, ActiveCount,
+			Snapshot.ActiveCount, ECsvCustomStatOp::Set);
+		CSV_CUSTOM_STAT(AILODVisual, TrackedResident,
+			static_cast<double>(Snapshot.TrackedResidentID), ECsvCustomStatOp::Set);
+		CSV_CUSTOM_STAT(AILODVisual, StepProductionMs,
+			Snapshot.LastStepMeasurement.ProductionCpuMs, ECsvCustomStatOp::Set);
+		CSV_CUSTOM_STAT(AILODVisual, StepMacroMs,
+			Snapshot.LastStepMeasurement.MacroCpuMs, ECsvCustomStatOp::Set);
+		CSV_CUSTOM_STAT(AILODVisual, StepMicroMs,
+			Snapshot.LastStepMeasurement.MicroCpuMs, ECsvCustomStatOp::Set);
+		CSV_CUSTOM_STAT(AILODVisual, StepTransitionMs,
+			Snapshot.LastStepMeasurement.TransitionCpuMs, ECsvCustomStatOp::Set);
+		CSV_CUSTOM_STAT(AILODVisual, StepQueueLength,
+			Snapshot.LastStepMeasurement.QueueLength, ECsvCustomStatOp::Set);
+	}
+
+	const AILOD::FVisualObservationDiagnostics& Observation =
+		Runtime.GetCurrentPresentationObservationPlan().Diagnostics;
+	CSV_CUSTOM_STAT(AILODVisual, NormalVisitedCells,
+		Observation.NormalQuery.VisitedCellCount, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, NormalVisitedResidents,
+		Observation.NormalQuery.VisitedResidentEntryCount, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, NormalMatches,
+		Observation.NormalQuery.MatchingResidentCount, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, NormalReturned,
+		Observation.NormalQuery.ReturnedCandidateCount, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, TelescopeVisitedCells,
+		Observation.TelescopeQuery.VisitedCellCount, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, TelescopeVisitedResidents,
+		Observation.TelescopeQuery.VisitedResidentEntryCount, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, TelescopeMatches,
+		Observation.TelescopeQuery.MatchingResidentCount, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, TelescopeReturned,
+		Observation.TelescopeQuery.ReturnedCandidateCount, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, NormalVisibleCandidates,
+		Observation.NormalVisibleCandidateCount, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, NormalEligibleCandidates,
+		Observation.NormalEligibleActiveCount, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, NormalImmediateCandidates,
+		Observation.NormalImmediateCandidateCount, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, NormalDwellStates,
+		Observation.NormalObservationStateCount, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, DesiredActiveCount,
+		Observation.DesiredActiveCount, ECsvCustomStatOp::Set);
+
+	AILOD::FVisualResidentPresentationFrame PresentationFrame;
+	const bool bHasPresentationFrame = Runtime.CopyPresentationFrame(PresentationFrame);
+	if (bHasPresentationFrame)
+	{
+		CSV_CUSTOM_STAT(AILODVisual, ProxyCount,
+			PresentationFrame.Diagnostics.LowLevelProxyCount, ECsvCustomStatOp::Set);
+		CSV_CUSTOM_STAT(AILODVisual, ActiveActorCount,
+			PresentationFrame.Diagnostics.ActiveActorCount, ECsvCustomStatOp::Set);
+		CSV_CUSTOM_STAT(AILODVisual, ActorPoolCapacity,
+			PresentationFrame.Diagnostics.ActorPoolCapacity, ECsvCustomStatOp::Set);
+	}
+	if (IsValid(PopulationPresenter))
+	{
+		CSV_CUSTOM_STAT(AILODVisual, BoundActorCount,
+			PopulationPresenter->GetBoundActorCount(), ECsvCustomStatOp::Set);
+		CSV_CUSTOM_STAT(AILODVisual, MotionStateCount,
+			PopulationPresenter->GetMotionStateCount(), ECsvCustomStatOp::Set);
+		CSV_CUSTOM_STAT(AILODVisual, MotionUpdates,
+			PopulationPresenter->GetLastMotionUpdateCount(), ECsvCustomStatOp::Set);
+	}
+
+	const AILOD::FVisualTelescopeFocusStatus& Focus = TelescopeFocusGate.GetStatus();
+	CSV_CUSTOM_STAT(AILODVisual, TelescopeCenterResident,
+		static_cast<double>(Focus.CenterResidentID), ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, TelescopeFocusSeconds,
+		Focus.FocusedRealSeconds, ECsvCustomStatOp::Set);
+	CSV_CUSTOM_STAT(AILODVisual, TelescopeStreamingReady,
+		Focus.bStreamingReady ? 1 : 0, ECsvCustomStatOp::Set);
+	const UWorld* World = GetWorld();
+	CSV_CUSTOM_STAT(AILODVisual, LoadedLevelCount,
+		World ? World->GetLevels().Num() : 0, ECsvCustomStatOp::Set);
+	const UWorldPartitionSubsystem* WorldPartitionSubsystem =
+		World ? World->GetSubsystem<UWorldPartitionSubsystem>() : nullptr;
+	CSV_CUSTOM_STAT(AILODVisual, WorldPartitionStreamingReady,
+		!WorldPartitionSubsystem || WorldPartitionSubsystem->IsStreamingCompleted() ? 1 : 0,
+		ECsvCustomStatOp::Set);
+	const bool bFullPopulationScan = Observation.NormalQuery.bScannedResidentCatalog
+		|| Observation.TelescopeQuery.bScannedResidentCatalog
+		|| (bHasPresentationFrame && PresentationFrame.Diagnostics.bScannedResidentCatalog);
+	CSV_CUSTOM_STAT(AILODVisual, FullPopulationScan,
+		bFullPopulationScan ? 1 : 0, ECsvCustomStatOp::Set);
+#endif
+}
+
 void UAILODVisualDemoWorldSubsystem::DrawFunctionalUI()
 {
 	const ImGui::FScopedContext ScopedContext;
@@ -547,6 +948,14 @@ void UAILODVisualDemoWorldSubsystem::DrawFunctionalUI()
 
 	ImGui::Text("State: %s", TCHAR_TO_UTF8(Runtime.GetStateName()));
 	ImGui::Text("Mode: Interactive Demo (not formal data)");
+	if (bPerformanceCaptureEnabled)
+	{
+		ImGui::Text("7F-E capture: %s %dx - %s",
+			TCHAR_TO_UTF8(*PerformanceScenario),
+			PerformanceTimeScale,
+			bPerformanceCaptureFinished ? "finished"
+				: bPerformanceCaptureStarted ? "recording" : "warmup");
+	}
 	AILOD::FUnifiedDemoSnapshot Snapshot;
 	if (Runtime.CopySnapshot(Snapshot))
 	{

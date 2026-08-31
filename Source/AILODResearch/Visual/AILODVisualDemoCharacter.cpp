@@ -121,44 +121,31 @@ void AAILODVisualDemoCharacter::SetupPlayerInputComponent(UInputComponent* Playe
 	}
 }
 
-void AAILODVisualDemoCharacter::EnableTelescope()
+void AAILODVisualDemoCharacter::ApplyPerformanceCameraPose(
+	const FVector& AnchorLocation,
+	const float AnchorYawDegrees,
+	const float BoomLength)
 {
-	if (bTelescopeViewActive || UIWantsMouse())
+	if (bCameraFollowsPlayer)
 	{
-		return;
+		BeginFreeCamera();
 	}
-
-	SavedCameraBoomLength = CameraBoom->TargetArmLength;
-	SavedCameraBoomRelativeLocation = CameraBoom->GetRelativeLocation();
-	SavedCameraBoomRelativeRotation = CameraBoom->GetRelativeRotation();
-	SavedCameraFieldOfView = TopDownCamera->FieldOfView;
-	bTelescopeViewActive = true;
-	const UAILODVisualDemoSettings* Settings = GetDefault<UAILODVisualDemoSettings>();
-	const float TelescopeCameraHeightOffset = static_cast<float>(
-		Settings->TelescopeCameraHeightMeters * 100.0
-		- GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
-
-	CameraBoom->TargetArmLength = 0.0f;
-	CameraBoom->SetRelativeLocation(
-		SavedCameraBoomRelativeLocation + FVector(0.0f, 0.0f, TelescopeCameraHeightOffset));
-	CameraBoom->SetRelativeRotation(FRotator(
-		Settings->TelescopeCameraPitchDegrees,
-		SavedCameraBoomRelativeRotation.Yaw,
-		SavedCameraBoomRelativeRotation.Roll));
-	TopDownCamera->SetFieldOfView(Settings->TelescopeCameraFieldOfViewDegrees);
-
-	if (UWorld* World = GetWorld())
+	bCameraReturning = false;
+	CameraAnchor->SetWorldLocation(AnchorLocation);
+	CameraAnchor->SetWorldRotation(FRotator(0.0f, AnchorYawDegrees, 0.0f));
+	if (!bTelescopeViewActive)
 	{
-		if (UAILODVisualDemoWorldSubsystem* DemoSubsystem = World->GetSubsystem<UAILODVisualDemoWorldSubsystem>())
-		{
-			DemoSubsystem->SetTelescopeEnabled(true);
-		}
+		CameraBoom->TargetArmLength = BoomLength;
 	}
 }
 
-void AAILODVisualDemoCharacter::DisableTelescope()
+void AAILODVisualDemoCharacter::SetTelescopeViewEnabled(const bool bEnabled)
 {
-	if (bTelescopeViewActive)
+	if (bEnabled == bTelescopeViewActive)
+	{
+		return;
+	}
+	if (!bEnabled)
 	{
 		CameraBoom->TargetArmLength = SavedCameraBoomLength;
 		CameraBoom->SetRelativeLocation(SavedCameraBoomRelativeLocation);
@@ -166,14 +153,50 @@ void AAILODVisualDemoCharacter::DisableTelescope()
 		TopDownCamera->SetFieldOfView(SavedCameraFieldOfView);
 		bTelescopeViewActive = false;
 	}
+	else
+	{
+		SavedCameraBoomLength = CameraBoom->TargetArmLength;
+		SavedCameraBoomRelativeLocation = CameraBoom->GetRelativeLocation();
+		SavedCameraBoomRelativeRotation = CameraBoom->GetRelativeRotation();
+		SavedCameraFieldOfView = TopDownCamera->FieldOfView;
+		bTelescopeViewActive = true;
+		const UAILODVisualDemoSettings* Settings = GetDefault<UAILODVisualDemoSettings>();
+		const float TelescopeCameraHeightOffset = static_cast<float>(
+			Settings->TelescopeCameraHeightMeters * 100.0
+			- GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+
+		CameraBoom->TargetArmLength = 0.0f;
+		CameraBoom->SetRelativeLocation(
+			SavedCameraBoomRelativeLocation + FVector(0.0f, 0.0f, TelescopeCameraHeightOffset));
+		CameraBoom->SetRelativeRotation(FRotator(
+			Settings->TelescopeCameraPitchDegrees,
+			SavedCameraBoomRelativeRotation.Yaw,
+			SavedCameraBoomRelativeRotation.Roll));
+		TopDownCamera->SetFieldOfView(Settings->TelescopeCameraFieldOfViewDegrees);
+	}
 
 	if (UWorld* World = GetWorld())
 	{
-		if (UAILODVisualDemoWorldSubsystem* DemoSubsystem = World->GetSubsystem<UAILODVisualDemoWorldSubsystem>())
+		if (UAILODVisualDemoWorldSubsystem* DemoSubsystem =
+			World->GetSubsystem<UAILODVisualDemoWorldSubsystem>())
 		{
-			DemoSubsystem->SetTelescopeEnabled(false);
+			DemoSubsystem->SetTelescopeEnabled(bEnabled);
 		}
 	}
+}
+
+void AAILODVisualDemoCharacter::EnableTelescope()
+{
+	if (bTelescopeViewActive || UIWantsMouse())
+	{
+		return;
+	}
+	SetTelescopeViewEnabled(true);
+}
+
+void AAILODVisualDemoCharacter::DisableTelescope()
+{
+	SetTelescopeViewEnabled(false);
 }
 
 void AAILODVisualDemoCharacter::SetCameraForward(const float Value)

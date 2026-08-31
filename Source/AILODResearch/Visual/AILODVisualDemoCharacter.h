@@ -20,6 +20,11 @@ public:
 	AAILODVisualDemoCharacter();
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+	void ApplyPerformanceCameraPose(
+		const FVector& AnchorLocation,
+		float AnchorYawDegrees,
+		float BoomLength);
+	void SetTelescopeViewEnabled(bool bEnabled);
 
 private:
 	void SetCameraForward(float Value);

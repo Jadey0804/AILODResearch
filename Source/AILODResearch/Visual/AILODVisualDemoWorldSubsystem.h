@@ -39,6 +39,10 @@ private:
 	bool UpdateTelescopeStreamingSource(AILOD::FResidentID ResidentID, FString& OutError);
 	void DisableTelescopeStreamingSource();
 	void UpdateResidentPresentation();
+	void InitializePerformanceCapture();
+	void UpdatePerformanceCapture(float DeltaTime);
+	void UpdatePerformanceScenario();
+	void RecordPerformanceCsvStats() const;
 	void DrawFunctionalUI();
 	void DrawResidentDebugLabels(const AILOD::FVisualResidentPresentationFrame& Frame) const;
 
@@ -51,8 +55,23 @@ private:
 	TObjectPtr<UWorldPartitionStreamingSourceComponent> TelescopeStreamingSource;
 	AILOD::FVisualTelescopeFocusGate TelescopeFocusGate;
 	FString LastUIMessage;
+	FString PerformanceScenario;
+	FString PerformanceCaptureName;
+	double PerformanceWarmupSeconds = 15.0;
+	double PerformanceCaptureSeconds = 30.0;
+	double PerformanceWarmupElapsedSeconds = 0.0;
+	double PerformanceCaptureElapsedSeconds = 0.0;
+	FVector PerformanceCameraStart = FVector::ZeroVector;
+	FVector PerformanceCameraTravelEnd = FVector::ZeroVector;
+	int32 PerformanceTimeScale = 1;
 	bool bDemoActivated = false;
 	bool bShowResidentDebugLabels = true;
 	bool bTelescopeEnabled = false;
 	bool bClearTrackedResidentRequested = false;
+	bool bPerformanceCaptureEnabled = false;
+	bool bPerformanceCaptureStarted = false;
+	bool bPerformanceCaptureFinished = false;
+	bool bPerformanceTimeScaleApplied = false;
+	bool bPerformanceViewPositionApplied = false;
+	bool bPerformanceScenarioTelescopeEnabled = false;
 };
