@@ -544,13 +544,7 @@ void UAILODVisualDemoWorldSubsystem::InitializePerformanceCapture()
 	{
 		return;
 	}
-#if !CSV_PROFILER
-	UE_LOG(LogTemp, Error,
-		TEXT("AILOD Phase 7F-E capture requires a build with CSV profiler support."));
-	bPerformanceCaptureEnabled = false;
-	return;
-#endif
-
+#if CSV_PROFILER
 	FParse::Value(
 		FCommandLine::Get(),
 		TEXT("AILODPerfCaptureName="),
@@ -593,6 +587,11 @@ void UAILODVisualDemoWorldSubsystem::InitializePerformanceCapture()
 		PerformanceWarmupSeconds,
 		PerformanceCaptureSeconds,
 		*PerformanceCaptureName);
+#else
+	UE_LOG(LogTemp, Error,
+		TEXT("AILOD Phase 7F-E capture requires a build with CSV profiler support."));
+	bPerformanceCaptureEnabled = false;
+#endif
 }
 
 void UAILODVisualDemoWorldSubsystem::UpdatePerformanceCapture(const float DeltaTime)

@@ -26,13 +26,13 @@ Set-StrictMode -Version Latest
 $definition = Get-Phase8RunDefinition -RunSet $RunSet
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 if ([string]::IsNullOrWhiteSpace($ShippingExecutable)) {
-    $ShippingExecutable = Join-Path $projectRoot 'Binaries\Win64\AILODResearch.exe'
+    $ShippingExecutable = Join-Path $projectRoot 'Binaries\Win64\AILODResearch-Win64-Shipping.exe'
 }
 if (-not (Test-Path -LiteralPath $ShippingExecutable -PathType Leaf)) {
     throw "Shipping executable was not found: $ShippingExecutable"
 }
 
-$targetFile = Join-Path $projectRoot 'Binaries\Win64\AILODResearch.target'
+$targetFile = Join-Path $projectRoot 'Binaries\Win64\AILODResearch-Win64-Shipping.target'
 if (-not (Test-Path -LiteralPath $targetFile -PathType Leaf)) {
     throw "Game target metadata was not found: $targetFile"
 }
