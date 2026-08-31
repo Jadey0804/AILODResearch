@@ -108,7 +108,7 @@ namespace
 UAILODExperimentCommandlet::UAILODExperimentCommandlet()
 {
 	IsClient = false;
-	IsEditor = true;
+	IsEditor = false;
 	LogToConsole = true;
 	ShowErrorCount = true;
 }

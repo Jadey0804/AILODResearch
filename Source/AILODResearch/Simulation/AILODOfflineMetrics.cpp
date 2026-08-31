@@ -31,6 +31,7 @@ namespace AILOD
 			FString FinalGameTime;
 			int32 Seed = 0;
 			int32 PopulationPerKingdom = 0;
+			int32 RepeatIndex = 1;
 			TMap<FString, double> HardErrors;
 			TMap<FString, FKingdomMetricRow> KingdomRows;
 			TMap<FString, TArray<FString>> NPCSnapshots;
@@ -178,6 +179,9 @@ namespace AILOD
 			OutRun.Seed = static_cast<int32>(Manifest->GetNumberField(TEXT("seed")));
 			OutRun.FinalGameTime = Manifest->GetStringField(TEXT("game_time"));
 			OutRun.PopulationPerKingdom = static_cast<int32>((*Parameters)->GetNumberField(TEXT("population_per_kingdom")));
+			OutRun.RepeatIndex = Manifest->HasTypedField<EJson::Number>(TEXT("repeat_index"))
+				? static_cast<int32>(Manifest->GetNumberField(TEXT("repeat_index")))
+				: 1;
 			for (const TCHAR* Name : { TEXT("task_reset"), TEXT("duplicate_completion"), TEXT("event_owner_conflict"), TEXT("duplicate_transaction"), TEXT("negative_stock"), TEXT("population_residual"), TEXT("wood_residual") })
 			{
 				OutRun.HardErrors.Add(Name, (*HardErrors)->GetNumberField(Name));
@@ -338,9 +342,20 @@ namespace AILOD
 			return FString::Printf(TEXT("%s|%s|%d"), *Method, *Scenario, Seed);
 		}
 
-		FString PerformanceKey(const FString& Method, const FString& Scenario, const int32 Seed, const int32 PopulationPerKingdom)
+		FString PerformanceKey(
+			const FString& Method,
+			const FString& Scenario,
+			const int32 Seed,
+			const int32 PopulationPerKingdom,
+			const int32 RepeatIndex)
 		{
-			return FString::Printf(TEXT("%s|%s|%d|%d"), *Method, *Scenario, Seed, PopulationPerKingdom);
+			return FString::Printf(
+				TEXT("%s|%s|%d|%d|R%02d"),
+				*Method,
+				*Scenario,
+				Seed,
+				PopulationPerKingdom,
+				RepeatIndex);
 		}
 
 		double ScaleFor(const int32 Index, const int32 N)
@@ -637,12 +652,28 @@ namespace AILOD
 			TMap<FString, const FOfflineRun*> PerformanceIndex;
 			for (const FOfflineRun& Run : Runs)
 			{
-				PerformanceIndex.Add(PerformanceKey(Run.Method, Run.Scenario, Run.Seed, Run.PopulationPerKingdom), &Run);
+				const FString Key = PerformanceKey(
+					Run.Method,
+					Run.Scenario,
+					Run.Seed,
+					Run.PopulationPerKingdom,
+					Run.RepeatIndex);
+				if (PerformanceIndex.Contains(Key))
+				{
+					OutError = FString::Printf(TEXT("Duplicate performance run: %s"), *Key);
+					return false;
+				}
+				PerformanceIndex.Add(Key, &Run);
 				AddPerformanceMetrics(Run, Metrics);
 			}
 			for (const FOfflineRun& Run : Runs)
 			{
-				const FOfflineRun* PerAgent = PerformanceIndex.FindRef(PerformanceKey(TEXT("PerAgent"), Run.Scenario, Run.Seed, Run.PopulationPerKingdom));
+				const FOfflineRun* PerAgent = PerformanceIndex.FindRef(PerformanceKey(
+					TEXT("PerAgent"),
+					Run.Scenario,
+					Run.Seed,
+					Run.PopulationPerKingdom,
+					Run.RepeatIndex));
 				if (PerAgent == nullptr)
 				{
 					OutError = FString::Printf(TEXT("Performance run %s has no matching PerAgent baseline."), *Run.RunID);

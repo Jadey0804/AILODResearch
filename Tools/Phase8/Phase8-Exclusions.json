@@ -1,0 +1,31 @@
+{
+  "protocol_version": "1.0",
+  "rule": "Every listed run set is excluded before its results are inspected, even if its manifest says valid_for_formal_experiment=true.",
+  "excluded_run_sets": [
+    {
+      "experiment_id": "PHASE8-PREFLIGHT-EXCLUDED-ACCURACY",
+      "relative_output_path": "PreflightExcluded/Accuracy",
+      "reason": "Shipping environment, resume, raw-output and offline-summary preflight only"
+    },
+    {
+      "experiment_id": "PHASE8-PREFLIGHT-EXCLUDED-PERFORMANCE",
+      "relative_output_path": "PreflightExcluded/Performance-2k",
+      "reason": "Shipping performance-entry and repeat-aware PerAgent pairing preflight only"
+    },
+    {
+      "experiment_id": "PHASE6H-H5-PILOT",
+      "relative_output_path": "Saved/AILOD/Phase6HH5Pilot",
+      "reason": "Development five-seed hardening pilot"
+    },
+    {
+      "experiment_id": "PHASE6I-H6-PILOT",
+      "relative_output_path": "Saved/AILOD/Phase6IH6PilotFinal2",
+      "reason": "Development five-seed v1.9 engineering pilot"
+    },
+    {
+      "experiment_id": "PHASE7F-VISUAL",
+      "relative_output_path": "Saved/Profiling/Phase7F",
+      "reason": "Rendered Development visual-demo evidence, separate from Phase 8 simulation experiments"
+    }
+  ]
+}
