@@ -1,7 +1,7 @@
 # AILOD MVP 当前有效规则索引
 
-**索引版本：5.7**<br>
-**日期：2026-08-29**<br>
+**索引版本：5.8**<br>
+**日期：2026-09-01**<br>
 **用途：说明当前规则的读取顺序、冲突优先级和各文档职责。**<br>
 **性质：本文件只做导航，不新增模型规则、不替代原规格，也不构成阶段验收。**
 
@@ -50,6 +50,8 @@
 | Phase 7C Checkpoint | 独立 UE Demo Controller、固定 PCG 输出、World Partition 地图、分区导航、相机/移动、功能型 Dear ImGui 和 HLOD 远景 | 已由项目作者确认并以 `611534a` 封板；不代表 Phase 7D NPC Actor、Phase 7E 望远镜或 Phase 7F 性能验收已实现 |
 | Phase 7D Checkpoint | 真实 ResidentID 低层代理、固定 50 槽完整 NPC Actor 池、只读 NPC 选择、基础地点映射、短距离占位动画、PIE 连续性修复和合法 revisit 唯一 LOD 事务键 | 8 月 24 日版本通过 Editor/Game Development、8/8 专项和 66/66 完整回归；8 月 26 日唯一键修复通过 Editor Development 编译，主地图 PIE revisit 由项目作者确认，但未重跑完整自动回归。Phase 7D 已本地封板且未 push；不代表 Phase 7E 或 Phase 7F 已实现 |
 | Phase 7E Checkpoint | 300—1500 m 远距窄视锥、持续观察与 Streaming Ready 双门、临时 World Partition Streaming Source、权威 Lift、唯一追踪居民和命令重放 | Editor Development 与 Phase 7E 1/1 专项已通过；项目作者已完成主地图望远镜与远距 Lift 验收，并随本次提交本地封板、未 push；不代表 Phase 7F 总回归或有画面性能已经完成 |
+| Phase 7F Checkpoint | 低成本人形 Proxy、Fab 引用清理与 HLOD、完整回归、Development 有画面 24 格矩阵、NavMesh 容量修正和 4 格复测 | Phase 7F 已由作者批准并以 `3314034` 封板；它提供 Demo 工程证据，不替代 Shipping/NullRHI 的 Phase 8 正式算法统计 |
+| Phase 8 Final Checkpoint | 480 次准确性与 90 次性能正式运行、资格审计、paired bootstrap、逐 Seed 图、阈值表、TaskActive 分解和归档哈希 | 是正式结果与可复现性检查点，不新增模型规则；论文主张必须同时报告 2k 固定成本劣势、20k 性能优势、TaskActive 负面发现和进程内存边界 |
 | Phase 5 Handoff v1.0 | Phase 5 开始前的导航、源码位置、历史现场和验证方法 | 生成时间早于 v1.6；不是模型事实源，涉及当前 Phase 5.1 时必须回到 v1.6 和检查点核对 |
 | Phase 5.1 Checkpoint | Phase 5.1 实现证据、Hash、Digest、自动验收结果、已知边界和待完成项 | 是验收记录，不新增或覆盖模型规则 |
 | Phase 6 Incremental Plan | 将既有 Phase 6 范围拆成 6A—6F 检查点并记录逐步验收状态 | 是实施导航与检查点，不新增或覆盖模型规则；每一步必须经作者确认后才能进入下一步 |
@@ -130,7 +132,7 @@ Phase 6A—6F 已经实现以下内容：
 
 以上 Phase 6A—6F 历史边界以 v1.6 §8 和 Phase 5.1 Checkpoint §8 为准；6G-B 的新 Proposed 规则以 v1.7 为准。
 
-当前位于 `phase-7-visual-demo`，Phase 7D 本地封板提交为 `4209962`，Phase 7E 已由项目作者完成主地图 PIE 验收并随本次提交本地封板；Phase 7C 基线为 `611534a`。该分支于 2026-08-23 从已封板的 H6-F 基准 `a9385b2` 创建。Phase 7D 已实现真实 ResidentID 的 HISM 低层代理、固定 50 槽完整 NPC Actor 池、只读点击选择、基础地点映射和短距离占位动画，并修复 8 小时动作跳位、倍率不同步、代理整批闪烁、观察替换拒绝导致 `Failed`、拒绝后当前镜头整片空白，以及 Pause 下同一分钟合法 revisit 事务键碰撞。Simulation 改动只增加已提交键查询和唯一 LOD 事务键，不改变领域公式、资源数量、事件顺序或时钟。Phase 7E 已实现远距最小距离、窄视锥中心目标、持续观察与加载完成双门、临时 Streaming Source、权威 Lift、唯一追踪和命令重放；Editor Development 与 1/1 专项通过，主地图已确认望远镜和远距 Lift 可用。最新 HEAD 的完整回归、有画面性能测量、准星表现校准和 PCG 新模型对应的 HLOD 重建仍留到 Phase 7F 关闭。
+当前位于 `phase-8-formal-experiments`，冻结正式实验提交为 `7699bbffdbcca536758f243f84a73b466230d65d`。Phase 7F 已以 `3314034` 封板，包含低成本人形 Proxy、Fab barn 引用清理与 HLOD、72/72 当时完整回归、Development 有画面工程矩阵、NavMesh fixed tile pool 修正和 World Partition 复测。Phase 8 已完成 480/480 次 Shipping 准确性和 90/90 次 Shipping 性能正式运行，四组 hard error 均为 0；统计使用 100000 次确定性 paired bootstrap，并保留逐 Seed、阈值、TaskActive 分解和原始归档哈希。项目收口时又在当前 HEAD 完成 73/73 自动回归，失败 0。论文与答辩必须如实报告：Proposed 在 2k 慢于 Per-Agent、10k 开始占优、20k 配对中位加速约 3.94 倍；普通 Routine 的 TaskActive 时间相位明显偏离 Oracle；进程峰值内存没有显示 Proposed 优势。当前规则仍是 v1.9 模型叠加 v2.0 Demo 协议，正式结果不会反向改写冻结模型。
 
 ## 5. 后续修改规则
 

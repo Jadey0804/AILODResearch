@@ -1,0 +1,5 @@
+﻿scenario,seed_count,paired_snapshots,mismatches,pooled_mismatch_rate,median_run_mismatch_rate,proposed_active_oracle_inactive,proposed_inactive_oracle_active,same_goal_among_mismatches,same_first_action_among_mismatches,same_home_state_among_mismatches,routine_life_routine_mismatches,commitment_related_mismatches
+None,30,1800,1603,0.8905555555555555,0.9083333333333333,1603,0,1603,1603,1603,1603,0
+HarvestCap,30,1800,1603,0.8905555555555555,0.9083333333333333,1603,0,1603,1603,1603,1603,0
+StateImport,30,1800,1603,0.8905555555555555,0.9083333333333333,1603,0,1603,1603,1603,1603,0
+RepairAid,30,1800,1603,0.8905555555555555,0.9083333333333333,1603,0,1603,1603,1603,1603,0

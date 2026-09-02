@@ -1,9 +1,10 @@
-# AILOD MVP Phase 7F 检查点（待作者验收）
+# AILOD MVP Phase 7F 检查点（已封板）
 
 日期：2026-08-31
-分支：`phase-7-visual-demo`
-当前已提交 HEAD：`0a92ad18cc9a747f130f3c7d24ccdbd32d4d83bd`
-状态：Phase 7F-E 的 `formal1` 24 格 Development 有画面工程数据已经采完；NavMesh 修正后的 `navfix1` World Partition 4 格也已完成。当前采样代码、工具、NavMesh 资产和本文档尚未提交，尚未 push。
+历史分支：`phase-7-visual-demo`
+Phase 7F 封板提交：`3314034d`（`Phase 7F-E: capture visual performance and fix NavMesh capacity`）
+当前后续分支：`phase-8-formal-experiments`
+状态：Phase 7F 已由作者批准并封板。`formal1` 24 格 Development 有画面工程数据、NavMesh 修正后的 `navfix1` World Partition 4 格、采样代码、工具、NavMesh 资产和本文档均已提交；尚未 push。
 
 ## 1. 先说结论
 
@@ -49,7 +50,7 @@ Phase 7F 已经拿到一套可复核的有画面工程证据。`formal1` 一共�
 
 提交：`0a92ad1 Phase 7F-E: freeze validated NavMesh bounds`
 
-该提交按项目作者批准保留当前NavMesh Bounds。正式有画面运行随后暴露fixed tile pool容量不足。作者于2026-08-31批准修正：RecastNavMesh改为固定tile pool 32768，分区NavData重建成功，0 Error；修正后的World Partition四格运行期tile attach失败为0。该资产修正尚未提交。
+该提交按项目作者批准保留当前NavMesh Bounds。正式有画面运行随后暴露fixed tile pool容量不足。作者于2026-08-31批准修正：RecastNavMesh改为固定tile pool 32768，分区NavData重建成功，0 Error；修正后的World Partition四格运行期tile attach失败为0。该资产修正已随 Phase 7F 封板提交 `3314034` 保存。
 
 ### 2.5 Phase 7F-D：正确性关闭
 
@@ -223,7 +224,7 @@ Draw Call 同时受到可见建筑、HLOD、World Partition单元、UI、望远�
 - 没有预先设定60 FPS或其他通过线，本检查点报告分布和风险；
 - 7F-B被作者推迟，望远镜遮挡与准星一致性仍是限制；
 - 100k未运行；
-- Phase 8 的480次准确性和90次正式性能实验尚未开始。
+- Phase 8 的 480 次准确性和 90 次正式性能实验后来已在独立分支完成；该后续结果以 `AILOD_MVP_Phase8_Final_Checkpoint_CN.md` 为准，不回写为 Phase 7F 有画面证据。
 
 ## 9. 能证明什么
 
@@ -249,8 +250,8 @@ Draw Call 同时受到可见建筑、HLOD、World Partition单元、UI、望远�
 - 100k是默认可演示规模；
 - 进程内存等于NPC数据内存；
 - HISM、Mass、AnimToTexture中的任一种方案天然最优；
-- Proposed相对Simple或Per-Agent的论文正式速度优势；
-- Phase 8正式实验已经完成。
+- 仅凭 Phase 7F 证据得出 Proposed 相对 Simple 或 Per-Agent 的论文正式速度优势；
+- 仅凭 Development 有画面数据推断 Shipping/NullRHI 算法性能。Phase 8 正式结果必须单独引用 Phase 8 最终检查点。
 
 ## 11. 原始证据和复现入口
 
@@ -281,7 +282,7 @@ NavMesh修正与复测证据：
 
 早期 `Pilot`、`Validation`、没有 `formal1` 前缀的 Capture，以及第一次 `View/Speed=0` 的人工移动样本全部排除在24格正式工程矩阵之外。
 
-## 12. 等待作者最终验收
+## 12. 作者验收与封板
 
 作者已于2026-08-31批准：
 
@@ -289,9 +290,4 @@ NavMesh修正与复测证据：
 2. 使用“50槽池、44个实际绑定”的口径；
 3. 提高Fixed Tile Pool、重建NavData，并只重跑WorldPartitionTravel四格。
 
-上述三项已经完成。剩余关闭顺序：
-
-1. 作者验收本检查点；
-2. 验收后提交当前C++、NavMesh资产、三个Phase 7F工具和本文档；
-3. 未经要求不push；
-4. Phase 7F封板后进入与互动Demo隔离的Phase 8正式实验。
+上述三项已经完成。作者随后批准 Phase 7F 收口，相关 C++、NavMesh 资产、工具和本文档已以 `3314034` 提交。项目已经在独立的 `phase-8-formal-experiments` 分支完成与互动 Demo 隔离的 Phase 8 正式实验。未经要求仍不 push。

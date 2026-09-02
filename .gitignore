@@ -93,3 +93,13 @@ DerivedDataCache/*
 
 # Local scratch artifacts
 /tmp/
+
+# Local document drafts and generated review exports.
+# Existing tracked files remain tracked; these rules prevent new working copies
+# and generated Office documents from being added accidentally.
+/Deliverables/**/*.doc
+/Deliverables/**/*.docx
+/outputs/**/*.doc
+/outputs/**/*.docx
+/outputs/**/*.xlsx
+/outputs/**/*.inspect.ndjson
